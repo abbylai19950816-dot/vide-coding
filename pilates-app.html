@@ -1,0 +1,2186 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>嬋柔管理</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700&family=Noto+Serif+TC:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+:root{
+  --sage:#7a9e87;--sage-light:#edf4f0;--sage-mid:#c4dccb;
+  --sand:#f5f1eb;--sand-dark:#e8e2d8;
+  --ink:#2c2c2a;--ink-mid:#6b6b67;--ink-light:#a8a8a3;
+  --white:#fefefe;
+  --warn:#c0704a;--warn-bg:#fdf0ea;
+  --absent:#b0444a;--absent-bg:#fbeaea;
+  --leave:#8a7fc2;--leave-bg:#f1effb;
+  --makeup:#5a97b8;--makeup-bg:#eaf3f9;
+  --unpaid:#b0444a;--unpaid-bg:#fbeaea;
+  --paid:#7a9e87;--paid-bg:#edf4f0;
+  --expired:#888;--expired-bg:#f2f2f2;
+  --transfer:#8a7fc2;
+  --radius:16px;--radius-sm:10px;
+}
+html,body{height:100%;overflow:hidden}
+body{font-family:'Noto Sans TC',sans-serif;background:var(--sand);color:var(--ink);max-width:430px;margin:0 auto;display:flex;flex-direction:column}
+
+/* ── Page system ── */
+.page{display:none;flex-direction:column;height:100%;overflow:hidden}
+.page.active{display:flex}
+.page-scroll{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding-bottom:80px}
+
+/* ── Topbar ── */
+.topbar{background:var(--white);padding:48px 20px 12px;border-bottom:1px solid var(--sand-dark);flex-shrink:0;z-index:50;overflow:visible}
+.topbar-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.topbar h1{font-size:22px;font-weight:700;letter-spacing:-.3px}
+.btn-add{background:var(--sage);color:var(--white);border:none;border-radius:99px;padding:8px 16px;font-size:14px;font-family:inherit;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:6px;transition:opacity .15s;flex-shrink:0}
+.btn-add:active{opacity:.75}
+
+/* ── Bottom nav ── */
+.bottom-nav{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:430px;background:var(--white);border-top:1px solid var(--sand-dark);display:flex;z-index:200;padding-bottom:env(safe-area-inset-bottom)}
+.nav-item{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:10px 4px 8px;cursor:pointer;position:relative;transition:opacity .15s;border:none;background:transparent;font-family:inherit}
+.nav-item:active{opacity:.6}
+.nav-icon{width:22px;height:22px;margin-bottom:3px;color:var(--ink-light);transition:color .15s}
+.nav-label{font-size:9px;color:var(--ink-light);transition:color .15s;font-weight:500}
+.nav-item.active .nav-icon,.nav-item.active .nav-label{color:var(--sage)}
+.nav-badge{position:absolute;top:7px;right:calc(50% - 16px);background:var(--unpaid);color:#fff;font-size:10px;font-weight:700;min-width:16px;height:16px;border-radius:99px;display:flex;align-items:center;justify-content:center;padding:0 4px;display:none}
+.nav-badge.show{display:flex}
+
+/* ── Tabs ── */
+.tabs{display:flex;gap:0;background:var(--sand);border-radius:99px;padding:3px;margin-top:2px}
+.tab{flex:1;text-align:center;padding:7px 0;font-size:13px;font-weight:500;border-radius:99px;cursor:pointer;color:var(--ink-mid);transition:background .15s,color .15s;border:none;background:transparent;font-family:inherit}
+.tab.active{background:var(--white);color:var(--ink)}
+
+/* ── Stats strip ── */
+.stats-strip{display:flex;gap:8px;padding:12px 16px;background:var(--white);border-bottom:1px solid var(--sand-dark);flex-shrink:0}
+.stat-pill{flex:1;background:var(--sand);border-radius:var(--radius-sm);padding:10px 6px;text-align:center}
+.stat-num{font-size:20px;font-weight:700;line-height:1;color:var(--sage)}
+.stat-num.warn{color:var(--warn)} .stat-num.red{color:var(--absent)} .stat-num.purple{color:var(--leave)} .stat-num.blue{color:var(--makeup)} .stat-num.green{color:var(--sage)}
+.stat-label{font-size:11px;color:var(--ink-mid);margin-top:3px}
+
+/* ── List ── */
+.list-wrap{padding:12px 16px 16px}
+.section-label{font-size:11px;font-weight:500;color:var(--ink-mid);text-transform:uppercase;letter-spacing:.06em;margin:10px 0 6px 2px}
+
+/* ── Avatar ── */
+.avatar{border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--white);flex-shrink:0}
+.av44{width:44px;height:44px;font-size:16px}
+.av42{width:42px;height:42px;font-size:15px}
+.av40{width:40px;height:40px;font-size:15px}
+.av32{width:32px;height:32px;font-size:13px}
+.av28{width:28px;height:28px;font-size:11px}
+.av72{width:72px;height:72px;font-size:28px;margin:0 auto 10px}
+.c0{background:#7a9e87}.c1{background:#a07860}.c2{background:#6e8eab}.c3{background:#9e7aaa}.c4{background:#a89960}
+
+/* ── Cards ── */
+.card{background:var(--white);border-radius:var(--radius);padding:14px 16px;margin-bottom:8px;cursor:pointer;border:1px solid transparent;transition:transform .1s}
+.card:active{transform:scale(.985)}
+.card.warn-border{border-color:#f0c9b5}
+.card.absent-border{border-color:#f0b8ba}
+.card.leave-border{border-color:#c8c3e8}
+.card.makeup-border{border-color:#a8cfdf}
+.card-row{display:flex;align-items:center;gap:12px}
+.card-info{flex:1;min-width:0}
+.card-name{font-size:15px;font-weight:500;margin-bottom:2px}
+.card-meta{font-size:12px;color:var(--ink-mid)}
+.chevron{color:var(--ink-light);flex-shrink:0}
+
+/* ── Badge ── */
+.badge{font-size:11px;font-weight:500;padding:3px 9px;border-radius:99px;flex-shrink:0;white-space:nowrap}
+.badge.ok{background:var(--sage-light);color:var(--sage)}
+.badge.warn{background:var(--warn-bg);color:var(--warn)}
+.badge.none{background:var(--sand);color:var(--ink-mid)}
+.badge.expired{background:var(--expired-bg);color:var(--expired)}
+.badge.present{background:var(--sage-light);color:var(--sage)}
+.badge.absent{background:var(--absent-bg);color:var(--absent)}
+.badge.leave{background:var(--leave-bg);color:var(--leave)}
+.badge.makeup{background:var(--makeup-bg);color:var(--makeup)}
+.mini-badge{font-size:11px;font-weight:500;padding:2px 8px;border-radius:99px}
+.mb-present{background:var(--sage-light);color:var(--sage)}
+.mb-absent{background:var(--absent-bg);color:var(--absent)}
+.mb-leave{background:var(--leave-bg);color:var(--leave)}
+.mb-makeup{background:var(--makeup-bg);color:var(--makeup)}
+
+/* ── Progress ── */
+.progress-wrap{margin-top:10px}
+.progress-row{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px}
+.progress-label{font-size:12px;color:var(--ink-mid)}
+.progress-count{font-size:13px;font-weight:500}
+.progress-track{height:6px;border-radius:99px;background:var(--sand-dark);overflow:hidden}
+.progress-fill{height:100%;border-radius:99px;background:var(--sage);transition:width .4s}
+.progress-fill.warn{background:var(--warn)}
+.progress-fill.low{background:#e8a87a}
+
+/* ── Roll call buttons ── */
+.status-btns{display:flex;gap:4px;flex-shrink:0;flex-wrap:wrap;max-width:160px;justify-content:flex-end}
+.stn{width:34px;height:34px;border-radius:50%;border:1.5px solid var(--sand-dark);background:transparent;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:13px;transition:all .15s;flex-shrink:0}
+.stn:active{transform:scale(.85)}
+.stn.ap{background:var(--sage-light);border-color:var(--sage)}
+.stn.aa{background:var(--absent-bg);border-color:var(--absent)}
+.stn.al{background:var(--leave-bg);border-color:var(--leave)}
+.stn.am{background:var(--makeup-bg);border-color:var(--makeup)}
+.stn.apd{background:#f5f0ff;border-color:#9b7fc4;color:#9b7fc4}
+.roll-card.pending{border-color:#d4c5e8}
+.hist-status.pending{color:#9b7fc4}
+
+/* ── History ── */
+.hist-card{background:var(--white);border-radius:var(--radius);margin-bottom:8px;overflow:hidden;border:1px solid var(--sand-dark)}
+.hist-header{display:flex;align-items:center;justify-content:space-between;padding:12px 16px}
+.hist-date{font-size:15px;font-weight:500}
+.hist-day{font-size:12px;color:var(--ink-mid);margin-top:1px}
+.hist-badges{display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end}
+.hist-rows{border-top:1px solid var(--sand-dark)}
+.hist-row{display:flex;align-items:center;gap:10px;padding:9px 16px;border-bottom:1px solid var(--sand-dark)}
+.hist-row:last-child{border-bottom:none}
+.hist-rname{font-size:13px;flex:1}
+.hist-status{font-size:12px;font-weight:500}
+.hist-status.present{color:var(--sage)}.hist-status.absent{color:var(--absent)}.hist-status.leave{color:var(--leave)}.hist-status.makeup{color:var(--makeup)}
+
+/* ── Student attendance view ── */
+.stu-card{background:var(--white);border-radius:var(--radius);margin-bottom:8px;overflow:hidden;border:1px solid var(--sand-dark)}
+.stu-header{display:flex;align-items:center;gap:12px;padding:14px 16px;cursor:pointer}
+.stu-info{flex:1}
+.stu-dots{display:flex;gap:3px;flex-wrap:wrap;max-width:110px;justify-content:flex-end}
+.dot{width:10px;height:10px;border-radius:50%}
+.dot.present{background:var(--sage)}.dot.absent{background:var(--absent)}.dot.leave{background:var(--leave)}.dot.makeup{background:var(--makeup)}.dot.none{background:var(--sand-dark)}
+.stu-expand{border-top:1px solid var(--sand-dark);padding:10px 16px;display:none}
+.stu-expand.open{display:block}
+.stu-log-row{display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--sand-dark);font-size:13px}
+.stu-log-row:last-child{border-bottom:none}
+
+/* ── Finance hero ── */
+.hero-card{margin:12px 16px 0;background:var(--sage);border-radius:var(--radius);padding:20px;color:var(--white);flex-shrink:0}
+.hero-label{font-size:13px;opacity:.8;margin-bottom:4px}
+.hero-amount{font-size:38px;font-weight:700;letter-spacing:-1px;line-height:1}
+.hero-row{display:flex;gap:20px;margin-top:16px}
+.hero-sub{flex:1}
+.hero-sub-label{font-size:11px;opacity:.7;margin-bottom:2px}
+.hero-sub-val{font-size:18px;font-weight:600}
+
+/* ── Finance charts ── */
+.chart-wrap{background:var(--white);border-radius:var(--radius);padding:16px;margin-bottom:12px}
+.chart-title{font-size:14px;font-weight:500;margin-bottom:14px}
+.bar-rows{display:flex;flex-direction:column;gap:10px}
+.bar-row{display:flex;align-items:center;gap:10px}
+.bar-label{font-size:12px;color:var(--ink-mid);width:30px;text-align:right;flex-shrink:0}
+.bar-track{flex:1;height:20px;background:var(--sand);border-radius:99px;overflow:hidden}
+.bar-fill{height:100%;border-radius:99px;background:var(--sage);transition:width .5s}
+.bar-val{font-size:12px;font-weight:500;width:52px;text-align:right;flex-shrink:0}
+.method-rows{display:flex;flex-direction:column;gap:8px;margin-top:4px}
+.method-row{display:flex;align-items:center;gap:10px}
+.method-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+.method-name{font-size:13px;flex:1}
+.method-bar-track{flex:2;height:8px;background:var(--sand);border-radius:99px;overflow:hidden}
+.method-bar-fill{height:100%;border-radius:99px;transition:width .4s}
+.method-val{font-size:12px;color:var(--ink-mid);width:52px;text-align:right}
+
+/* ── Unpaid card ── */
+.unpaid-card{background:var(--unpaid-bg);border-radius:var(--radius);padding:14px 16px;margin-bottom:8px;border:1px solid #f0b8ba;cursor:pointer}
+.unpaid-top{display:flex;align-items:center;gap:12px}
+.unpaid-info{flex:1}
+.unpaid-name{font-size:15px;font-weight:500}
+.unpaid-desc{font-size:12px;color:var(--ink-mid);margin-top:2px}
+.unpaid-amount{font-size:18px;font-weight:700;color:var(--unpaid)}
+.unpaid-days{font-size:11px;color:var(--unpaid);margin-top:2px;text-align:right}
+.btn-mark-paid{margin-top:10px;width:100%;background:var(--white);color:var(--unpaid);border:1.5px solid var(--unpaid);border-radius:99px;padding:9px;font-size:13px;font-weight:500;font-family:inherit;cursor:pointer}
+
+/* ── Pay card ── */
+.pay-card{background:var(--white);border-radius:var(--radius);padding:14px 16px;margin-bottom:8px;display:flex;align-items:center;gap:12px;cursor:pointer;border:1px solid transparent;transition:transform .1s}
+.pay-card:active{transform:scale(.985)}
+.pay-card.unpaid{border-color:#f0b8ba}
+.pay-info{flex:1;min-width:0}
+.pay-name{font-size:15px;font-weight:500}
+.pay-meta{font-size:12px;color:var(--ink-mid);margin-top:2px}
+.pay-right{text-align:right;flex-shrink:0}
+.pay-amount{font-size:16px;font-weight:600}
+.pay-badge{font-size:11px;font-weight:500;padding:2px 8px;border-radius:99px;margin-top:3px;display:inline-block}
+.pb-paid{background:var(--paid-bg);color:var(--paid)}
+.pb-unpaid{background:var(--unpaid-bg);color:var(--unpaid)}
+
+/* ── Ticket card ── */
+.tc-top{display:flex;align-items:center;gap:12px}
+.tc-info{flex:1;min-width:0}
+.tc-name{font-size:15px;font-weight:500}
+.tc-type{font-size:12px;color:var(--ink-mid);margin-top:1px}
+.tc-meta{display:flex;gap:12px;margin-top:8px}
+.tc-meta-item{font-size:11px;color:var(--ink-light)}
+.tc-meta-item span{color:var(--ink-mid)}
+
+/* ── Date nav ── */
+.date-nav{display:flex;align-items:center;gap:8px;width:100%}
+.date-nav button{background:var(--sand);border:none;border-radius:50%;width:36px;height:36px;min-width:36px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--ink-mid);transition:opacity .15s;flex-shrink:0;flex-grow:0}
+.date-nav button:active{opacity:.6}
+.date-display{flex:1;text-align:center;font-size:15px;font-weight:500;cursor:pointer;padding:6px 0;min-width:0;overflow:hidden}
+.date-display small{display:block;font-size:11px;color:var(--ink-mid);font-weight:400;margin-top:1px}
+
+
+/* ── Month nav ── */
+.month-nav{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+.month-nav button{background:var(--sand);border:none;border-radius:50%;width:32px;height:32px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--ink-mid);transition:opacity .15s;flex-shrink:0}
+.month-nav button:active{opacity:.6}
+.month-label{flex:1;text-align:center;font-size:16px;font-weight:600}
+
+/* ── Save bar ── */
+.save-bar{background:var(--white);border-top:1px solid var(--sand-dark);padding:12px 20px;display:none;flex-shrink:0}
+.save-bar.show{display:block}
+.btn-save-bar{width:100%;background:var(--sage);color:var(--white);border:none;border-radius:99px;padding:14px;font-size:16px;font-weight:500;font-family:inherit;cursor:pointer}
+
+/* ── Search ── */
+.search-wrap{position:relative}
+.search-wrap svg{position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--ink-light);width:16px;height:16px}
+.search-input{width:100%;background:var(--sand);border:1px solid var(--sand-dark);border-radius:99px;padding:9px 14px 9px 36px;font-size:14px;font-family:inherit;color:var(--ink);outline:none}
+.search-input:focus{border-color:var(--sage)}
+.search-input::placeholder{color:var(--ink-light)}
+
+/* ── Empty ── */
+.empty{text-align:center;padding:60px 20px;color:var(--ink-mid)}
+.empty svg{width:48px;height:48px;margin-bottom:12px;color:var(--sage-mid)}
+.empty p{font-size:14px;line-height:1.7}
+
+/* ── Backdrop & Sheet ── */
+.backdrop{position:fixed;inset:0;background:rgba(44,44,42,.45);z-index:300;opacity:0;pointer-events:none;transition:opacity .25s}
+.backdrop.open{opacity:1;pointer-events:all}
+.sheet{position:fixed;left:50%;bottom:0;transform:translateX(-50%) translateY(100%);width:100%;max-width:430px;background:var(--white);border-radius:24px 24px 0 0;z-index:400;transition:transform .3s cubic-bezier(.32,.72,0,1);max-height:92vh;overflow-y:auto;-webkit-overflow-scrolling:touch}
+.sheet.open{transform:translateX(-50%) translateY(0)}
+.sheet-handle{width:36px;height:4px;background:var(--sand-dark);border-radius:99px;margin:12px auto 0}
+.sheet-header{display:flex;align-items:center;justify-content:space-between;padding:16px 20px 12px}
+.sheet-title{font-size:18px;font-weight:700}
+.btn-close{background:var(--sand);border:none;border-radius:50%;width:32px;height:32px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--ink-mid)}
+.btn-close:active{opacity:.6}
+.sheet-body{padding:0 20px 32px}
+
+/* ── Form ── */
+.form-section{background:var(--sand);border-radius:var(--radius-sm);margin-bottom:12px;overflow:hidden}
+.form-section-label{font-size:11px;font-weight:500;color:var(--ink-mid);padding:12px 14px 4px;text-transform:uppercase;letter-spacing:.06em}
+.form-row{display:flex;align-items:center;padding:10px 14px;border-bottom:1px solid var(--sand-dark);gap:12px}
+.form-row:last-child{border-bottom:none}
+.form-row label{font-size:14px;color:var(--ink);flex-shrink:0;width:80px}
+.form-row input,.form-row select,.form-row textarea{flex:1;background:transparent;border:none;outline:none;font-size:14px;font-family:inherit;color:var(--ink);text-align:right}
+.form-row textarea{text-align:left;resize:none;min-height:60px;padding-top:2px}
+.form-row input::placeholder,.form-row textarea::placeholder{color:var(--ink-light)}
+.btn-save{width:100%;background:var(--sage);color:var(--white);border:none;border-radius:99px;padding:15px;font-size:16px;font-weight:500;font-family:inherit;cursor:pointer;margin-top:8px;transition:opacity .15s}
+.btn-save:active{opacity:.75}
+
+/* ── Detail sheet content ── */
+.detail-avatar{margin:0 auto 10px}
+.detail-name{text-align:center;font-size:20px;font-weight:700;margin-bottom:4px}
+.detail-meta-text{text-align:center;font-size:13px;color:var(--ink-mid);margin-bottom:20px}
+.info-row{display:flex;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--sand-dark);gap:10px}
+.info-row:last-child{border-bottom:none}
+.info-label{font-size:13px;color:var(--ink-mid);width:90px;flex-shrink:0;padding-top:1px}
+.info-val{font-size:13px;color:var(--ink);flex:1;line-height:1.5}
+.detail-tickets{background:var(--sage-light);border-radius:var(--radius);padding:16px 20px;display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.detail-tickets.warn{background:var(--warn-bg)}
+.tickets-num{font-size:32px;font-weight:700;color:var(--sage);line-height:1}
+.detail-tickets.warn .tickets-num{color:var(--warn)}
+.tickets-label{font-size:12px;color:var(--ink-mid);margin-bottom:2px}
+.tickets-total{font-size:12px;color:var(--ink-mid)}
+.btn-deduct{background:var(--sage);color:var(--white);border:none;border-radius:99px;padding:10px 18px;font-size:14px;font-weight:500;font-family:inherit;cursor:pointer;transition:opacity .15s}
+.detail-tickets.warn .btn-deduct{background:var(--warn)}
+.detail-hero-ticket{background:var(--sage-light);border-radius:var(--radius);padding:20px;margin-bottom:16px;text-align:center}
+.detail-hero-ticket.warn{background:var(--warn-bg)}
+.detail-hero-ticket.expired{background:var(--expired-bg)}
+.dht-name{font-size:18px;font-weight:700;margin-bottom:2px}
+.dht-type{font-size:13px;color:var(--ink-mid);margin-bottom:16px}
+.dht-count{font-size:56px;font-weight:700;color:var(--sage);line-height:1}
+.detail-hero-ticket.warn .dht-count{color:var(--warn)}
+.detail-hero-ticket.expired .dht-count{color:var(--expired)}
+.dht-sub{font-size:13px;color:var(--ink-mid);margin-top:4px}
+.big-btn{width:100%;border:none;border-radius:99px;padding:15px;font-size:16px;font-weight:500;font-family:inherit;cursor:pointer;margin-bottom:10px;transition:opacity .15s}
+.big-btn.green{background:var(--sage);color:var(--white)}
+.big-btn.warn{background:var(--warn);color:var(--white)}
+.big-btn.sage-outline{background:transparent;border:1.5px solid var(--sage);color:var(--sage)}
+.big-btn.unpaid-outline{background:transparent;border:1.5px solid var(--unpaid);color:var(--unpaid)}
+.big-btn:active{opacity:.75}
+.big-btn:disabled{opacity:.4;cursor:default}
+.btn-danger{width:100%;background:transparent;color:var(--warn);border:none;border-radius:99px;padding:13px;font-size:14px;font-family:inherit;cursor:pointer;margin-top:2px}
+.log-list{margin-top:4px}
+.log-item{display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--sand-dark);font-size:13px}
+.log-item:last-child{border-bottom:none}
+.log-date{color:var(--ink-mid)}
+.log-action.deduct{color:var(--warn);font-weight:500}
+.log-action.buy{color:var(--sage);font-weight:500}
+.detail-hero-pay{border-radius:var(--radius);padding:20px;margin-bottom:16px;text-align:center}
+.detail-hero-pay.paid{background:var(--paid-bg)}
+.detail-hero-pay.unpaid{background:var(--unpaid-bg)}
+.dhp-name{font-size:18px;font-weight:700;margin-bottom:4px}
+.dhp-amount{font-size:48px;font-weight:700;line-height:1;margin:8px 0}
+.dhp-amount.paid{color:var(--paid)}
+.dhp-amount.unpaid{color:var(--unpaid)}
+.dhp-sub{font-size:13px;color:var(--ink-mid)}
+
+/* ══════════════════════════════════
+   BOOKING PAGE
+══════════════════════════════════ */
+#page-booking{background:var(--sand)}
+#page-booking .page-scroll{background:linear-gradient(180deg,rgba(107,143,113,.04) 0%,transparent 40%)}
+.bk-hero{padding:44px 24px 28px;text-align:center}
+.bk-badge{display:inline-block;font-size:11px;letter-spacing:.16em;color:var(--sage);background:var(--sage-light);padding:5px 14px;border-radius:99px;margin-bottom:16px;font-weight:500}
+.bk-title{font-family:'Noto Serif TC',serif;font-size:28px;font-weight:400;line-height:1.35;letter-spacing:.02em;color:var(--ink);margin-bottom:10px}
+.bk-title em{color:#4a6b50;font-style:normal}
+.bk-sub{font-size:13px;color:var(--ink-mid);line-height:1.8;margin-bottom:20px}
+.bk-divider{width:36px;height:2px;background:linear-gradient(90deg,transparent,var(--sand-dark),transparent);margin:0 auto}
+.bk-plans{padding:4px 16px 0}
+.bk-plans-label{font-size:11px;letter-spacing:.14em;color:var(--ink-light);text-align:center;margin-bottom:14px}
+.bk-plan{background:var(--white);border:2px solid transparent;border-radius:var(--radius);padding:16px;margin-bottom:10px;cursor:pointer;transition:border-color .2s,box-shadow .2s,transform .15s;position:relative;overflow:hidden}
+.bk-plan::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:var(--sage-light);transition:background .2s}
+.bk-plan:active{transform:scale(.98)}
+.bk-plan.selected{border-color:var(--sage);box-shadow:0 4px 20px rgba(107,143,113,.15)}
+.bk-plan.selected::before{background:linear-gradient(90deg,var(--sage),#4a6b50)}
+.bk-plan.featured{border-color:var(--sand-dark)}
+.bk-plan.featured::before{background:linear-gradient(90deg,var(--sand-dark),#e8e2d8)}
+.bk-plan.featured.selected{border-color:var(--sage)}
+.bk-plan-top{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+.bk-plan-left{flex:1}
+.bk-plan-tag{font-size:10px;letter-spacing:.08em;font-weight:500;padding:3px 8px;border-radius:99px;display:inline-block;margin-bottom:6px}
+.bpt-best{background:#fef3e2;color:#b07800}
+.bpt-pop{background:var(--sage-light);color:#4a6b50}
+.bpt-flex{background:var(--sand-dark);color:#6b6b67}
+.bk-plan-name{font-family:'Noto Serif TC',serif;font-size:17px;font-weight:500;margin-bottom:3px}
+.bk-plan-desc{font-size:12px;color:var(--ink-mid);line-height:1.5}
+.bk-plan-right{text-align:right;flex-shrink:0}
+.bk-plan-price{font-family:'Noto Serif TC',serif;font-size:26px;font-weight:500;color:var(--ink);line-height:1}
+.bk-plan-price-sub{font-size:11px;color:var(--ink-light);margin-top:2px}
+.bk-plan-per{font-size:12px;color:#4a6b50;font-weight:500;margin-top:3px}
+.bk-plan-feats{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px;padding-top:12px;border-top:1px solid var(--sand)}
+.bk-feat{font-size:11px;color:var(--ink-mid)}
+.bk-feat::before{content:'·';color:var(--sand-dark);margin-right:3px}
+.bk-check{position:absolute;top:14px;right:14px;width:22px;height:22px;border-radius:50%;background:var(--sage);display:flex;align-items:center;justify-content:center;opacity:0;transform:scale(.5);transition:opacity .2s,transform .2s}
+.bk-plan.selected .bk-check{opacity:1;transform:scale(1)}
+.bk-check svg{width:13px;height:13px;color:#fff}
+.bk-single{background:var(--sand);border-radius:var(--radius);padding:14px 16px;margin-bottom:10px;cursor:pointer;display:flex;align-items:center;justify-content:space-between;border:2px solid transparent;transition:border-color .2s}
+.bk-single.selected{border-color:var(--sage)}
+.bk-single-left{display:flex;align-items:center;gap:10px}
+.bk-single-icon{font-size:20px}
+.bk-single-name{font-size:15px;font-weight:500}
+.bk-single-desc{font-size:12px;color:var(--ink-mid);margin-top:1px}
+.bk-single-price{font-family:'Noto Serif TC',serif;font-size:20px;font-weight:500}
+.bk-form-section{padding:0 16px 16px;transition:opacity .3s,transform .3s}
+.bk-form-section.hidden{opacity:0;pointer-events:none;transform:translateY(10px)}
+.bk-form-card{background:var(--white);border-radius:var(--radius);padding:20px;box-shadow:0 2px 12px rgba(44,44,42,.06)}
+.bk-form-title{font-family:'Noto Serif TC',serif;font-size:17px;font-weight:500;margin-bottom:4px}
+.bk-form-sub{font-size:13px;color:var(--ink-mid);margin-bottom:16px;line-height:1.6}
+.bk-preview{background:var(--sage-light);border-radius:var(--radius-sm);padding:10px 14px;display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
+.bk-preview-name{font-size:13px;font-weight:500;color:#4a6b50}
+.bk-preview-price{font-size:13px;font-weight:500;color:#4a6b50}
+.bk-field{margin-bottom:14px}
+.bk-field label{font-size:12px;letter-spacing:.05em;color:var(--ink-mid);display:block;margin-bottom:5px}
+.bk-field input,.bk-field textarea{width:100%;background:var(--sand);border:1.5px solid var(--sand-dark);border-radius:var(--radius-sm);padding:11px 13px;font-size:14px;font-family:inherit;color:var(--ink);outline:none;transition:border-color .2s;-webkit-appearance:none}
+.bk-field input:focus,.bk-field textarea:focus{border-color:var(--sage)}
+.bk-field input::placeholder,.bk-field textarea::placeholder{color:var(--ink-light)}
+.bk-field textarea{resize:none;height:72px;line-height:1.6}
+.bk-submit{width:100%;background:linear-gradient(135deg,#4a6b50,var(--sage));color:#fff;border:none;border-radius:99px;padding:15px;font-size:15px;font-weight:500;font-family:'Noto Serif TC',serif;cursor:pointer;margin-top:4px;letter-spacing:.04em;transition:opacity .2s,transform .15s;box-shadow:0 4px 14px rgba(74,107,80,.28)}
+.bk-submit:active{opacity:.85;transform:scale(.98)}
+.bk-info{padding:4px 16px 20px}
+.bk-info-row{display:flex;align-items:flex-start;gap:10px;padding:12px 0;border-bottom:1px solid var(--sand-dark);font-size:13px}
+.bk-info-row:last-child{border-bottom:none}
+.bk-info-icon{font-size:17px;flex-shrink:0;margin-top:1px}
+.bk-info-text{color:var(--ink-mid);line-height:1.7}
+.bk-info-text strong{color:var(--ink);font-weight:500}
+.bk-footer{text-align:center;padding:16px 16px 32px;font-size:12px;color:var(--ink-light);border-top:1px solid var(--sand-dark)}
+.bk-footer-name{font-family:'Noto Serif TC',serif;font-size:14px;color:var(--ink-mid);margin-bottom:3px}
+.bk-hint{padding:12px 16px;display:none}
+.bk-hint.show{display:block}
+.bk-hint-pill{background:var(--sage);color:#fff;border-radius:99px;padding:12px 20px;font-size:14px;font-weight:500;text-align:center;cursor:pointer;box-shadow:0 4px 16px rgba(107,143,113,.3)}
+.bk-success{position:absolute;inset:0;background:var(--sand);z-index:20;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px 24px;text-align:center;opacity:0;pointer-events:none;transition:opacity .35s;overflow-y:auto}
+.bk-success.show{opacity:1;pointer-events:all}
+.bk-success-icon{width:72px;height:72px;border-radius:50%;background:var(--sage-light);display:flex;align-items:center;justify-content:center;margin:0 auto 20px;font-size:32px}
+.bk-success-title{font-family:'Noto Serif TC',serif;font-size:24px;font-weight:400;margin-bottom:8px}
+.bk-success-sub{font-size:13px;color:var(--ink-mid);line-height:1.8;margin-bottom:24px}
+.bk-success-card{background:var(--white);border-radius:var(--radius);padding:16px;width:100%;max-width:300px;margin-bottom:20px;text-align:left}
+.bk-sd-row{display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--sand);font-size:13px}
+.bk-sd-row:last-child{border-bottom:none}
+.bk-sd-label{color:var(--ink-mid)}
+.bk-sd-val{font-weight:500}
+.bk-btn-line{background:#06c755;color:#fff;border:none;border-radius:99px;padding:13px 28px;font-size:14px;font-weight:500;font-family:inherit;cursor:pointer;display:flex;align-items:center;gap:8px;margin:0 auto 10px;transition:opacity .2s}
+.bk-btn-line:active{opacity:.8}
+.bk-btn-back{background:transparent;color:var(--ink-mid);border:none;font-size:13px;font-family:inherit;cursor:pointer;padding:6px;text-decoration:underline}
+/* Settings panel inside booking */
+.bk-cfg-btn{position:absolute;top:12px;right:14px;z-index:10;background:var(--white);border:1px solid var(--sand-dark);border-radius:99px;padding:5px 12px;font-size:11px;color:var(--ink-mid);cursor:pointer;font-family:inherit;display:flex;align-items:center;gap:5px}
+.bk-cfg-sheet{position:absolute;inset:0;background:rgba(44,44,42,.45);z-index:30;opacity:0;pointer-events:none;transition:opacity .25s}
+.bk-cfg-sheet.open{opacity:1;pointer-events:all}
+.bk-cfg-box{position:absolute;bottom:0;left:0;right:0;background:var(--white);border-radius:24px 24px 0 0;padding:20px 20px 36px;max-height:80%;overflow-y:auto;transform:translateY(100%);transition:transform .3s cubic-bezier(.32,.72,0,1)}
+.bk-cfg-sheet.open .bk-cfg-box{transform:translateY(0)}
+.bk-cfg-handle{width:36px;height:4px;background:var(--sand-dark);border-radius:99px;margin:0 auto 16px}
+.bk-cfg-title{font-family:'Noto Serif TC',serif;font-size:17px;font-weight:500;margin-bottom:14px}
+.bk-sf{margin-bottom:12px}
+.bk-sf label{font-size:11px;color:var(--ink-mid);letter-spacing:.05em;display:block;margin-bottom:4px}
+.bk-sf input{width:100%;background:var(--sand);border:1.5px solid var(--sand-dark);border-radius:10px;padding:9px 11px;font-size:13px;font-family:inherit;outline:none;color:var(--ink)}
+.bk-sf input:focus{border-color:var(--sage)}
+.bk-pe-row{display:flex;gap:6px;align-items:center;margin-bottom:8px;background:var(--sand);border-radius:10px;padding:8px 10px}
+.bk-pe-row input{flex:1;background:var(--white);border:1.5px solid var(--sand-dark);border-radius:8px;padding:7px 9px;font-size:13px;font-family:inherit;outline:none;color:var(--ink);min-width:0}
+.bk-pe-row input:focus{border-color:var(--sage)}
+.bk-pe-label{font-size:10px;color:var(--ink-light);flex-shrink:0;white-space:nowrap}
+.bk-pe-del{width:28px;height:28px;border-radius:50%;background:var(--warn-bg);color:var(--warn);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:16px;transition:opacity .15s;font-family:inherit}
+.bk-pe-del:active{opacity:.6}
+.bk-pe-add{width:100%;background:var(--sage-light);color:var(--sage);border:1.5px dashed var(--sage-mid);border-radius:10px;padding:10px;font-size:13px;font-weight:500;font-family:inherit;cursor:pointer;margin-top:4px;transition:opacity .15s}
+.bk-pe-add:active{opacity:.6}
+.bk-pe-header{display:flex;gap:6px;margin-bottom:4px;padding:0 10px}
+.bk-pe-header span{font-size:10px;color:var(--ink-light);letter-spacing:.04em}
+.bk-pe-header .ph-s{width:48px;flex:none}
+.bk-pe-header .ph-n{flex:1}
+.bk-pe-header .ph-p{width:68px;flex:none}
+/* info block editor - defined below in the main block */
+.bk-type-section{padding:0 16px 12px}
+
+.bk-type-label-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.bk-type-label{font-size:12px;letter-spacing:.06em;color:var(--ink-mid);font-weight:500}
+.bk-type-pills{display:flex;gap:8px;flex-wrap:wrap}
+.bk-type-pill{background:var(--white);border:1.5px solid var(--sand-dark);border-radius:99px;padding:8px 18px;font-size:13px;font-weight:500;cursor:pointer;transition:all .15s;color:var(--ink-mid);font-family:inherit}
+.bk-type-pill.selected{background:var(--sage);border-color:var(--sage);color:#fff}
+.bk-type-pill:active{transform:scale(.95)}
+/* class type editor in settings */
+.bk-ctype-row{display:flex;gap:8px;align-items:center;margin-bottom:6px}
+.bk-ctype-row input{flex:1;background:var(--sand);border:1.5px solid var(--sand-dark);border-radius:9px;padding:8px 10px;font-size:13px;font-family:inherit;outline:none;color:var(--ink)}
+.bk-ctype-row input:focus{border-color:var(--sage)}
+/* type cards (step 1) */
+.bk-type-card{background:var(--white);border:2px solid transparent;border-radius:var(--radius);padding:18px 20px;margin-bottom:10px;cursor:pointer;transition:all .18s;display:flex;align-items:center;justify-content:space-between}
+.bk-type-card:active{transform:scale(.98)}
+.bk-type-card.selected{border-color:var(--sage);box-shadow:0 3px 16px rgba(107,143,113,.15)}
+.bk-type-card-left{display:flex;align-items:center;gap:14px}
+.bk-type-card-icon{width:44px;height:44px;border-radius:50%;background:var(--sage-light);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0}
+.bk-type-card-name{font-family:'Noto Serif TC',serif;font-size:17px;font-weight:500}
+.bk-type-card-sub{font-size:12px;color:var(--ink-mid);margin-top:2px}
+.bk-type-card-price{text-align:right}
+.bk-type-card-from{font-size:10px;color:var(--ink-light);margin-bottom:2px}
+.bk-type-card-amt{font-family:'Noto Serif TC',serif;font-size:20px;font-weight:500;color:var(--sage-deep)}
+/* class type + plan editor in settings */
+.bk-ctype-block{background:var(--sand);border-radius:var(--radius-sm);padding:12px;margin-bottom:10px}
+.bk-ctype-block-head{margin-bottom:8px}
+.bk-ctype-icon-name{display:flex;align-items:center;gap:8px;margin-bottom:7px}
+.bk-ier-icon-input{width:42px;height:38px;background:var(--white);border:1.5px solid var(--sand-dark);border-radius:8px;padding:4px 4px;font-size:20px;text-align:center;font-family:'Noto Sans TC',sans-serif;outline:none;flex-shrink:0;line-height:1}
+.bk-ier-icon-input:focus{border-color:var(--sage)}
+.bk-ctype-name-input{flex:1;background:var(--white);border:1.5px solid var(--sand-dark);border-radius:8px;padding:8px 10px;font-size:14px;font-weight:500;font-family:inherit;outline:none;color:var(--ink);min-width:0}
+.bk-ctype-name-input:focus{border-color:var(--sage)}
+.bk-ctype-desc-input{width:100%;background:var(--white);border:1.5px solid var(--sand-dark);border-radius:8px;padding:7px 10px;font-size:12px;font-family:inherit;outline:none;color:var(--ink)}
+.bk-ctype-desc-input:focus{border-color:var(--sage)}
+.bk-ctype-plans-label{font-size:11px;color:var(--ink-mid);margin:8px 0 5px;letter-spacing:.04em}
+.bk-ctype-plan-row{display:flex;gap:5px;align-items:center;margin-bottom:6px}
+.bk-ctype-plan-row input{background:var(--white);border:1.5px solid var(--sand-dark);border-radius:7px;padding:6px 8px;font-size:12px;font-family:inherit;outline:none;color:var(--ink);min-width:0}
+.bk-ctype-plan-row input:focus{border-color:var(--sage)}
+.bk-ctype-add-plan{width:100%;background:transparent;color:var(--sage);border:1px dashed var(--sage-mid);border-radius:8px;padding:7px;font-size:12px;font-family:inherit;cursor:pointer;margin-top:4px}
+/* plan extra toggles */
+.bk-plan-extras{display:flex;gap:10px;flex-wrap:wrap;margin-top:6px;padding-top:6px;border-top:1px dashed var(--sand-dark);align-items:center}
+.bk-toggle-row{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--ink-mid)}
+.bk-toggle{position:relative;display:inline-block;width:30px;height:17px;flex-shrink:0}
+.bk-toggle input{opacity:0;width:0;height:0;position:absolute}
+.bk-toggle-slider{position:absolute;inset:0;background:var(--sand-dark);border-radius:99px;cursor:pointer;transition:.2s}
+.bk-toggle-slider::before{content:'';position:absolute;height:13px;width:13px;left:2px;bottom:2px;background:white;border-radius:50%;transition:.2s}
+.bk-toggle input:checked+.bk-toggle-slider{background:var(--sage)}
+.bk-toggle input:checked+.bk-toggle-slider::before{transform:translateX(13px)}
+.bk-validity-wrap{display:flex;align-items:center;gap:4px;font-size:11px;color:var(--ink-mid)}
+.bk-validity-input{width:56px;background:var(--white);border:1.5px solid var(--sand-dark);border-radius:7px;padding:3px 5px;font-size:12px;font-family:inherit;outline:none;color:var(--ink);text-align:center}
+.bk-validity-input:focus{border-color:var(--sage)}
+/* info editor */
+.bk-info-edit-row{background:var(--sand);border-radius:10px;padding:10px 12px;margin-bottom:8px}
+.bk-ier-row1{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.bk-ier-title-input{flex:1;background:var(--white);border:1.5px solid var(--sand-dark);border-radius:8px;padding:7px 9px;font-size:13px;font-weight:500;font-family:inherit;outline:none;color:var(--ink);min-width:0}
+.bk-ier-title-input:focus{border-color:var(--sage)}
+.bk-ier-body-input{width:100%;background:var(--white);border:1.5px solid var(--sand-dark);border-radius:8px;padding:7px 9px;font-size:12px;font-family:inherit;outline:none;color:var(--ink);resize:none;min-height:48px;line-height:1.5}
+.bk-ier-body-input:focus{border-color:var(--sage)}
+/* ── Schedule page ── */
+.cal-nav{display:flex;align-items:center;gap:8px;padding:12px 20px 8px}
+.cal-nav button{background:var(--sand);border:none;border-radius:50%;width:32px;height:32px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--ink-mid)}
+.cal-month-label{flex:1;text-align:center;font-size:15px;font-weight:600}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;padding:0 12px 8px}
+.cal-day-label{font-size:10px;color:var(--ink-light);text-align:center;padding:4px 0;font-weight:500}
+.cal-day{min-height:46px;border-radius:10px;padding:5px;cursor:pointer;transition:background .15s;position:relative}
+.cal-day:hover{background:var(--sage-light)}
+.cal-day.today .cal-day-num{color:var(--sage);font-weight:700}
+.cal-day.selected{background:var(--sage)}
+.cal-day.selected .cal-day-num{color:#fff;font-weight:700}
+.cal-day.other-month .cal-day-num{color:var(--ink-light)}
+.cal-day-num{font-size:13px;font-weight:500;color:var(--ink);line-height:1.2}
+.cal-dots{display:flex;gap:2px;flex-wrap:wrap;margin-top:3px}
+.cal-dot{width:5px;height:5px;border-radius:50%;background:var(--sage-mid)}
+.cal-dot.full{background:var(--warn)}
+.sch-day-panel{padding:0 16px 16px}
+.sch-slot-card{background:var(--white);border-radius:var(--radius-sm);padding:12px 14px;margin-bottom:8px;display:flex;align-items:center;gap:10px;border:1px solid var(--sand-dark)}
+.sch-slot-time{font-size:14px;font-weight:500;width:52px;flex-shrink:0}
+.sch-slot-body{flex:1;min-width:0}
+.sch-slot-name{font-size:13px;font-weight:500}
+.sch-slot-meta{font-size:11px;color:var(--ink-mid);margin-top:2px}
+.sch-slot-spots{font-size:12px;font-weight:500;text-align:right;flex-shrink:0}
+.sch-slot-spots.full{color:var(--warn)}
+.sch-slot-spots.ok{color:var(--sage)}
+.sch-add-slot-btn{width:100%;background:var(--sage-light);color:var(--sage);border:1.5px dashed var(--sage-mid);border-radius:var(--radius-sm);padding:11px;font-size:13px;font-weight:500;font-family:inherit;cursor:pointer}
+.sch-booking-tag{font-size:10px;background:var(--sage-light);color:var(--sage);border-radius:99px;padding:2px 7px;display:inline-block}
+/* student slot picker */
+.bk-slot-card{background:var(--white);border:2px solid transparent;border-radius:var(--radius-sm);padding:12px 14px;margin-bottom:8px;cursor:pointer;transition:all .15s;display:flex;align-items:center;gap:12px}
+.bk-slot-card.selected{border-color:var(--sage);background:var(--sage-light)}
+.bk-slot-card.full{opacity:.45;cursor:default;pointer-events:none}
+.bk-slot-card:active:not(.full){transform:scale(.98)}
+.bk-slot-date{font-size:11px;color:var(--ink-mid);width:56px;flex-shrink:0;line-height:1.4}
+.bk-slot-info{flex:1}
+.bk-slot-time{font-size:14px;font-weight:500}
+.bk-slot-tag{font-size:11px;color:var(--ink-mid);margin-top:2px}
+.bk-slot-spots{font-size:11px;text-align:right;flex-shrink:0}
+.bk-slot-spots.full{color:var(--warn)}
+.toast{position:fixed;bottom:80px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--ink);color:var(--white);padding:10px 20px;border-radius:99px;font-size:14px;font-weight:500;z-index:999;opacity:0;transition:opacity .2s,transform .2s;white-space:nowrap;pointer-events:none}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+</style>
+</head>
+<body>
+
+<!-- ══════════════ PAGE: STUDENTS ══════════════ -->
+<div class="page active" id="page-students">
+  <div class="topbar">
+    <div class="topbar-row">
+      <h1>學員管理</h1>
+      <button class="btn-add" onclick="openStudentAdd()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        新增學員
+      </button>
+    </div>
+    <div class="search-wrap">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="21" y2="21"/></svg>
+      <input class="search-input" id="stu-search" type="text" placeholder="搜尋學員姓名或電話…" oninput="renderStudents()">
+    </div>
+  </div>
+  <div class="stats-strip" id="stu-stats"></div>
+  <div class="page-scroll"><div class="list-wrap" id="stu-list"></div></div>
+</div>
+
+<!-- ══════════════ PAGE: ATTENDANCE ══════════════ -->
+<div class="page" id="page-attendance">
+  <div class="topbar">
+    <div class="topbar-row">
+      <h1>出缺勤</h1>
+      <button class="btn-add" id="att-addBtn" onclick="openClassAdd()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        新增課堂
+      </button>
+    </div>
+    <div class="date-nav" id="att-dateNav">
+      <button type="button" onclick="shiftDate(-1)" style="background:var(--sand);border:none;border-radius:50%;width:38px;height:38px;min-width:38px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--ink-mid);flex-shrink:0;flex-grow:0"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg></button>
+      <button type="button" onclick="openDatePicker()" style="flex:1;background:transparent;border:none;cursor:pointer;font-family:inherit;padding:4px 0">
+        <div style="font-size:15px;font-weight:500;color:var(--ink)" id="att-dateLabel">今天</div>
+        <div style="font-size:11px;color:var(--ink-mid);margin-top:1px" id="att-dateSub"></div>
+      </button>
+      <button type="button" onclick="shiftDate(1)" style="background:var(--sand);border:none;border-radius:50%;width:38px;height:38px;min-width:38px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--ink-mid);flex-shrink:0;flex-grow:0"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg></button>
+    </div>
+    <div class="tabs" style="margin-top:10px">
+      <button class="tab active" id="att-tab-roll" onclick="switchAttTab('roll')">今日點名</button>
+      <button class="tab" id="att-tab-history" onclick="switchAttTab('history')">歷史紀錄</button>
+      <button class="tab" id="att-tab-student" onclick="switchAttTab('student')">學員檢視</button>
+    </div>
+  </div>
+  <div class="stats-strip" id="att-stats"></div>
+  <div class="page-scroll" id="att-scroll"><div class="list-wrap" id="att-list"></div></div>
+  <div class="save-bar" id="att-savebar">
+    <button class="btn-save-bar" onclick="saveRoll()">儲存今日點名</button>
+  </div>
+</div>
+
+<!-- ══════════════ PAGE: FINANCE ══════════════ -->
+<div class="page" id="page-finance">
+  <div class="topbar">
+    <div class="topbar-row">
+      <h1>收費紀錄</h1>
+      <button class="btn-add" onclick="openPayAdd()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        新增收費
+      </button>
+    </div>
+    <div class="month-nav">
+      <button onclick="shiftMonth(-1)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg></button>
+      <div class="month-label" id="fin-monthLabel"></div>
+      <button onclick="shiftMonth(1)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg></button>
+    </div>
+    <div class="tabs">
+      <button class="tab active" id="fin-tab-records" onclick="switchFinTab('records')">收費明細</button>
+      <button class="tab" id="fin-tab-report" onclick="switchFinTab('report')">財務報表</button>
+      <button class="tab" id="fin-tab-unpaid" onclick="switchFinTab('unpaid')">待收款</button>
+    </div>
+  </div>
+  <div id="fin-hero"></div>
+  <div class="stats-strip" id="fin-stats"></div>
+  <div class="page-scroll"><div class="list-wrap" id="fin-list"></div></div>
+</div>
+
+<!-- ══════════════ PAGE: SETTINGS ══════════════ -->
+<div class="page" id="page-booking">
+  <div class="topbar">
+    <div class="topbar-row">
+      <h1>設定</h1>
+      <button class="btn-add" onclick="bkSaveSettings()" style="background:var(--sage)">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>
+        儲存
+      </button>
+    </div>
+  </div>
+  <div class="page-scroll">
+    <div style="padding:12px 16px 80px">
+
+      <!-- Basic Info -->
+      <div class="section-label">基本資訊</div>
+      <div class="form-section">
+        <div class="form-row"><label>工作室名稱</label><input id="bkcfg-name" type="text" placeholder="例：林老師嬋柔工作室"></div>
+        <div class="form-row"><label>Line ID</label><input id="bkcfg-line" type="text" placeholder="例：@yourlineid"></div>
+      </div>
+
+      <!-- Course types -->
+      <div class="section-label" style="margin-top:16px">課程類型與定價</div>
+      <p style="font-size:12px;color:var(--ink-light);margin:0 0 8px 2px;line-height:1.5">學員先選課程類型，再選堂數方案</p>
+      <div id="bk-ctypeEditor"></div>
+      <button class="bk-pe-add" onclick="bkAddCtype()" style="margin-bottom:4px">＋ 新增課程類型</button>
+
+      <!-- Info blocks -->
+      <div class="section-label" style="margin-top:16px">報名頁介紹區塊</div>
+      <p style="font-size:12px;color:var(--ink-light);margin:0 0 8px 2px;line-height:1.5">學員看到的介紹文字，可自由新增、刪除、修改</p>
+      <div id="bk-infoEditor"></div>
+      <button class="bk-pe-add" onclick="bkAddInfoBlock()" style="margin-bottom:4px">＋ 新增區塊</button>
+
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════ PAGE: SCHEDULE ══════════════ -->
+<div class="page" id="page-schedule">
+  <div class="topbar">
+    <div class="topbar-row">
+      <h1>課程行事曆</h1>
+      <button class="btn-add" onclick="schOpenAddSlot()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        新增時段
+      </button>
+    </div>
+  </div>
+  <div class="page-scroll">
+    <!-- Calendar -->
+    <div style="background:var(--white);border-bottom:1px solid var(--sand-dark);padding-bottom:8px">
+      <div class="cal-nav">
+        <button onclick="schShiftMonth(-1)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg></button>
+        <div class="cal-month-label" id="sch-monthLabel"></div>
+        <button onclick="schShiftMonth(1)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg></button>
+      </div>
+      <div class="cal-grid" id="sch-calGrid"></div>
+    </div>
+    <!-- Day detail -->
+    <div class="sch-day-panel" id="sch-dayPanel"></div>
+  </div>
+</div>
+
+<!-- ══════════════ BOTTOM NAV ══════════════ -->
+<nav class="bottom-nav">
+  <button class="nav-item active" id="nav-students" onclick="switchPage('students')">
+    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="9" cy="7" r="4"/><path d="M2 21c0-4 3.1-7 7-7"/><circle cx="17" cy="11" r="3"/><path d="M14 21c0-2.8 1.3-5 3-5s3 2.2 3 5"/></svg>
+    <span class="nav-label">學員</span>
+  </button>
+  <button class="nav-item" id="nav-attendance" onclick="switchPage('attendance')">
+    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+    <span class="nav-label">出缺勤</span>
+  </button>
+  <button class="nav-item" id="nav-schedule" onclick="switchPage('schedule')">
+    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><circle cx="8" cy="15" r="1" fill="currentColor"/><circle cx="12" cy="15" r="1" fill="currentColor"/><circle cx="16" cy="15" r="1" fill="currentColor"/></svg>
+    <span class="nav-label">行事曆</span>
+  </button>
+  <button class="nav-item" id="nav-finance" onclick="switchPage('finance')">
+    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+    <span class="nav-label">收費</span>
+    <span class="nav-badge" id="nav-badge-finance"></span>
+  </button>
+  <button class="nav-item" id="nav-booking" onclick="switchPage('booking')">
+    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v2M12 20v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M2 12h2M20 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+    <span class="nav-label">設定</span>
+  </button>
+</nav>
+
+<!-- ══════════════ SHEETS ══════════════ -->
+<!-- Add Slot Sheet -->
+<div class="sheet" id="sheet-slotAdd">
+  <div class="sheet-handle"></div>
+  <div class="sheet-header"><span class="sheet-title" id="slotSheetTitle">新增時段</span><button class="btn-close" onclick="closeSheets()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="3" y1="3" x2="21" y2="21"/><line x1="21" y1="3" x2="3" y2="21"/></svg></button></div>
+  <div class="sheet-body">
+    <div class="form-section">
+      <div class="form-section-label">時段資訊</div>
+      <div class="form-row"><label>日期</label><input id="slot-date" type="date"></div>
+      <div class="form-row"><label>時間</label><input id="slot-time" type="time" value="09:00"></div>
+      <div class="form-row"><label>課程時長</label><select id="slot-duration">
+        <option value="60">60 分鐘</option><option value="75">75 分鐘</option>
+        <option value="90">90 分鐘</option><option value="120">120 分鐘</option>
+      </select></div>
+      <div class="form-row"><label>課程類型</label><select id="slot-type"></select></div>
+      <div class="form-row"><label>名額上限</label><input id="slot-capacity" type="number" min="1" max="20" value="1" style="text-align:right"><span style="font-size:14px;color:var(--ink-mid)">人</span></div>
+      <div class="form-row"><label>地點</label><input id="slot-loc" type="text" placeholder="選填"></div>
+    </div>
+    <div class="form-section">
+      <div class="form-section-label">重複設定</div>
+      <div class="form-row"><label>重複</label><select id="slot-repeat">
+        <option value="none">不重複（單次）</option>
+        <option value="weekly">每週重複</option>
+      </select></div>
+      <div class="form-row" id="slot-repeat-end-row" style="display:none"><label>結束日期</label><input id="slot-repeat-end" type="date"></div>
+    </div>
+    <input type="hidden" id="slot-edit-id">
+    <button class="btn-save" onclick="schSaveSlot()">儲存時段</button>
+    <button class="btn-danger" id="slot-del-btn" style="display:none" onclick="schDeleteSlot()">刪除此時段</button>
+  </div>
+</div>
+
+<div class="backdrop" id="backdrop" onclick="closeSheets()"></div>
+
+<!-- Student Add -->
+<div class="sheet" id="sheet-stuAdd">
+  <div class="sheet-handle"></div>
+  <div class="sheet-header"><span class="sheet-title">新增學員</span><button class="btn-close" onclick="closeSheets()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="3" y1="3" x2="21" y2="21"/><line x1="21" y1="3" x2="3" y2="21"/></svg></button></div>
+  <div class="sheet-body">
+    <div class="form-section">
+      <div class="form-section-label">基本資料</div>
+      <div class="form-row"><label>姓名</label><input id="fs-name" placeholder="請輸入姓名" type="text"></div>
+      <div class="form-row"><label>電話</label><input id="fs-phone" placeholder="0912-345-678" type="tel"></div>
+      <div class="form-row"><label>Line ID</label><input id="fs-line" placeholder="選填" type="text"></div>
+      <div class="form-row"><label>加入日期</label><input id="fs-joined" type="date"></div>
+    </div>
+    <div class="form-section">
+      <div class="form-section-label">緊急聯絡人</div>
+      <div class="form-row"><label>姓名</label><input id="fs-ecname" placeholder="選填" type="text"></div>
+      <div class="form-row"><label>關係</label><input id="fs-ecrel" placeholder="例：配偶、媽媽" type="text"></div>
+      <div class="form-row"><label>電話</label><input id="fs-ecphone" placeholder="選填" type="tel"></div>
+    </div>
+    <div class="form-section">
+      <div class="form-section-label">身體狀況備註</div>
+      <div class="form-row" style="align-items:flex-start"><textarea id="fs-notes" placeholder="例：右膝舊傷、腰椎術後…" rows="3"></textarea></div>
+    </div>
+    <button class="btn-save" onclick="saveStudent()">儲存學員</button>
+  </div>
+</div>
+
+<!-- Student Detail -->
+<div class="sheet" id="sheet-stuDetail">
+  <div class="sheet-handle"></div>
+  <div class="sheet-header"><span class="sheet-title">學員資料</span><button class="btn-close" onclick="closeSheets()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="3" y1="3" x2="21" y2="21"/><line x1="21" y1="3" x2="3" y2="21"/></svg></button></div>
+  <div class="sheet-body" id="sheet-stuDetail-body"></div>
+</div>
+
+<!-- Ticket Add (reads from booking config) -->
+<div class="sheet" id="sheet-tktAdd">
+  <div class="sheet-handle"></div>
+  <div class="sheet-header"><span class="sheet-title">新增套票</span><button class="btn-close" onclick="closeSheets()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="3" y1="3" x2="21" y2="21"/><line x1="21" y1="3" x2="3" y2="21"/></svg></button></div>
+  <div class="sheet-body">
+    <div class="form-section">
+      <div class="form-section-label">學員</div>
+      <div class="form-row"><label>學員</label><select id="ft-student"></select></div>
+    </div>
+    <div class="form-section">
+      <div class="form-section-label">課程類型</div>
+      <div class="form-row"><label>類型</label><select id="ft-ctype" onchange="tktCtypeChange()"></select></div>
+    </div>
+    <div class="form-section">
+      <div class="form-section-label">套票方案</div>
+      <div class="form-row"><label>方案</label><select id="ft-plan" onchange="tktPlanChange()"></select></div>
+      <div class="form-row"><label>堂數</label><input id="ft-sessions" type="number" min="1" style="text-align:right" readonly></div>
+      <div class="form-row"><label>金額</label><input id="ft-price" type="number" style="text-align:right"><span style="font-size:14px;color:var(--ink-mid)">元</span></div>
+      <div class="form-row"><label>有效天數</label><input id="ft-validdays" type="number" min="1" style="text-align:right"><span style="font-size:14px;color:var(--ink-mid)">天</span></div>
+    </div>
+    <div class="form-section">
+      <div class="form-section-label">日期與付款</div>
+      <div class="form-row"><label>購買日期</label><input id="ft-bought" type="date"></div>
+      <div class="form-row"><label>付款方式</label><select id="ft-method"><option value="現金">現金</option><option value="轉帳">轉帳</option><option value="Line Pay">Line Pay</option><option value="其他">其他</option></select></div>
+      <div class="form-row"><label>狀態</label><select id="ft-status"><option value="unpaid">待收款</option><option value="paid">已收款</option></select></div>
+    </div>
+    <button class="btn-save" onclick="saveTicket()">儲存並建立收費紀錄</button>
+  </div>
+</div>
+
+<!-- Student Edit -->
+<div class="sheet" id="sheet-stuEdit">
+  <div class="sheet-handle"></div>
+  <div class="sheet-header"><span class="sheet-title">編輯學員資料</span><button class="btn-close" onclick="closeSheets()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="3" y1="3" x2="21" y2="21"/><line x1="21" y1="3" x2="3" y2="21"/></svg></button></div>
+  <div class="sheet-body">
+    <input type="hidden" id="fe-id">
+    <div class="form-section">
+      <div class="form-section-label">基本資料</div>
+      <div class="form-row"><label>姓名</label><input id="fe-name" type="text"></div>
+      <div class="form-row"><label>電話</label><input id="fe-phone" type="tel"></div>
+      <div class="form-row"><label>Line ID</label><input id="fe-line" type="text" placeholder="選填"></div>
+    </div>
+    <div class="form-section">
+      <div class="form-section-label">緊急聯絡人</div>
+      <div class="form-row"><label>姓名</label><input id="fe-ecname" type="text" placeholder="選填"></div>
+      <div class="form-row"><label>關係</label><input id="fe-ecrel" type="text" placeholder="例：配偶"></div>
+      <div class="form-row"><label>電話</label><input id="fe-ecphone" type="tel" placeholder="選填"></div>
+    </div>
+    <div class="form-section">
+      <div class="form-section-label">身體狀況備註</div>
+      <div class="form-row" style="align-items:flex-start"><textarea id="fe-notes" rows="3" placeholder="舊傷、禁忌動作等…"></textarea></div>
+    </div>
+    <button class="btn-save" onclick="saveStudentEdit()">儲存變更</button>
+  </div>
+</div>
+
+<!-- Ticket Detail -->
+<div class="sheet" id="sheet-tktDetail">
+  <div class="sheet-handle"></div>
+  <div class="sheet-header"><span class="sheet-title">套票詳情</span><button class="btn-close" onclick="closeSheets()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="3" y1="3" x2="21" y2="21"/><line x1="21" y1="3" x2="3" y2="21"/></svg></button></div>
+  <div class="sheet-body" id="sheet-tktDetail-body"></div>
+</div>
+
+<!-- Class Add -->
+<div class="sheet" id="sheet-classAdd">
+  <div class="sheet-handle"></div>
+  <div class="sheet-header"><span class="sheet-title">新增課堂</span><button class="btn-close" onclick="closeSheets()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="3" y1="3" x2="21" y2="21"/><line x1="21" y1="3" x2="3" y2="21"/></svg></button></div>
+  <div class="sheet-body">
+    <div class="form-section">
+      <div class="form-section-label">課堂資訊</div>
+      <div class="form-row"><label>課程名稱</label><input id="fc-name" placeholder="例：週二晚間班" type="text"></div>
+      <div class="form-row"><label>日期</label><input id="fc-date" type="date"></div>
+      <div class="form-row"><label>時間</label><input id="fc-time" type="time" value="09:00"></div>
+      <div class="form-row"><label>地點</label><input id="fc-loc" placeholder="選填" type="text"></div>
+    </div>
+    <div class="form-section">
+      <div class="form-section-label">學員（可複選）</div>
+      <div id="fc-checkboxes" style="padding:8px 14px;display:flex;flex-direction:column;gap:0"></div>
+    </div>
+    <button class="btn-save" onclick="createClass()">建立課堂</button>
+  </div>
+</div>
+
+<!-- Payment Add -->
+<div class="sheet" id="sheet-payAdd">
+  <div class="sheet-handle"></div>
+  <div class="sheet-header"><span class="sheet-title">新增收費</span><button class="btn-close" onclick="closeSheets()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="3" y1="3" x2="21" y2="21"/><line x1="21" y1="3" x2="3" y2="21"/></svg></button></div>
+  <div class="sheet-body">
+    <div class="form-section">
+      <div class="form-section-label">收費資訊</div>
+      <div class="form-row"><label>學員</label><select id="fp-student"></select></div>
+      <div class="form-row"><label>項目</label><select id="fp-item" onchange="payAutoPrice()"><option value="10堂套票">10堂套票</option><option value="20堂套票">20堂套票</option><option value="5堂套票">5堂套票</option><option value="單堂">單堂</option><option value="月費">月費</option><option value="其他">其他</option></select></div>
+      <div class="form-row"><label>金額</label><input id="fp-amount" type="number" placeholder="0" style="text-align:right"><span style="font-size:14px;color:var(--ink-mid)">元</span></div>
+      <div class="form-row"><label>收款日</label><input id="fp-date" type="date"></div>
+    </div>
+    <div class="form-section">
+      <div class="form-section-label">付款方式</div>
+      <div class="form-row"><label>方式</label><select id="fp-method"><option value="現金">現金</option><option value="轉帳">轉帳</option><option value="Line Pay">Line Pay</option><option value="其他">其他</option></select></div>
+      <div class="form-row"><label>狀態</label><select id="fp-status"><option value="paid">已收款</option><option value="unpaid">未收款</option></select></div>
+    </div>
+    <div class="form-section">
+      <div class="form-section-label">備註</div>
+      <div class="form-row"><input id="fp-note" type="text" placeholder="選填" style="text-align:left"></div>
+    </div>
+    <button class="btn-save" onclick="savePayment()">儲存收費紀錄</button>
+  </div>
+</div>
+
+<!-- Payment Detail -->
+<div class="sheet" id="sheet-payDetail">
+  <div class="sheet-handle"></div>
+  <div class="sheet-header"><span class="sheet-title">收費詳情</span><button class="btn-close" onclick="closeSheets()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="3" y1="3" x2="21" y2="21"/><line x1="21" y1="3" x2="3" y2="21"/></svg></button></div>
+  <div class="sheet-body" id="sheet-payDetail-body"></div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ══════════════════════════════════
+   CONSTANTS & HELPERS
+══════════════════════════════════ */
+const COLORS = ['c0','c1','c2','c3','c4'];
+const DAYS = ['日','一','二','三','四','五','六'];
+const STATUS_LABEL = {present:'到課',absent:'缺席',leave:'請假',makeup:'補課',pending:'待確認'};
+const METHOD_COLORS = {'現金':'#5a97b8','轉帳':'#8a7fc2','Line Pay':'#7a9e87','其他':'#a8a8a3'};
+const DEFAULT_PRICES = {'10堂套票':3000,'20堂套票':5500,'5堂套票':1600,'單堂':400,'月費':2800,'其他':''};
+
+function todayStr(){ return new Date().toISOString().split('T')[0] }
+function fmtDate(str){
+  if(!str) return '';
+  const d = new Date(str+'T00:00:00');
+  return `${d.getMonth()+1}月${d.getDate()}日（${DAYS[d.getDay()]}）`;
+}
+function fmtDateShort(str){
+  if(!str) return '';
+  const d = new Date(str+'T00:00:00');
+  return `${d.getMonth()+1}/${d.getDate()}（${DAYS[d.getDay()]}）`;
+}
+
+/* Storage */
+function loadStudents(){ try{return JSON.parse(localStorage.getItem('pilates_students')||'[]')}catch{return[]} }
+function saveStudents(d){ localStorage.setItem('pilates_students',JSON.stringify(d)) }
+function loadTickets(){ try{return JSON.parse(localStorage.getItem('pilates_tickets')||'[]')}catch{return[]} }
+function saveTickets(d){ localStorage.setItem('pilates_tickets',JSON.stringify(d)) }
+function loadClasses(){ try{return JSON.parse(localStorage.getItem('pilates_classes')||'[]')}catch{return[]} }
+function saveClasses(d){ localStorage.setItem('pilates_classes',JSON.stringify(d)) }
+function loadPayments(){ try{return JSON.parse(localStorage.getItem('pilates_payments')||'[]')}catch{return[]} }
+function savePayments(d){ localStorage.setItem('pilates_payments',JSON.stringify(d)) }
+
+/* Seed demo data */
+(function seed(){
+  if(!localStorage.getItem('pilates_students')){
+    saveStudents([
+      {id:1,name:'林小雯',phone:'0912-345-678',line:'wen_pilates',joined:'2024-03-01',ecName:'林爸爸',ecRel:'父親',ecPhone:'0922-111-222',notes:'右膝舊傷，避免深蹲動作',color:'c0'},
+      {id:2,name:'陳美玲',phone:'0933-567-890',line:'meilingchen',joined:'2024-06-15',ecName:'',ecRel:'',ecPhone:'',notes:'',color:'c1'},
+      {id:3,name:'王淑芬',phone:'0956-789-012',line:'',joined:'2025-01-10',ecName:'王先生',ecRel:'配偶',ecPhone:'0966-321-456',notes:'腰椎第三節術後，核心訓練需特別留意',color:'c2'},
+      {id:4,name:'張怡君',phone:'0978-234-567',line:'yijun_tz',joined:'2025-04-01',ecName:'',ecRel:'',ecPhone:'',notes:'',color:'c3'},
+    ]);
+  }
+  const ago = n=>{ const d=new Date(); d.setDate(d.getDate()-n); return d.toISOString().split('T')[0] };
+  const fut = n=>{ const d=new Date(); d.setDate(d.getDate()+n); return d.toISOString().split('T')[0] };
+  if(!localStorage.getItem('pilates_tickets')){
+    saveTickets([
+      {id:1,studentId:1,studentName:'林小雯',color:'c0',type:10,total:10,left:2,price:3000,boughtDate:ago(60),expireDate:fut(30),log:[{date:ago(60),action:'buy'},{...Array.from({length:8},(_,i)=>({date:ago(55-i*7),action:'deduct'}))}].flat()},
+      {id:2,studentId:2,studentName:'陳美玲',color:'c1',type:20,total:20,left:14,price:5500,boughtDate:ago(30),expireDate:fut(90),log:[{date:ago(30),action:'buy'},...Array.from({length:6},(_,i)=>({date:ago(28-i*4),action:'deduct'}))]},
+      {id:3,studentId:3,studentName:'王淑芬',color:'c2',type:10,total:10,left:7,price:3000,boughtDate:ago(20),expireDate:fut(60),log:[{date:ago(20),action:'buy'},...Array.from({length:3},(_,i)=>({date:ago(18-i*6),action:'deduct'}))]},
+      {id:4,studentId:4,studentName:'張怡君',color:'c3',type:1,total:1,left:0,price:400,boughtDate:ago(10),expireDate:ago(10),log:[{date:ago(10),action:'buy'},{date:ago(10),action:'deduct'}]},
+    ]);
+  }
+  if(!localStorage.getItem('pilates_classes')){
+    const students = loadStudents();
+    const mk=(id,date,name,time,mids,sts)=>({id,date,name,time,location:'台南嬋柔工作室',saved:true,
+      members:mids.map((sid,i)=>({studentId:sid,studentName:students.find(s=>s.id===sid)?.name||'',color:students.find(s=>s.id===sid)?.color||'c0',status:sts[i]||'present'}))});
+    saveClasses([
+      mk(1,todayStr(),'週二早晨班','09:00',[1,2,3,4],['present','present','leave','makeup']),
+      mk(2,ago(2),'週日下午班','14:00',[1,3,4],['present','present','absent']),
+      mk(3,ago(4),'週五早晨班','09:00',[1,2,3],['present','leave','present']),
+      mk(4,ago(7),'週二早晨班','09:00',[1,2,3,4],['present','present','present','absent']),
+      mk(5,ago(9),'週日下午班','14:00',[1,3,4],['absent','present','present']),
+    ]);
+  }
+  if(!localStorage.getItem('pilates_payments')){
+    const mo=n=>{ const d=new Date(); d.setDate(d.getDate()-n); return d.toISOString().split('T')[0] };
+    const lm=n=>{ const d=new Date(); d.setMonth(d.getMonth()-1); d.setDate(n); return d.toISOString().split('T')[0] };
+    savePayments([
+      {id:1,studentId:1,studentName:'林小雯',color:'c0',item:'10堂套票',amount:3000,date:mo(3),method:'現金',status:'paid',note:''},
+      {id:2,studentId:2,studentName:'陳美玲',color:'c1',item:'20堂套票',amount:5500,date:mo(8),method:'轉帳',status:'paid',note:''},
+      {id:3,studentId:3,studentName:'王淑芬',color:'c2',item:'10堂套票',amount:3000,date:mo(12),method:'Line Pay',status:'paid',note:''},
+      {id:4,studentId:4,studentName:'張怡君',color:'c3',item:'單堂',amount:400,date:mo(15),method:'現金',status:'paid',note:''},
+      {id:5,studentId:1,studentName:'林小雯',color:'c0',item:'10堂套票',amount:3000,date:mo(18),method:'現金',status:'unpaid',note:'下次帶'},
+      {id:6,studentId:2,studentName:'陳美玲',color:'c1',item:'單堂',amount:400,date:mo(20),method:'轉帳',status:'paid',note:''},
+      {id:7,studentId:3,studentName:'王淑芬',color:'c2',item:'5堂套票',amount:1600,date:lm(5),method:'現金',status:'paid',note:''},
+      {id:8,studentId:4,studentName:'張怡君',color:'c3',item:'10堂套票',amount:3000,date:lm(10),method:'Line Pay',status:'paid',note:''},
+      {id:9,studentId:2,studentName:'陳美玲',color:'c1',item:'月費',amount:2800,date:lm(15),method:'轉帳',status:'unpaid',note:''},
+    ]);
+  }
+})();
+
+/* Sheet helpers */
+const allSheets = ['sheet-stuAdd','sheet-stuDetail','sheet-stuEdit','sheet-tktAdd','sheet-tktDetail','sheet-classAdd','sheet-payAdd','sheet-payDetail','sheet-slotAdd'];
+function openSheet(id){ document.getElementById('backdrop').classList.add('open'); document.getElementById(id).classList.add('open'); }
+function closeSheets(){
+  document.getElementById('backdrop').classList.remove('open');
+  allSheets.forEach(id=>{ const el=document.getElementById(id); if(el) el.classList.remove('open'); });
+  const bkCfg=document.getElementById('bk-cfgSheet');
+  if(bkCfg) bkCfg.classList.remove('open');
+}
+
+/* Toast */
+function toast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove('show'),2400); }
+
+/* Nav badges */
+function updateBadges(){
+  const unpaidCount = loadPayments().filter(p=>p.status==='unpaid').length;
+  const el2=document.getElementById('nav-badge-finance');
+  if(el2){ el2.textContent=unpaidCount||''; el2.classList.toggle('show',unpaidCount>0); }
+  // low ticket warning on student nav
+  const lowTkt = loadTickets().filter(t=>!isTicketExpired(t)&&t.left>0&&t.left<=3).length;
+  const el1=document.getElementById('nav-badge-students');
+  if(el1){ el1.textContent=lowTkt||''; el1.classList.toggle('show',lowTkt>0); }
+}
+
+/* ══════════════════════════════════
+   PAGE NAVIGATION
+══════════════════════════════════ */
+let currentPage = 'students';
+function switchPage(page){
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
+  document.getElementById('page-'+page).classList.add('active');
+  document.getElementById('nav-'+page).classList.add('active');
+  currentPage = page;
+  closeSheets();
+  if(page==='students') renderStudents();
+  else if(page==='attendance') renderAttendance();
+  else if(page==='finance') renderFinance();
+  else if(page==='booking') bkRenderSettingsPage();
+  else if(page==='schedule'){ schInitCalendar(); schRenderCalendar(); }
+  updateBadges();
+}
+
+
+/* ══════════════════════════════════
+   STUDENTS (integrated with tickets)
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550 */
+function renderStudents(){
+  const q = document.getElementById('stu-search').value.trim().toLowerCase();
+  let students = loadStudents();
+  if(q) students = students.filter(s=>s.name.toLowerCase().includes(q)||(s.phone||'').includes(q));
+  const allTkts = loadTickets();
+  const total = loadStudents().length;
+  const active = allTkts.filter(t=>!isTicketExpired(t)).length;
+  const low = allTkts.filter(t=>!isTicketExpired(t)&&t.left>0&&t.left<=3).length;
+  document.getElementById('stu-stats').innerHTML=
+    '<div class="stat-pill"><div class="stat-num">'+total+'</div><div class="stat-label">學員總數</div></div>'+
+    '<div class="stat-pill"><div class="stat-num">'+active+'</div><div class="stat-label">有效套票</div></div>'+
+    '<div class="stat-pill"><div class="stat-num warn">'+low+'</div><div class="stat-label">需補票</div></div>';
+  const wrap = document.getElementById('stu-list');
+  if(!students.length){ wrap.innerHTML='<div class="empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg><p>'+(q?'找不到符合的學員':'還沒有學員，點右上角新增！')+'</p></div>'; return; }
+  wrap.innerHTML = students.map(function(s){
+    const myTickets = allTkts.filter(t=>t.studentId===s.id&&!isTicketExpired(t));
+    const best = myTickets.sort((a,b)=>b.left-a.left)[0];
+    const left = best ? best.left : 0;
+    const warn = best && left <= 3;
+    const badgeTxt = best ? ('剩 '+left+' 堂') : '無套票';
+    const badgeCls = best ? (warn?'warn':'ok') : 'none';
+    return '<div class="card '+(warn?'warn-border':'')+'" onclick="openStudentDetail('+s.id+')"><div class="card-row"><div class="avatar av44 '+s.color+'">'+s.name.slice(0,1)+'</div><div class="card-info"><div class="card-name">'+s.name+'</div><div class="card-meta">'+(s.phone||'')+(s.line?' · '+s.line:'')+'</div></div><span class="badge '+badgeCls+'">'+badgeTxt+'</span><svg class="chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg></div></div>';
+  }).join('');
+}
+
+function openStudentAdd(){
+  ['fs-name','fs-phone','fs-line','fs-ecname','fs-ecrel','fs-ecphone','fs-notes'].forEach(function(id){document.getElementById(id).value='';});
+  document.getElementById('fs-joined').value=todayStr();
+  openSheet('sheet-stuAdd');
+}
+function saveStudent(){
+  const name = document.getElementById('fs-name').value.trim();
+  if(!name){toast('請填寫學員姓名');return;}
+  const students = loadStudents();
+  students.push({id:Date.now(),name:name,phone:document.getElementById('fs-phone').value.trim(),line:document.getElementById('fs-line').value.trim(),joined:document.getElementById('fs-joined').value,ecName:document.getElementById('fs-ecname').value.trim(),ecRel:document.getElementById('fs-ecrel').value.trim(),ecPhone:document.getElementById('fs-ecphone').value.trim(),notes:document.getElementById('fs-notes').value.trim(),color:COLORS[students.length%COLORS.length]});
+  saveStudents(students);
+  closeSheets(); renderStudents(); updateBadges();
+  toast('已新增學員 '+name);
+}
+function openStudentEdit(id){
+  const s = loadStudents().find(function(s){return s.id===id;});
+  if(!s) return;
+  document.getElementById('fe-id').value = id;
+  document.getElementById('fe-name').value = s.name||'';
+  document.getElementById('fe-phone').value = s.phone||'';
+  document.getElementById('fe-line').value = s.line||'';
+  document.getElementById('fe-ecname').value = s.ecName||'';
+  document.getElementById('fe-ecrel').value = s.ecRel||'';
+  document.getElementById('fe-ecphone').value = s.ecPhone||'';
+  document.getElementById('fe-notes').value = s.notes||'';
+  openSheet('sheet-stuEdit');
+}
+function saveStudentEdit(){
+  const id = parseInt(document.getElementById('fe-id').value);
+  const name = document.getElementById('fe-name').value.trim();
+  if(!name){toast('請填寫姓名');return;}
+  const students = loadStudents();
+  const idx = students.findIndex(function(s){return s.id===id;});
+  if(idx<0) return;
+  students[idx] = Object.assign({},students[idx],{name:name,phone:document.getElementById('fe-phone').value.trim(),line:document.getElementById('fe-line').value.trim(),ecName:document.getElementById('fe-ecname').value.trim(),ecRel:document.getElementById('fe-ecrel').value.trim(),ecPhone:document.getElementById('fe-ecphone').value.trim(),notes:document.getElementById('fe-notes').value.trim()});
+  saveStudents(students);
+  closeSheets(); renderStudents();
+  toast('已更新 '+name+' 的資料');
+}
+function openStudentDetail(id){
+  const students = loadStudents();
+  const s = students.find(function(s){return s.id===id;});
+  if(!s) return;
+  const allTkts = loadTickets();
+  const allMyTkts = allTkts.filter(function(t){return t.studentId===id;});
+  const STATUS_LBL = {present:'到課',absent:'缺席',leave:'請假',makeup:'補課'};
+  const tktRows = allMyTkts.sort((a,b)=>b.boughtDate.localeCompare(a.boughtDate)).map(function(t){
+    const exp=isTicketExpired(t),low=isTicketLow(t);
+    const cls=exp?'expired':(low?'warn':'ok');
+    const statusTxt=exp?(t.left<=0?'已用完':'已過期'):('剩 '+t.left+' 堂');
+    const pct=t.total>0?Math.round((t.total-t.left)/t.total*100):0;
+    return '<div class="card" style="margin-bottom:6px;cursor:default;'+(exp?'opacity:.6':'')+'"><div class="card-row"><div style="flex:1"><div class="card-name" style="font-size:14px">'+(t.typeName||t.planName||t.total+'堂套票')+'</div><div class="card-meta">購買：'+t.boughtDate+' · NT$ '+(t.price||0).toLocaleString()+'</div>'+(t.total>1?'<div style="margin-top:6px"><div class="progress-track"><div class="progress-fill '+(low?'warn':'')+'" style="width:'+pct+'%"></div></div></div>':'')+'</div><div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px"><span class="badge '+cls+'">'+statusTxt+'</span>'+(!exp?'<button onclick="event.stopPropagation();quickDeduct('+t.id+')" style="font-size:11px;background:var(--sage-light);color:var(--sage);border:none;border-radius:99px;padding:3px 10px;cursor:pointer">扣 1 堂</button>':'')+'</div></div></div>';
+  }).join('') || '<div style="font-size:13px;color:var(--ink-mid);padding:8px 0">無套票紀錄</div>';
+  const classes = loadClasses().filter(function(c){return c.saved&&c.members.some(function(m){return m.studentId===id;});});
+  const attCounts={present:0,absent:0,leave:0,makeup:0};
+  classes.forEach(function(c){const m=c.members.find(function(m){return m.studentId===id;});if(m)attCounts[m.status]=(attCounts[m.status]||0)+1;});
+  const attTotal=classes.length;
+  const attRate=attTotal?Math.round(attCounts.present/attTotal*100):0;
+  const recentClasses=classes.sort((a,b)=>b.date.localeCompare(a.date)).slice(0,5);
+  document.getElementById('sheet-stuDetail-body').innerHTML=
+    '<div class="avatar av72 '+s.color+'" style="display:flex">'+s.name.slice(0,1)+'</div>'+
+    '<div class="detail-name">'+s.name+'</div>'+
+    '<div class="detail-meta-text">加入日期：'+(s.joined||'未記錄')+'</div>'+
+    '<div style="display:flex;gap:8px;margin-bottom:16px">'+
+      '<button onclick="closeSheets();openStudentEdit('+s.id+')" style="flex:1;background:var(--sage-light);color:var(--sage);border:none;border-radius:99px;padding:10px;font-size:13px;font-weight:500;font-family:inherit;cursor:pointer">✏️ 編輯資料</button>'+
+      '<button onclick="closeSheets();openTicketAdd('+s.id+')" style="flex:1;background:var(--sage);color:#fff;border:none;border-radius:99px;padding:10px;font-size:13px;font-weight:500;font-family:inherit;cursor:pointer">＋ 新增套票</button>'+
+    '</div>'+
+    '<div style="font-size:13px;font-weight:500;color:var(--ink-mid);margin-bottom:8px">套票紀錄</div>'+tktRows+
+    '<div style="font-size:13px;font-weight:500;color:var(--ink-mid);margin:16px 0 8px">上課統計</div>'+
+    '<div style="background:var(--sand);border-radius:var(--radius-sm);padding:12px 14px;margin-bottom:8px;display:flex;gap:16px">'+
+      '<div style="text-align:center;flex:1"><div style="font-size:20px;font-weight:700;color:var(--sage)">'+attTotal+'</div><div style="font-size:11px;color:var(--ink-mid)">總堂數</div></div>'+
+      '<div style="text-align:center;flex:1"><div style="font-size:20px;font-weight:700;color:var(--sage)">'+attRate+'%</div><div style="font-size:11px;color:var(--ink-mid)">到課率</div></div>'+
+      '<div style="text-align:center;flex:1"><div style="font-size:20px;font-weight:700;color:var(--absent)">'+attCounts.absent+'</div><div style="font-size:11px;color:var(--ink-mid)">缺席</div></div>'+
+    '</div>'+
+    (recentClasses.length?'<div style="font-size:12px;color:var(--ink-mid);margin-bottom:6px">最近上課</div>'+recentClasses.map(function(c){const m=c.members.find(function(m){return m.studentId===id;});return '<div class="info-row"><span class="info-label">'+c.date+'</span><span class="info-val">'+c.name+' <span class="hist-status '+(m?m.status:'')+'" style="font-size:12px;font-weight:500">'+(STATUS_LBL[m?m.status:''||'']||'')+'</span></span></div>';}).join(''):'')+
+    // Scheduled bookings from booking-public
+    (function(){
+      const booked = (s.scheduledBookings||[]).slice().sort(function(a,b){return b.date.localeCompare(a.date);}).slice(0,5);
+      if(!booked.length) return '';
+      const SCH_D=['日','一','二','三','四','五','六'];
+      return '<div style="font-size:13px;font-weight:500;color:var(--ink-mid);margin:16px 0 8px">預約課程時段</div>'
+        +booked.map(function(b){
+          const d=new Date(b.date+'T00:00:00');
+          return '<div class="info-row"><span class="info-label">'+( d.getMonth()+1)+'/'+d.getDate()+'（'+SCH_D[d.getDay()]+'）</span><span class="info-val">'+b.time+'　'+(b.typeName||'')+'</span></div>';
+        }).join('');
+    })()+
+    '<div style="font-size:13px;font-weight:500;color:var(--ink-mid);margin:16px 0 8px">聯絡資訊</div>'+
+    '<div class="info-row"><span class="info-label">電話</span><span class="info-val">'+(s.phone||'未記錄')+'</span></div>'+
+    '<div class="info-row"><span class="info-label">Line ID</span><span class="info-val">'+(s.line||'—')+'</span></div>'+
+    '<div class="info-row"><span class="info-label">緊急聯絡</span><span class="info-val">'+(s.ecName?s.ecName+'（'+(s.ecRel||'')+'）'+(s.ecPhone?'<br>'+s.ecPhone:''):'未填寫')+'</span></div>'+
+    '<div class="info-row"><span class="info-label">身體備註</span><span class="info-val">'+(s.notes||'無')+'</span></div>'+
+    '<button class="btn-danger" onclick="deleteStudent('+s.id+')">刪除學員</button>';
+  openSheet('sheet-stuDetail');
+}
+function quickDeduct(ticketId){
+  const tickets=loadTickets();
+  const t=tickets.find(function(t){return t.id===ticketId;});
+  if(!t||t.left<=0){toast('堂數已用完');return;}
+  t.left--;
+  t.log=t.log||[];
+  t.log.push({date:todayStr(),action:'deduct'});
+  saveTickets(tickets);
+  openStudentDetail(t.studentId);
+  updateBadges();
+  toast('已扣 1 堂，'+t.studentName+' 剩 '+t.left+' 堂');
+}
+function stuDeduct(studentId){ quickDeduct(loadTickets().filter(function(t){return t.studentId===studentId&&!isTicketExpired(t)&&t.left>0;}).sort((a,b)=>b.left-a.left)[0]?.id); }
+function deleteStudent(id){
+  if(!confirm('確定要刪除這位學員嗎？')) return;
+  saveStudents(loadStudents().filter(function(s){return s.id!==id;}));
+  closeSheets(); renderStudents(); updateBadges();
+  toast('已刪除學員');
+}
+
+/* ══════════════════════════════════
+   TICKETS
+══════════════════════════════════ */
+let tktTab='active';
+function isTicketExpired(t){ return t.left<=0||(t.expireDate&&t.expireDate<todayStr()); }
+function isTicketLow(t){ return !isTicketExpired(t)&&t.left>0&&t.left<=3; }
+function switchTicketTab(tab){ tktTab=tab; }
+function renderTickets(){ /* no separate page */ }
+
+function openTicketAdd(preStudentId){
+  const students=loadStudents();
+  const cfg=bkLoadCfg();
+  const types=cfg.classTypes||[];
+  const stuSel=document.getElementById('ft-student');
+  stuSel.innerHTML=students.length?students.map(function(s){return '<option value="'+s.id+'" '+(s.id===preStudentId?'selected':'')+'>'+s.name+'</option>';}).join(''):'<option>（請先新增學員）</option>';
+  const ctypeSel=document.getElementById('ft-ctype');
+  ctypeSel.innerHTML=types.length?types.map(function(t){return '<option value="'+t.id+'">'+(t.icon||'')+' '+t.name+'</option>';}).join(''):'<option value="">（尚未設定課程類型）</option>';
+  document.getElementById('ft-bought').value=todayStr();
+  document.getElementById('ft-method').value='現金';
+  document.getElementById('ft-status').value='unpaid';
+  tktCtypeChange();
+  openSheet('sheet-tktAdd');
+}
+function tktCtypeChange(){
+  const cfg=bkLoadCfg();
+  const typeId=document.getElementById('ft-ctype')?.value;
+  const type=cfg.classTypes?.find(function(t){return String(t.id)===String(typeId);});
+  const planSel=document.getElementById('ft-plan');
+  if(!planSel) return;
+  planSel.innerHTML=(type?.plans||[]).map(function(p){return '<option value="'+p.id+'">'+p.name+' — NT$'+p.price.toLocaleString()+'</option>';}).join('')||'<option>（此類型無方案）</option>';
+  tktPlanChange();
+}
+function tktPlanChange(){
+  const cfg=bkLoadCfg();
+  const typeId=document.getElementById('ft-ctype')?.value;
+  const planId=document.getElementById('ft-plan')?.value;
+  const type=cfg.classTypes?.find(function(t){return String(t.id)===String(typeId);});
+  const plan=type?.plans?.find(function(p){return String(p.id)===String(planId);});
+  if(!plan) return;
+  const s=document.getElementById('ft-sessions'); if(s) s.value=plan.sessions||1;
+  const p=document.getElementById('ft-price'); if(p) p.value=plan.price||0;
+  const v=document.getElementById('ft-validdays'); if(v) v.value=plan.validDays||180;
+}
+function saveTicket(){
+  const students=loadStudents();
+  const cfg=bkLoadCfg();
+  const studentId=parseInt(document.getElementById('ft-student').value);
+  const student=students.find(function(s){return s.id===studentId;});
+  if(!student){toast('請選擇學員');return;}
+  const typeId=document.getElementById('ft-ctype')?.value;
+  const planId=document.getElementById('ft-plan')?.value;
+  const type=cfg.classTypes?.find(function(t){return String(t.id)===String(typeId);});
+  const plan=type?.plans?.find(function(p){return String(p.id)===String(planId);});
+  const sessions=parseInt(document.getElementById('ft-sessions').value)||1;
+  const price=parseInt(document.getElementById('ft-price').value)||0;
+  const validDays=parseInt(document.getElementById('ft-validdays').value)||180;
+  const boughtDate=document.getElementById('ft-bought').value;
+  const method=document.getElementById('ft-method').value;
+  const status=document.getElementById('ft-status').value;
+  const expDate=new Date(boughtDate+'T00:00:00');
+  expDate.setDate(expDate.getDate()+validDays);
+  const expireDate=expDate.toISOString().split('T')[0];
+  const tickets=loadTickets();
+  const tktId=Date.now();
+  tickets.push({id:tktId,studentId:studentId,studentName:student.name,color:student.color||'c0',typeName:type?.name||'',planName:plan?.name||'',type:sessions,total:sessions,left:sessions,price:price,boughtDate:boughtDate,expireDate:expireDate,log:[{date:boughtDate,action:'buy'}]});
+  saveTickets(tickets);
+  const payments=loadPayments();
+  payments.push({id:tktId+1,studentId:studentId,studentName:student.name,color:student.color||'c0',item:(type?.name||'')+(plan?'・'+plan.name:''),amount:price,date:boughtDate,method:method,status:status,note:''});
+  savePayments(payments);
+  closeSheets(); renderStudents(); updateBadges();
+  toast('已為 '+student.name+' 新增套票，收費紀錄已建立');
+}
+function openTicketDetail(id){ const t=loadTickets().find(function(t){return t.id===id;}); if(t) openStudentDetail(t.studentId); }
+function deductTicket(id){ quickDeduct(id); }
+function deleteTicket(id){ if(!confirm('確定要刪除此套票嗎？')) return; saveTickets(loadTickets().filter(function(t){return t.id!==id;})); updateBadges(); toast('已刪除套票'); }
+
+/* ══════════════════════════════════
+      ATTENDANCE
+══════════════════════════════════ */
+let attTab='roll', attDate=todayStr(), rollState={}, openStuId=null;
+
+function setDate(val){ attDate=val; updateDateLabel(); renderAttendance(); }
+function openDatePicker(){
+  const overlay=document.createElement("div");
+  overlay.style.cssText="position:fixed;inset:0;background:rgba(44,44,42,.5);z-index:9999;display:flex;align-items:center;justify-content:center";
+  overlay.onclick=function(e){if(e.target===overlay)overlay.remove();};
+  const box=document.createElement("div");
+  box.style.cssText="background:#fff;border-radius:20px;padding:24px;width:min(90vw,320px);box-shadow:0 8px 32px rgba(0,0,0,.2)";
+  const title=document.createElement("div");
+  title.textContent="選擇日期";
+  title.style.cssText="font-size:16px;font-weight:600;margin-bottom:16px;text-align:center";
+  const inp=document.createElement("input");
+  inp.type="date"; inp.value=attDate;
+  inp.style.cssText="width:100%;border:1.5px solid #e8e2d8;border-radius:10px;padding:10px 12px;font-size:16px;font-family:inherit;outline:none;box-sizing:border-box";
+  const row=document.createElement("div");
+  row.style.cssText="display:flex;gap:8px;margin-top:16px";
+  const cb=document.createElement("button");
+  cb.textContent="取消"; cb.type="button";
+  cb.style.cssText="flex:1;background:#f5f1eb;border:none;border-radius:99px;padding:12px;font-size:14px;font-family:inherit;cursor:pointer";
+  cb.onclick=()=>overlay.remove();
+  const ok=document.createElement("button");
+  ok.textContent="確認"; ok.type="button";
+  ok.style.cssText="flex:1;background:#7a9e87;color:#fff;border:none;border-radius:99px;padding:12px;font-size:14px;font-family:inherit;cursor:pointer";
+  ok.onclick=()=>{if(inp.value)setDate(inp.value);overlay.remove();};
+  row.appendChild(cb); row.appendChild(ok);
+  box.appendChild(title); box.appendChild(inp); box.appendChild(row);
+  overlay.appendChild(box); document.body.appendChild(overlay);
+  setTimeout(()=>inp.focus(),50);
+}
+function shiftDate(n){ const d=new Date(attDate+'T00:00:00'); d.setDate(d.getDate()+n); setDate(d.toISOString().split('T')[0]); }
+function updateDateLabel(){
+  const t=todayStr();
+  const yd=new Date(t+'T00:00:00'); yd.setDate(yd.getDate()-1); const yesterday=yd.toISOString().split('T')[0];
+  const tom=new Date(t+'T00:00:00'); tom.setDate(tom.getDate()+1); const tomorrow=tom.toISOString().split('T')[0];
+  const d=new Date(attDate+'T00:00:00');
+  document.getElementById('att-dateLabel').textContent=attDate===t?'今天':attDate===yesterday?'昨天':attDate===tomorrow?'明天':`${d.getMonth()+1}月${d.getDate()}日`;
+  document.getElementById('att-dateSub').textContent=`${d.getFullYear()}/${d.getMonth()+1}/${d.getDate()}（${DAYS[d.getDay()]}）`;
+}
+function switchAttTab(tab){
+  attTab=tab;
+  ['roll','history','student'].forEach(t=>document.getElementById('att-tab-'+t).classList.toggle('active',t===tab));
+  const showDateNav=tab==='roll';
+  document.getElementById('att-dateNav').style.display=showDateNav?'flex':'none';
+  document.getElementById('att-addBtn').style.display=showDateNav?'flex':'none';
+  renderAttendance();
+}
+function renderAttendance(){
+  // Sync any slot bookings to attendance classes first
+  loadSlots().filter(s=>(s.bookings||[]).length>0).forEach(syncSlotToAttendance);
+  const classes=loadClasses();
+  const all=classes.flatMap(c=>c.members);
+  document.getElementById('att-stats').innerHTML=`
+    <div class="stat-pill"><div class="stat-num green">${all.filter(m=>m.status==='present').length}</div><div class="stat-label">到課</div></div>
+    <div class="stat-pill"><div class="stat-num red">${all.filter(m=>m.status==='absent').length}</div><div class="stat-label">缺席</div></div>
+    <div class="stat-pill"><div class="stat-num purple">${all.filter(m=>m.status==='leave').length}</div><div class="stat-label">請假</div></div>
+    <div class="stat-pill"><div class="stat-num blue">${all.filter(m=>m.status==='makeup').length}</div><div class="stat-label">補課</div></div>
+  `;
+  if(attTab==='roll') renderRoll();
+  else if(attTab==='history') renderHistory();
+  else renderStuAtt();
+}
+function renderRoll(){
+  const classes=loadClasses().filter(c=>c.date===attDate);
+  const wrap=document.getElementById('att-list');
+  if(!classes.length){ wrap.innerHTML=`<div class="empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg><p>今天還沒有課程<br><span style="color:var(--sage);cursor:pointer" onclick="openClassAdd()">＋ 新增課堂</span></p></div>`; document.getElementById('att-savebar').classList.remove('show'); return; }
+  wrap.innerHTML=classes.map(cls=>{
+    if(!rollState[cls.id]){ rollState[cls.id]={}; cls.members.forEach(m=>{ rollState[cls.id][m.studentId]=m.status||'pending'; }); }
+    const rows=cls.members.map(m=>{
+      const st=rollState[cls.id][m.studentId]||'pending';
+      const borderCls=st==='present'?'':st==='pending'?'pending':st+'-border';
+      return `<div class="card ${borderCls}" style="cursor:default">
+        <div class="card-row">
+          <div class="avatar av42 ${m.color}">${m.studentName.slice(0,1)}</div>
+          <div class="card-info"><div class="card-name">${m.studentName}</div><div class="card-meta">${STATUS_LABEL[st]||st}</div></div>
+          <div class="status-btns">
+            <button class="stn ${st==='present'?'ap':''}" title="到課" onclick="setStatus('${cls.id}',${JSON.stringify(m.studentId)},'present')">✓</button>
+            <button class="stn ${st==='leave'?'al':''}" title="請假" onclick="setStatus('${cls.id}',${JSON.stringify(m.studentId)},'leave')">假</button>
+            <button class="stn ${st==='makeup'?'am':''}" title="補課" onclick="setStatus('${cls.id}',${JSON.stringify(m.studentId)},'makeup')">補</button>
+            <button class="stn ${st==='absent'?'aa':''}" title="缺席" onclick="setStatus('${cls.id}',${JSON.stringify(m.studentId)},'absent')">✕</button>
+            <button class="stn ${st==='pending'?'apd':''}" title="待確認" onclick="setStatus('${cls.id}',${JSON.stringify(m.studentId)},'pending')">？</button>
+          </div>
+        </div>
+      </div>`;
+    }).join('');
+    return `<div class="section-label">${cls.name}・${cls.time||''}${cls.location?' ・'+cls.location:''}</div>${rows}`;
+  }).join('');
+  document.getElementById('att-savebar').classList.toggle('show',classes.some(c=>!c.saved));
+}
+function setStatus(classId,studentId,status){
+  const prevStatus = rollState[classId]?.[studentId];
+  if(!rollState[classId]) rollState[classId]={};
+  rollState[classId][studentId]=status;
+  const classes=loadClasses();
+  const cls=classes.find(c=>String(c.id)===String(classId));
+  if(cls) cls.saved=false;
+  saveClasses(classes);
+  // If changing TO makeup from leave/absent → add 1 session back to student's ticket
+  if(status==='makeup' && prevStatus && prevStatus!=='makeup'){
+    const stu=cls?.members?.find(m=>m.studentId===studentId);
+    if(stu){
+      const tickets=loadTickets();
+      const now=todayStr();
+      const tIdx=tickets.findIndex(t=>
+        t.studentId===studentId && (!t.expireDate||t.expireDate>=now)
+      );
+      if(tIdx>=0){
+        tickets[tIdx].left+=1;
+        tickets[tIdx].log=tickets[tIdx].log||[];
+        tickets[tIdx].log.push({date:now,action:'makeup',note:'管理員標記補課'});
+        saveTickets(tickets);
+        toast('✓ 已補課，'+stu.studentName+' 堂數 +1');
+      }
+    }
+  }
+  renderRoll();
+}
+function saveRoll(){
+  const classes=loadClasses();
+  classes.forEach(cls=>{ if(cls.date===attDate){ cls.members.forEach(m=>{ if(rollState[cls.id]&&rollState[cls.id][m.studentId]!==undefined) m.status=rollState[cls.id][m.studentId]; }); cls.saved=true; } });
+  saveClasses(classes);
+  renderAttendance();
+  document.getElementById('att-savebar').classList.remove('show');
+  toast('✓ 點名紀錄已儲存');
+}
+function renderHistory(){
+  const classes=loadClasses().filter(c=>c.saved).sort((a,b)=>b.date.localeCompare(a.date));
+  const wrap=document.getElementById('att-list');
+  if(!classes.length){wrap.innerHTML=`<div class="empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 15"/></svg><p>還沒有歷史紀錄</p></div>`;return}
+  const byDate={};
+  classes.forEach(c=>{ if(!byDate[c.date]) byDate[c.date]=[]; byDate[c.date].push(c); });
+  wrap.innerHTML=Object.entries(byDate).map(([date,clsList])=>clsList.map((cls,ci)=>{
+    const counts={present:0,absent:0,leave:0,makeup:0};
+    cls.members.forEach(m=>counts[m.status]=(counts[m.status]||0)+1);
+    const badges=Object.entries(counts).filter(([,v])=>v>0).map(([k,v])=>`<span class="mini-badge mb-${k}">${STATUS_LABEL[k]} ${v}</span>`).join('');
+    const rows=cls.members.map(m=>`<div class="hist-row"><div class="avatar av28 ${m.color}">${m.studentName.slice(0,1)}</div><span class="hist-rname">${m.studentName}</span><span class="hist-status ${m.status}">${STATUS_LABEL[m.status]}</span></div>`).join('');
+    return `<div class="hist-card"><div class="hist-header"><div>${ci===0?`<div class="hist-date">${fmtDate(date)}</div>`:''}<div class="hist-day">${cls.name}${cls.time?' ・'+cls.time:''}</div></div><div class="hist-badges">${badges}</div></div><div class="hist-rows">${rows}</div></div>`;
+  }).join('')).join('');
+}
+function renderStuAtt(){
+  const students=loadStudents(), classes=loadClasses().filter(c=>c.saved);
+  const wrap=document.getElementById('att-list');
+  if(!students.length){wrap.innerHTML='<div class="empty"><p>沒有學員資料</p></div>';return}
+  wrap.innerHTML=students.map(s=>{
+    const my=classes.filter(c=>c.members.some(m=>m.studentId===s.id)).sort((a,b)=>b.date.localeCompare(a.date));
+    const counts={present:0,absent:0,leave:0,makeup:0};
+    my.forEach(c=>{ const m=c.members.find(m=>m.studentId===s.id); if(m) counts[m.status]=(counts[m.status]||0)+1; });
+    const total=my.length, rate=total?Math.round(counts.present/total*100):0;
+    const dots=my.slice(0,12).map(c=>{ const m=c.members.find(m=>m.studentId===s.id); return `<div class="dot ${m?m.status:'none'}"></div>`; }).join('');
+    const isOpen=openStuId===s.id;
+    const rows=my.slice(0,10).map(c=>{ const m=c.members.find(m=>m.studentId===s.id); return `<div class="stu-log-row"><span style="color:var(--ink-mid);font-size:13px">${fmtDate(c.date)} ${c.name}</span><span class="hist-status ${m?.status||''}">${STATUS_LABEL[m?.status||'present']}</span></div>`; }).join('');
+    return `<div class="stu-card"><div class="stu-header" onclick="openStuId=${isOpen?null:s.id};renderStuAtt()"><div class="avatar av42 ${s.color}">${s.name.slice(0,1)}</div><div class="stu-info"><div class="card-name">${s.name}</div><div class="card-meta">共 ${total} 堂・到課率 ${rate}%・缺席 ${counts.absent} 次</div></div><div class="stu-dots">${dots}</div></div><div class="stu-expand ${isOpen?'open':''}">${rows||'<div style="font-size:13px;color:var(--ink-mid);padding:8px 0">還沒有上課紀錄</div>'}</div></div>`;
+  }).join('');
+}
+function openClassAdd(){
+  document.getElementById('fc-date').value=attDate;
+  document.getElementById('fc-name').value='';
+  document.getElementById('fc-loc').value='';
+  const students=loadStudents();
+  document.getElementById('fc-checkboxes').innerHTML=students.map(s=>`<div class="form-row" style="padding:8px 0"><label style="width:auto;flex:1;display:flex;align-items:center;gap:10px"><div class="avatar av32 ${s.color}">${s.name.slice(0,1)}</div>${s.name}</label><input type="checkbox" id="fcc-${s.id}" checked style="width:20px;height:20px;accent-color:var(--sage)"></div>`).join('');
+  openSheet('sheet-classAdd');
+}
+function createClass(){
+  const name=document.getElementById('fc-name').value.trim();
+  if(!name){toast('請填寫課程名稱');return}
+  const date=document.getElementById('fc-date').value;
+  const time=document.getElementById('fc-time').value;
+  const loc=document.getElementById('fc-loc').value.trim();
+  const students=loadStudents();
+  const selected=students.filter(s=>document.getElementById('fcc-'+s.id)?.checked);
+  if(!selected.length){toast('請至少選一位學員');return}
+  const classes=loadClasses();
+  const newId=Date.now();
+  rollState[newId]={};
+  selected.forEach(s=>{ rollState[newId][s.id]='present'; });
+  classes.push({id:newId,date,name,time,location:loc,saved:false,members:selected.map(s=>({studentId:s.id,studentName:s.name,color:s.color||'c0',status:'present'}))});
+  saveClasses(classes);
+  closeSheets();
+  if(date!==attDate){ attDate=date; document.getElementById('att-dateInput').value=date; updateDateLabel(); }
+  switchAttTab('roll');
+  toast(`✓ 已建立「${name}」`);
+}
+
+/* ══════════════════════════════════
+   FINANCE
+══════════════════════════════════ */
+let finTab='records', finYear=new Date().getFullYear(), finMonth=new Date().getMonth();
+function updateMonthLabel(){ document.getElementById('fin-monthLabel').textContent=`${finYear} 年 ${finMonth+1} 月`; }
+function shiftMonth(n){ finMonth+=n; if(finMonth>11){finMonth=0;finYear++;} if(finMonth<0){finMonth=11;finYear--;} updateMonthLabel(); renderFinance(); }
+function monthPayments(){ return loadPayments().filter(p=>{ const d=new Date(p.date+'T00:00:00'); return d.getFullYear()===finYear&&d.getMonth()===finMonth; }); }
+function switchFinTab(tab){ finTab=tab; ['records','report','unpaid'].forEach(t=>document.getElementById('fin-tab-'+t).classList.toggle('active',t===tab)); renderFinance(); }
+
+function renderFinance(){
+  const mp=monthPayments();
+  const totalPaid=mp.filter(p=>p.status==='paid').reduce((s,p)=>s+p.amount,0);
+  const totalUnpaid=mp.filter(p=>p.status==='unpaid').reduce((s,p)=>s+p.amount,0);
+  const countPaid=mp.filter(p=>p.status==='paid').length;
+  const countUnpaid=mp.filter(p=>p.status==='unpaid').length;
+
+  if(finTab==='unpaid'){
+    const all=loadPayments().filter(p=>p.status==='unpaid');
+    document.getElementById('fin-hero').innerHTML=`<div class="hero-card" style="background:var(--unpaid)"><div class="hero-label">所有未收款</div><div class="hero-amount">NT$ ${all.reduce((s,p)=>s+p.amount,0).toLocaleString()}</div><div class="hero-row"><div class="hero-sub"><div class="hero-sub-label">筆數</div><div class="hero-sub-val">${all.length} 筆</div></div><div class="hero-sub"><div class="hero-sub-label">人數</div><div class="hero-sub-val">${new Set(all.map(p=>p.studentId)).size} 人</div></div></div></div>`;
+    document.getElementById('fin-stats').innerHTML='';
+    renderUnpaid(); return;
+  }
+
+  document.getElementById('fin-hero').innerHTML=`<div class="hero-card"><div class="hero-label">${finMonth+1} 月已收款</div><div class="hero-amount">NT$ ${totalPaid.toLocaleString()}</div><div class="hero-row"><div class="hero-sub"><div class="hero-sub-label">已收 ${countPaid} 筆</div><div class="hero-sub-val">NT$ ${totalPaid.toLocaleString()}</div></div><div class="hero-sub"><div class="hero-sub-label">未收 ${countUnpaid} 筆</div><div class="hero-sub-val" style="color:rgba(255,200,180,.9)">NT$ ${totalUnpaid.toLocaleString()}</div></div></div></div>`;
+  const byCash=mp.filter(p=>p.method==='現金'&&p.status==='paid').reduce((s,p)=>s+p.amount,0);
+  const byTransfer=mp.filter(p=>p.method==='轉帳'&&p.status==='paid').reduce((s,p)=>s+p.amount,0);
+  document.getElementById('fin-stats').innerHTML=`
+    <div class="stat-pill"><div class="stat-num green">${countPaid}</div><div class="stat-label">已收筆數</div></div>
+    <div class="stat-pill"><div class="stat-num blue">${byCash.toLocaleString()}</div><div class="stat-label">現金</div></div>
+    <div class="stat-pill"><div class="stat-num" style="color:var(--transfer)">${byTransfer.toLocaleString()}</div><div class="stat-label">轉帳</div></div>
+  `;
+  if(finTab==='records') renderPayRecords();
+  else renderReport();
+}
+
+function renderPayRecords(){
+  const mp=monthPayments().sort((a,b)=>b.date.localeCompare(a.date));
+  const wrap=document.getElementById('fin-list');
+  if(!mp.length){wrap.innerHTML=`<div class="empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="3"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="3" x2="9" y2="21"/></svg><p>${finMonth+1} 月還沒有收費紀錄<br><span style="color:var(--sage);cursor:pointer" onclick="openPayAdd()">＋ 新增收費</span></p></div>`;return}
+  const byDate={};
+  mp.forEach(p=>{ if(!byDate[p.date]) byDate[p.date]=[]; byDate[p.date].push(p); });
+  wrap.innerHTML=Object.entries(byDate).map(([date,pays])=>{
+    const dayTotal=pays.filter(p=>p.status==='paid').reduce((s,p)=>s+p.amount,0);
+    return `<div class="section-label">${fmtDateShort(date)}${dayTotal?' 已收 NT$ '+dayTotal.toLocaleString():''}</div>`+pays.map(p=>`<div class="pay-card ${p.status==='unpaid'?'unpaid':''}" onclick="openPayDetail(${p.id})"><div class="avatar av42 ${p.color}">${p.studentName.slice(0,1)}</div><div class="pay-info"><div class="pay-name">${p.studentName}</div><div class="pay-meta">${p.item}・${p.method}</div></div><div class="pay-right"><div class="pay-amount">NT$ ${p.amount.toLocaleString()}</div><div class="pay-badge ${p.status==='paid'?'pb-paid':'pb-unpaid'}">${p.status==='paid'?'已收':'待收'}</div></div></div>`).join('');
+  }).join('');
+}
+function renderReport(){
+  const payments=loadPayments().filter(p=>p.status==='paid');
+  const now=new Date();
+  const months=Array.from({length:6},(_,i)=>{ const d=new Date(now); d.setMonth(d.getMonth()-(5-i)); return {year:d.getFullYear(),month:d.getMonth(),label:`${d.getMonth()+1}月`}; });
+  const monthlyData=months.map(m=>({ ...m, total:payments.filter(p=>{ const d=new Date(p.date+'T00:00:00'); return d.getFullYear()===m.year&&d.getMonth()===m.month; }).reduce((s,p)=>s+p.amount,0) }));
+  const maxVal=Math.max(...monthlyData.map(m=>m.total),1);
+  const methods={};
+  payments.forEach(p=>{ methods[p.method]=(methods[p.method]||0)+p.amount; });
+  const totalRev=Object.values(methods).reduce((s,v)=>s+v,0);
+  const methodRows=Object.entries(methods).sort((a,b)=>b[1]-a[1]).map(([name,val])=>`<div class="method-row"><div class="method-dot" style="background:${METHOD_COLORS[name]||'#a8a8a3'}"></div><span class="method-name">${name}</span><div class="method-bar-track"><div class="method-bar-fill" style="width:${Math.round(val/totalRev*100)}%;background:${METHOD_COLORS[name]||'#a8a8a3'}"></div></div><span class="method-val">$${(val/1000).toFixed(1)}k</span></div>`).join('');
+  const mp=monthPayments().filter(p=>p.status==='paid');
+  const items={};
+  mp.forEach(p=>{ items[p.item]=(items[p.item]||0)+p.amount; });
+  const itemRows=Object.entries(items).sort((a,b)=>b[1]-a[1]).map(([n,v])=>`<div class="info-row"><span class="info-label">${n}</span><span class="info-val" style="text-align:right;font-weight:500">NT$ ${v.toLocaleString()}</span></div>`).join('');
+  const stuMap={};
+  mp.forEach(p=>{ if(!stuMap[p.studentId]) stuMap[p.studentId]={name:p.studentName,color:p.color,total:0,count:0}; stuMap[p.studentId].total+=p.amount; stuMap[p.studentId].count++; });
+  const stuRows=Object.values(stuMap).sort((a,b)=>b.total-a.total).map(s=>`<div class="pay-card" style="margin-bottom:6px"><div class="avatar av42 ${s.color}">${s.name.slice(0,1)}</div><div class="pay-info"><div class="pay-name">${s.name}</div><div class="pay-meta">${s.count} 筆收費</div></div><div class="pay-right"><div class="pay-amount">NT$ ${s.total.toLocaleString()}</div></div></div>`).join('');
+  document.getElementById('fin-list').innerHTML=`
+    <div class="chart-wrap"><div class="chart-title">近六個月收入</div><div class="bar-rows">${monthlyData.map(m=>`<div class="bar-row"><span class="bar-label">${m.label}</span><div class="bar-track"><div class="bar-fill" style="width:${Math.round(m.total/maxVal*100)}%"></div></div><span class="bar-val">${m.total?'$'+(m.total/1000).toFixed(1)+'k':'—'}</span></div>`).join('')}</div></div>
+    <div class="chart-wrap"><div class="chart-title">收款方式分布（累計）</div><div class="method-rows">${methodRows||'<div style="font-size:13px;color:var(--ink-mid)">還沒有資料</div>'}</div></div>
+    <div class="section-label">${finMonth+1} 月收入項目</div>
+    <div style="background:var(--white);border-radius:var(--radius);padding:4px 16px;margin-bottom:12px">${itemRows||'<div style="font-size:13px;color:var(--ink-mid);padding:12px 0">本月無收費</div>'}</div>
+    <div class="section-label">${finMonth+1} 月學員貢獻</div>
+    ${stuRows||'<div class="empty" style="padding:20px"><p>本月無收費</p></div>'}
+  `;
+}
+function renderUnpaid(){
+  const all=loadPayments().filter(p=>p.status==='unpaid').sort((a,b)=>a.date.localeCompare(b.date));
+  const wrap=document.getElementById('fin-list');
+  if(!all.length){wrap.innerHTML=`<div class="empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg><p>太好了！<br>目前沒有待收款</p></div>`;return}
+  const t=todayStr();
+  wrap.innerHTML=all.map(p=>{ const diff=Math.floor((new Date(t)-new Date(p.date+'T00:00:00'))/(86400000)); return `<div class="unpaid-card" onclick="openPayDetail(${p.id})"><div class="unpaid-top"><div class="avatar av42 ${p.color}">${p.studentName.slice(0,1)}</div><div class="unpaid-info"><div class="unpaid-name">${p.studentName}</div><div class="unpaid-desc">${p.item}・${p.method}${p.note?'・'+p.note:''}</div></div><div><div class="unpaid-amount">NT$ ${p.amount.toLocaleString()}</div><div class="unpaid-days">${diff>0?diff+'天前':'今天'}</div></div></div><button class="btn-mark-paid" onclick="event.stopPropagation();markPaid(${p.id})">標記為已收款</button></div>`; }).join('');
+}
+function openPayAdd(){
+  const students=loadStudents();
+  document.getElementById('fp-student').innerHTML=students.length?students.map(s=>`<option value="${s.id}|${s.name}|${s.color}">${s.name}</option>`).join(''):'<option>（請先新增學員）</option>';
+  document.getElementById('fp-item').value='10堂套票';
+  document.getElementById('fp-amount').value='3000';
+  document.getElementById('fp-date').value=todayStr();
+  document.getElementById('fp-method').value='現金';
+  document.getElementById('fp-status').value='paid';
+  document.getElementById('fp-note').value='';
+  openSheet('sheet-payAdd');
+}
+function payAutoPrice(){ const p=DEFAULT_PRICES[document.getElementById('fp-item').value]; if(p!=='') document.getElementById('fp-amount').value=p; }
+function savePayment(){
+  const sv=document.getElementById('fp-student').value.split('|');
+  if(!sv[0]){toast('請選擇學員');return}
+  const amount=parseInt(document.getElementById('fp-amount').value)||0;
+  if(!amount){toast('請填寫金額');return}
+  const payments=loadPayments();
+  payments.push({id:Date.now(),studentId:parseInt(sv[0]),studentName:sv[1],color:sv[2]||'c0',item:document.getElementById('fp-item').value,amount,date:document.getElementById('fp-date').value,method:document.getElementById('fp-method').value,status:document.getElementById('fp-status').value,note:document.getElementById('fp-note').value.trim()});
+  savePayments(payments);
+  closeSheets(); renderFinance(); updateBadges();
+  toast('✓ 已新增收費紀錄');
+}
+function openPayDetail(id){
+  const payments=loadPayments();
+  const p=payments.find(p=>p.id===id);
+  if(!p) return;
+  document.getElementById('sheet-payDetail-body').innerHTML=`
+    <div class="detail-hero-pay ${p.status}"><div class="dhp-name">${p.studentName}</div><div class="dhp-amount ${p.status}">NT$ ${p.amount.toLocaleString()}</div><div class="dhp-sub">${p.item}・${p.status==='paid'?'已收款':'待收款'}</div></div>
+    <div class="info-row"><span class="info-label">收款日</span><span class="info-val">${p.date}</span></div>
+    <div class="info-row"><span class="info-label">付款方式</span><span class="info-val">${p.method}</span></div>
+    <div class="info-row"><span class="info-label">狀態</span><span class="info-val" style="color:${p.status==='paid'?'var(--paid)':'var(--unpaid)'};font-weight:500">${p.status==='paid'?'已收款':'待收款'}</span></div>
+    ${p.note?`<div class="info-row"><span class="info-label">備註</span><span class="info-val">${p.note}</span></div>`:''}
+    <button class="big-btn ${p.status==='unpaid'?'green':'unpaid-outline'}" onclick="togglePayStatus(${p.id})" style="margin-top:12px">${p.status==='unpaid'?'✓ 標記為已收款':'改為未收款'}</button>
+    <button class="btn-danger" onclick="deletePayment(${p.id})">刪除此紀錄</button>
+  `;
+  openSheet('sheet-payDetail');
+}
+function createTicketFromPayment(p){
+  // When a payment is marked paid, auto-create a ticket if item matches a plan
+  if(!p||p.status!=='paid') return;
+  const cfg=bkLoadCfg();
+  // parse item: "課程類型名・方案名"
+  const parts=(p.item||'').split('・');
+  const typeName=parts[0]?.trim()||'';
+  const planName=parts[1]?.trim()||'';
+  const type=cfg.classTypes?.find(t=>t.name===typeName);
+  const plan=type?.plans?.find(pl=>pl.name===planName);
+  if(!type||!plan) return; // not a standard plan payment
+  const tickets=loadTickets();
+  // Avoid duplicate (same student+item+boughtDate)
+  const dup=tickets.find(t=>t.studentId===p.studentId&&t.boughtDate===p.date&&t.planName===planName);
+  if(dup) return;
+  const validDays=plan.validDays||180;
+  const expDate=new Date(p.date+'T00:00:00');
+  expDate.setDate(expDate.getDate()+validDays);
+  tickets.push({
+    id:Date.now(),studentId:p.studentId,studentName:p.studentName,color:p.color||'c0',
+    typeName:typeName,planName:planName,
+    type:plan.sessions,total:plan.sessions,left:plan.sessions,
+    price:p.price||p.amount||0,boughtDate:p.date,
+    expireDate:expDate.toISOString().split('T')[0],
+    log:[{date:p.date,action:'buy'}]
+  });
+  saveTickets(tickets);
+}
+function togglePayStatus(id){
+  const payments=loadPayments();
+  const p=payments.find(p=>p.id===id);
+  if(!p) return;
+  p.status=p.status==='paid'?'unpaid':'paid';
+  savePayments(payments);
+  if(p.status==='paid') createTicketFromPayment(p);
+  closeSheets(); renderFinance(); renderStudents(); updateBadges();
+  toast(p.status==='paid'?`✓ ${p.studentName} 已收款，套票已建立`:'已改為未收款');
+}
+function markPaid(id){
+  const payments=loadPayments();
+  const p=payments.find(p=>p.id===id);
+  if(!p) return;
+  p.status='paid';
+  savePayments(payments);
+  createTicketFromPayment(p);
+  // Sync any existing slot bookings for this student to attendance
+  loadSlots().filter(s=>(s.bookings||[]).some(b=>b.name===p.studentName)).forEach(syncSlotToAttendance);
+  renderFinance(); renderStudents(); updateBadges();
+  toast(`✓ ${p.studentName} 已收款，套票已建立`);
+}
+function deletePayment(id){
+  if(!confirm('確定要刪除此收費紀錄嗎？')) return;
+  savePayments(loadPayments().filter(p=>p.id!==id));
+  closeSheets(); renderFinance(); updateBadges();
+  toast('已刪除收費紀錄');
+}
+
+/* ══════════════════════════════════
+   BOOKING PAGE
+══════════════════════════════════ */
+const BK_DEFAULT = {
+  teacherName:'嬋柔老師',
+  lineId:'',
+  classTypes:[
+    { id:1, name:'一對一', icon:'🧘', desc:'專屬個人訓練',
+      plans:[{id:1,sessions:10,name:'10堂套票',price:6000},{id:2,sessions:5,name:'5堂體驗',price:3200},{id:3,sessions:1,name:'單堂',price:700}] },
+    { id:2, name:'一對二', icon:'🤸', desc:'雙人共同練習',
+      plans:[{id:1,sessions:10,name:'10堂套票',price:4500},{id:2,sessions:5,name:'5堂體驗',price:2400},{id:3,sessions:1,name:'單堂',price:500}] },
+    { id:3, name:'團課', icon:'🌿', desc:'小班制，最多6人',
+      plans:[{id:1,sessions:20,name:'20堂套票',price:5500},{id:2,sessions:10,name:'10堂套票',price:3000},{id:3,sessions:1,name:'單堂',price:400}] },
+  ],
+  infoBlocks:[
+    {icon:'🌿',title:'什麼是墊上嬋柔？',body:'結合柔軟、呼吸與身心覺察的全身性運動，適合各年齡層，不需要任何基礎。'},
+    {icon:'📍',title:'上課地點',body:'台南市，詳細地址於預約確認後提供。'},
+    {icon:'💳',title:'付款方式',body:'現金 / 轉帳 / Line Pay，第一次上課前完成付款即可。'},
+    {icon:'🔄',title:'彈性補課',body:'提前告知即可協調補課，套票堂數不浪費。'},
+  ]
+};
+function bkLoadCfg(){ try{return {...BK_DEFAULT,...JSON.parse(localStorage.getItem('pilates_booking_cfg')||'{}')};}catch{return BK_DEFAULT;} }
+function bkSaveCfg(c){ localStorage.setItem('pilates_booking_cfg',JSON.stringify(c)); }
+
+let bkCfg = bkLoadCfg();
+let bkSelectedTypeId = null;
+let bkSelectedPlanId = null;
+let bkBookingData = null;
+
+/* ── Step 1: type cards ── */
+function bkRenderTypeCards(){
+  const types = bkCfg.classTypes||[];
+  const wrap = document.getElementById('bk-typeCards');
+  if(!wrap) return;
+  if(!types.length){
+    wrap.innerHTML=`<div style="text-align:center;padding:32px;color:var(--ink-mid);font-size:14px">尚未設定課程類型</div>`;
+    return;
+  }
+  wrap.innerHTML = types.map(t=>{
+    const minPrice = t.plans&&t.plans.length ? Math.min(...t.plans.map(p=>p.price)) : 0;
+    const sel = bkSelectedTypeId===t.id;
+    return `<div class="bk-type-card ${sel?'selected':''}" onclick="bkSelectType(${t.id})">
+      <div class="bk-type-card-left">
+        <div class="bk-type-card-icon">${t.icon||'🌿'}</div>
+        <div>
+          <div class="bk-type-card-name">${t.name}</div>
+          <div class="bk-type-card-sub">${t.desc||''}</div>
+        </div>
+      </div>
+      <div class="bk-type-card-price">
+        <div class="bk-type-card-from">單堂起</div>
+        <div class="bk-type-card-amt">$${Math.min(...(t.plans||[{price:0}]).map(p=>Math.round(p.price/Math.max(p.sessions,1)))).toLocaleString()}</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function bkSelectType(typeId){
+  bkSelectedTypeId = typeId;
+  bkSelectedPlanId = null;
+  const type = (bkCfg.classTypes||[]).find(t=>t.id===typeId);
+  // Switch to step 2
+  document.getElementById('bk-step1').style.display='none';
+  document.getElementById('bk-step2').style.display='';
+  document.getElementById('bk-step2-typelabel').textContent = (type?.icon||'')+'　'+type?.name;
+  bkRenderPlans(type);
+  // Hide form until plan selected
+  document.getElementById('bk-formSection').classList.add('hidden');
+  document.getElementById('bk-hint').classList.remove('show');
+}
+
+function bkBackToStep1(){
+  bkSelectedTypeId = null; bkSelectedPlanId = null;
+  document.getElementById('bk-step1').style.display='';
+  document.getElementById('bk-step2').style.display='none';
+  document.getElementById('bk-formSection').classList.add('hidden');
+  document.getElementById('bk-hint').classList.remove('show');
+  bkRenderTypeCards();
+}
+
+/* ── Step 2: plan cards ── */
+function bkRenderPlans(type){
+  const plans = type?.plans||[];
+  const wrap = document.getElementById('bk-planList');
+  if(!wrap) return;
+  const tagMap = ['bpt-best','bpt-pop','bpt-flex','bpt-flex'];
+  const tagLabels = ['最優惠','熱門','體驗',''];
+  const sorted = [...plans].sort((a,b)=>b.sessions-a.sessions);
+  wrap.innerHTML = plans.map((p,i)=>{
+    const rank = sorted.findIndex(s=>s.id===p.id);
+    const per = Math.round(p.price/Math.max(p.sessions,1));
+    const sel = bkSelectedPlanId===p.id;
+    const featured = rank===0;
+    return `<div class="bk-plan ${featured?'featured':''} ${sel?'selected':''}" onclick="bkSelectPlan(${p.id})">
+      <div class="bk-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg></div>
+      <div class="bk-plan-top">
+        <div class="bk-plan-left">
+          ${rank<3&&p.sessions>1?`<span class="bk-plan-tag ${tagMap[rank]}">${tagLabels[rank]}</span>`:''}
+          <div class="bk-plan-name">${p.name}</div>
+          <div class="bk-plan-desc">${p.sessions} 堂課${p.sessions>1?'・有效期 6 個月':''}</div>
+        </div>
+        <div class="bk-plan-right">
+          <div class="bk-plan-price">$${p.price.toLocaleString()}</div>
+          <div class="bk-plan-price-sub">NT 元</div>
+          ${p.sessions>1?`<div class="bk-plan-per">= $${per}/堂</div>`:''}
+        </div>
+      </div>
+      ${p.sessions>1?`<div class="bk-plan-feats"><span class="bk-feat">彈性時段</span><span class="bk-feat">可補課</span><span class="bk-feat">6個月效期</span></div>`:''}
+    </div>`;
+  }).join('');
+}
+
+function bkSelectPlan(planId){
+  bkSelectedPlanId = planId;
+  const type = (bkCfg.classTypes||[]).find(t=>t.id===bkSelectedTypeId);
+  bkRenderPlans(type);
+  const plan = (type?.plans||[]).find(p=>p.id===planId);
+  if(plan){
+    document.getElementById('bk-previewName').textContent = (type?.name||'') + '・' + plan.name;
+    document.getElementById('bk-previewPrice').textContent = `NT$ ${plan.price.toLocaleString()}`;
+    document.getElementById('bk-formSection').classList.remove('hidden');
+    document.getElementById('bk-hint').classList.add('show');
+  }
+}
+
+function bkScrollToForm(){
+  document.getElementById('bk-formSection').scrollIntoView({behavior:'smooth',block:'start'});
+}
+
+function bkSubmit(){
+  const name = document.getElementById('bk-fname').value.trim();
+  const phone = document.getElementById('bk-fphone').value.trim();
+  const note = document.getElementById('bk-fnote').value.trim();
+  if(!name){ toast('請填寫姓名'); document.getElementById('bk-fname').focus(); return; }
+  const type = (bkCfg.classTypes||[]).find(t=>t.id===bkSelectedTypeId);
+  const plan = (type?.plans||[]).find(p=>p.id===bkSelectedPlanId);
+  if(!type||!plan){ toast('請先選擇課程類型與方案'); return; }
+  bkBookingData = {name,phone,note,type,plan};
+  document.getElementById('bk-successDetail').innerHTML = `
+    <div class="bk-sd-row"><span class="bk-sd-label">姓名</span><span class="bk-sd-val">${name}</span></div>
+    <div class="bk-sd-row"><span class="bk-sd-label">類型</span><span class="bk-sd-val">${type.icon} ${type.name}</span></div>
+    <div class="bk-sd-row"><span class="bk-sd-label">方案</span><span class="bk-sd-val">${plan.name}</span></div>
+    <div class="bk-sd-row"><span class="bk-sd-label">金額</span><span class="bk-sd-val">NT$ ${plan.price.toLocaleString()}</span></div>
+    ${phone?`<div class="bk-sd-row"><span class="bk-sd-label">電話</span><span class="bk-sd-val">${phone}</span></div>`:''}
+  `;
+  document.getElementById('bk-lineBtn').style.display = bkCfg.lineId ? 'flex' : 'none';
+  document.getElementById('bk-success').classList.add('show');
+  document.getElementById('bk-scroll').scrollTop=0;
+}
+
+function bkOpenLine(){
+  if(!bkBookingData) return;
+  const {name,phone,note,type,plan} = bkBookingData;
+  const msg = `【嬋柔課程預約】\n姓名：${name}\n類型：${type.icon} ${type.name}\n方案：${plan.name}（NT$${plan.price.toLocaleString()}）${phone?'\n電話：'+phone:''}${note?'\n備註：'+note:''}\n\n以上資訊請老師確認，謝謝！`;
+  const lid = bkCfg.lineId;
+  if(lid.startsWith('@')){ window.open(`https://line.me/R/ti/p/%40${lid.slice(1)}?text=${encodeURIComponent(msg)}`,'_blank'); }
+  else { window.open(`https://line.me/ti/p/~${lid}?text=${encodeURIComponent(msg)}`,'_blank'); }
+}
+
+function bkReset(){
+  bkSelectedTypeId=null; bkSelectedPlanId=null; bkBookingData=null;
+  document.getElementById('bk-success').classList.remove('show');
+  document.getElementById('bk-fname').value='';
+  document.getElementById('bk-fphone').value='';
+  document.getElementById('bk-fnote').value='';
+  document.getElementById('bk-formSection').classList.add('hidden');
+  document.getElementById('bk-hint').classList.remove('show');
+  document.getElementById('bk-step2').style.display='none';
+  document.getElementById('bk-step1').style.display='';
+  document.getElementById('bk-scroll').scrollTop=0;
+  bkRenderTypeCards();
+}
+
+function bkApplyCfg(){
+  document.getElementById('bk-footerName').textContent = bkCfg.teacherName||'嬋柔老師';
+  const infoBlocks = bkCfg.infoBlocks||BK_DEFAULT.infoBlocks;
+  document.getElementById('bk-infoBlocks').innerHTML = infoBlocks.map(b=>`
+    <div class="bk-info-row">
+      <span class="bk-info-icon">${b.icon||'•'}</span>
+      <span class="bk-info-text"><strong>${b.title||''}</strong><br>${b.body||''}</span>
+    </div>`).join('');
+}
+
+function bkRenderPlansForPage(){
+  bkCfg = bkLoadCfg();
+  bkApplyCfg();
+  bkRenderTypeCards();
+}
+
+/* ══ SETTINGS ══ */
+let bkEditCtypes = [];
+let bkEditInfoBlocks = [];
+
+/* -- class type editor -- */
+function bkRenderCtypeEditor(){
+  const wrap = document.getElementById('bk-ctypeEditor');
+  if(!wrap) return;
+  if(!bkEditCtypes.length){
+    wrap.innerHTML=`<div style="font-size:12px;color:var(--ink-light);text-align:center;padding:8px">點下方按鈕新增課程類型</div>`;
+    return;
+  }
+  wrap.innerHTML = bkEditCtypes.map((_,ti)=>`
+    <div class="bk-ctype-block">
+      <div class="bk-ctype-block-head">
+        <div class="bk-ctype-icon-name">
+          <input class="bk-ier-icon-input" type="text" id="bkct-icon-${ti}" placeholder="🌿">
+          <input class="bk-ctype-name-input" type="text" id="bkct-name-${ti}" placeholder="類型名稱，例：一對一">
+          <button class="bk-pe-del" onclick="bkDelCtype(${ti})">×</button>
+        </div>
+        <input class="bk-ctype-desc-input" type="text" id="bkct-desc-${ti}" placeholder="副標題，例：專屬個人訓練">
+      </div>
+      <div class="bk-ctype-plans-label">方案定價（堂數 / 名稱 / 總價）</div>
+      <div id="bkct-plans-${ti}">
+        ${(bkEditCtypes[ti].plans||[]).map((_,pi)=>bkPlanRowHTML(ti,pi)).join("")}
+      </div>
+      <button class="bk-ctype-add-plan" onclick="bkAddTypePlan(${ti})">＋ 新增方案</button>
+    </div>`).join("");
+  // Set all values via JS (avoids HTML attribute escaping issues)
+  bkEditCtypes.forEach((t,ti)=>{
+    const iconEl=document.getElementById(`bkct-icon-${ti}`);
+    const nameEl=document.getElementById(`bkct-name-${ti}`);
+    const descEl=document.getElementById(`bkct-desc-${ti}`);
+    if(iconEl) iconEl.value=t.icon||"";
+    if(nameEl) nameEl.value=t.name||"";
+    if(descEl) descEl.value=t.desc||"";
+    (t.plans||[]).forEach((p,pi)=>{
+      const ps=document.getElementById(`bkct-ps-${ti}-${pi}`);
+      const pn=document.getElementById(`bkct-pn-${ti}-${pi}`);
+      const pp=document.getElementById(`bkct-pp-${ti}-${pi}`);
+      const pv=document.getElementById(`bkct-pv-${ti}-${pi}`);
+      const pmakeup=document.getElementById(`bkct-pm-${ti}-${pi}`);
+      const pflex=document.getElementById(`bkct-pf-${ti}-${pi}`);
+      if(ps) ps.value=p.sessions||1;
+      if(pn) pn.value=p.name||"";
+      if(pp) pp.value=p.price||0;
+      if(pv) pv.value=p.validDays||180;
+      if(pmakeup) pmakeup.checked=!!p.makeup;
+      if(pflex) pflex.checked=!!p.flex;
+    });
+  });
+}
+
+function bkPlanRowHTML(ti,pi){
+  return `<div class="bk-ctype-plan-row" id="bkct-pr-${ti}-${pi}" style="flex-wrap:wrap">
+    <input type="number" id="bkct-ps-${ti}-${pi}" placeholder="堂" style="width:46px;flex:none" min="1">
+    <input type="text" id="bkct-pn-${ti}-${pi}" placeholder="方案名稱" style="flex:1;min-width:80px">
+    <input type="number" id="bkct-pp-${ti}-${pi}" placeholder="總價" style="width:68px;flex:none" min="0">
+    <button class="bk-pe-del" onclick="bkDelTypePlan(${ti},${pi})">×</button>
+    <div class="bk-plan-extras">
+      <div class="bk-validity-wrap">有效<input class="bk-validity-input" type="number" id="bkct-pv-${ti}-${pi}" min="1" max="730">天</div>
+      <label class="bk-toggle-row"><span class="bk-toggle"><input type="checkbox" id="bkct-pm-${ti}-${pi}"><span class="bk-toggle-slider"></span></span>可補課</label>
+      <label class="bk-toggle-row"><span class="bk-toggle"><input type="checkbox" id="bkct-pf-${ti}-${pi}"><span class="bk-toggle-slider"></span></span>彈性時段</label>
+    </div>
+  </div>`;
+}
+
+function escAttr(s){ return (s||"").replace(/"/g,"&quot;").replace(/</g,"&lt;"); }
+
+function bkSyncCtypes(){
+  bkEditCtypes = bkEditCtypes.map((t,ti)=>{
+    let pi=0; const plans=[];
+    while(document.getElementById(`bkct-ps-${ti}-${pi}`)){
+      plans.push({
+        id: t.plans?.[pi]?.id||(Date.now()+pi),
+        sessions: parseInt(document.getElementById(`bkct-ps-${ti}-${pi}`)?.value)||1,
+        name: document.getElementById(`bkct-pn-${ti}-${pi}`)?.value||"",
+        price: parseInt(document.getElementById(`bkct-pp-${ti}-${pi}`)?.value)||0,
+        validDays: parseInt(document.getElementById(`bkct-pv-${ti}-${pi}`)?.value)||180,
+        makeup: document.getElementById(`bkct-pm-${ti}-${pi}`)?.checked||false,
+        flex: document.getElementById(`bkct-pf-${ti}-${pi}`)?.checked||false,
+      });
+      pi++;
+    }
+    return {
+      ...t,
+      icon: document.getElementById(`bkct-icon-${ti}`)?.value||t.icon||"",
+      name: document.getElementById(`bkct-name-${ti}`)?.value||t.name||"",
+      desc: document.getElementById(`bkct-desc-${ti}`)?.value||t.desc||"",
+      plans,
+    };
+  });
+}
+
+function bkAddCtype(){
+  bkSyncCtypes();
+  bkEditCtypes.push({id:Date.now(),icon:"",name:"",desc:"",plans:[{id:Date.now(),sessions:1,name:"單堂",price:0,validDays:180,makeup:true,flex:true}]});
+  bkRenderCtypeEditor();
+  setTimeout(()=>{
+    const nameEl=document.getElementById(`bkct-name-${bkEditCtypes.length-1}`);
+    if(nameEl){ nameEl.scrollIntoView({behavior:"smooth",block:"center"}); nameEl.focus(); }
+  },50);
+}
+function bkDelCtype(ti){
+  bkSyncCtypes();
+  if(bkEditCtypes.length<=1){ toast("至少要保留一個課程類型"); return; }
+  bkEditCtypes.splice(ti,1);
+  bkRenderCtypeEditor();
+}
+function bkAddTypePlan(ti){
+  bkSyncCtypes();
+  if(!bkEditCtypes[ti].plans) bkEditCtypes[ti].plans=[];
+  bkEditCtypes[ti].plans.push({id:Date.now(),sessions:1,name:"",price:0,validDays:180,makeup:true,flex:true});
+  bkRenderCtypeEditor();
+  setTimeout(()=>{ const pi=bkEditCtypes[ti].plans.length-1; const el=document.getElementById(`bkct-pn-${ti}-${pi}`); if(el){el.scrollIntoView({behavior:"smooth",block:"center"});el.focus();} },50);
+}
+function bkDelTypePlan(ti,pi){
+  bkSyncCtypes();
+  if((bkEditCtypes[ti].plans||[]).length<=1){ toast("每個類型至少要有一個方案"); return; }
+  bkEditCtypes[ti].plans.splice(pi,1);
+  bkRenderCtypeEditor();
+}
+
+/* -- info block editor (JS-value version, fixes title bug) -- */
+function bkRenderInfoEditor(){
+  const wrap = document.getElementById("bk-infoEditor");
+  if(!wrap) return;
+  if(!bkEditInfoBlocks.length){
+    wrap.innerHTML=`<div style="font-size:12px;color:var(--ink-light);text-align:center;padding:8px">點下方按鈕新增介紹區塊</div>`;
+    return;
+  }
+  wrap.innerHTML = bkEditInfoBlocks.map((_,i)=>`
+    <div class="bk-info-edit-row">
+      <div class="bk-ier-row1">
+        <input class="bk-ier-icon-input" type="text" id="bkie-icon-${i}" placeholder="🌿">
+        <input class="bk-ier-title-input" type="text" id="bkie-title-${i}" placeholder="區塊標題">
+        <button class="bk-pe-del" onclick="bkDelInfoBlock(${i})">×</button>
+      </div>
+      <textarea class="bk-ier-body-input" id="bkie-body-${i}" placeholder="說明文字…" rows="2"></textarea>
+    </div>`).join("");
+  bkEditInfoBlocks.forEach((b,i)=>{
+    const iconEl=document.getElementById(`bkie-icon-${i}`);
+    const titleEl=document.getElementById(`bkie-title-${i}`);
+    const bodyEl=document.getElementById(`bkie-body-${i}`);
+    if(iconEl) iconEl.value=b.icon||"";
+    if(titleEl) titleEl.value=b.title||"";
+    if(bodyEl) bodyEl.value=b.body||"";
+  });
+}
+function bkAddInfoBlock(){
+  bkSyncInfoBlocks();
+  bkEditInfoBlocks.push({icon:"",title:"",body:""});
+  bkRenderInfoEditor();
+  setTimeout(()=>{ const el=document.getElementById(`bkie-title-${bkEditInfoBlocks.length-1}`); if(el){el.scrollIntoView({behavior:"smooth",block:"center"});el.focus();} },50);
+}
+function bkDelInfoBlock(i){
+  bkSyncInfoBlocks();
+  bkEditInfoBlocks.splice(i,1);
+  bkRenderInfoEditor();
+}
+function bkSyncInfoBlocks(){
+  const len=document.querySelectorAll('[id^="bkie-icon-"]').length;
+  bkEditInfoBlocks=Array.from({length:len},(_,i)=>({
+    icon:document.getElementById(`bkie-icon-${i}`)?.value||"",
+    title:document.getElementById(`bkie-title-${i}`)?.value||"",
+    body:document.getElementById(`bkie-body-${i}`)?.value||"",
+  }));
+}
+
+/* -- settings: now a full page, not a sheet -- */
+function bkRenderSettingsPage(){
+  const c=bkLoadCfg();
+  const nameEl=document.getElementById("bkcfg-name");
+  const lineEl=document.getElementById("bkcfg-line");
+  if(nameEl) nameEl.value=c.teacherName||"";
+  if(lineEl) lineEl.value=c.lineId||"";
+  bkEditCtypes=(c.classTypes||BK_DEFAULT.classTypes).map(t=>({...t,plans:(t.plans||[]).map(p=>({...p}))}));
+  bkEditInfoBlocks=(c.infoBlocks||BK_DEFAULT.infoBlocks).map(b=>({...b}));
+  bkRenderCtypeEditor();
+  bkRenderInfoEditor();
+}
+function bkOpenSettings(){ bkRenderSettingsPage(); }
+function bkCloseSettings(){ /* no-op: now a page */ }
+function bkSaveSettings(){
+  bkSyncCtypes();
+  bkSyncInfoBlocks();
+  const emptyType=bkEditCtypes.find(t=>!t.name.trim());
+  if(emptyType){ toast("請填寫每個課程類型的名稱"); return; }
+  const newCfg={
+    teacherName:(document.getElementById("bkcfg-name")?.value||"").trim()||"嬋柔老師",
+    lineId:(document.getElementById("bkcfg-line")?.value||"").trim(),
+    classTypes:bkEditCtypes,
+    infoBlocks:bkEditInfoBlocks.filter(b=>b.title.trim()||b.body.trim()),
+  };
+  bkSaveCfg(newCfg);
+  bkCfg=newCfg;
+  toast("✓ 設定已儲存");
+}
+
+/* ══════════════════════════════════
+   SCHEDULE / CALENDAR
+══════════════════════════════════ */
+function loadSlots(){ try{return JSON.parse(localStorage.getItem("pilates_slots")||"[]");}catch{return[];} }
+function saveSlots(d){ localStorage.setItem("pilates_slots",JSON.stringify(d)); }
+
+const SCH_DAYS=["日","一","二","三","四","五","六"];
+let schYear=new Date().getFullYear();
+let schMonth=new Date().getMonth();
+let schSelectedDate=todayStr();
+
+function schInitCalendar(){
+  const cfg=bkLoadCfg();
+  const sel=document.getElementById("slot-type");
+  if(sel) sel.innerHTML=(cfg.classTypes||[]).map(t=>'<option value="'+t.id+'">'+( t.icon||'')+' '+t.name+'</option>').join('')||'<option value="">（尚未設定課程類型）</option>';
+  const rep=document.getElementById("slot-repeat");
+  if(rep) rep.onchange=()=>{ document.getElementById("slot-repeat-end-row").style.display=rep.value==="weekly"?"flex":"none"; };
+}
+
+function schShiftMonth(n){
+  schMonth+=n;
+  if(schMonth>11){schMonth=0;schYear++;}
+  if(schMonth<0){schMonth=11;schYear--;}
+  schRenderCalendar();
+}
+
+function schRenderCalendar(){
+  // Build year/month selector
+  const yearOpts = Array.from({length:5},(_,i)=>{const y=new Date().getFullYear()-1+i; return `<option value="${y}" ${y===schYear?'selected':''}>${y}年</option>`;}).join('');
+  const monthOpts = Array.from({length:12},(_,i)=>`<option value="${i}" ${i===schMonth?'selected':''}>${i+1}月</option>`).join('');
+  document.getElementById("sch-monthLabel").innerHTML =
+    `<select onchange="schYear=parseInt(this.value);schRenderCalendar()" style="border:none;background:transparent;font-size:15px;font-weight:600;font-family:inherit;cursor:pointer;outline:none">${yearOpts}</select>` +
+    `<select onchange="schMonth=parseInt(this.value);schRenderCalendar()" style="border:none;background:transparent;font-size:15px;font-weight:600;font-family:inherit;cursor:pointer;outline:none;margin-left:2px">${monthOpts}</select>`;
+  const slots=loadSlots();
+  const firstDay=new Date(schYear,schMonth,1).getDay();
+  const daysInMonth=new Date(schYear,schMonth+1,0).getDate();
+  const today=todayStr();
+  let html="";
+  SCH_DAYS.forEach(d=>{ html+=`<div class="cal-day-label">${d}</div>`; });
+  for(let i=0;i<firstDay;i++){
+    const prev=new Date(schYear,schMonth,1-firstDay+i);
+    html+=`<div class="cal-day other-month"><div class="cal-day-num">${prev.getDate()}</div></div>`;
+  }
+  for(let d=1;d<=daysInMonth;d++){
+    const ds=`${schYear}-${String(schMonth+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+    const daySlots=slots.filter(s=>s.date===ds);
+    const isToday=ds===today, isSel=ds===schSelectedDate;
+    const dots=daySlots.slice(0,5).map(s=>`<div class="cal-dot ${(s.bookings||[]).length>=(s.capacity||1)?"full":""}"></div>`).join("");
+    html+=`<div class="cal-day ${isToday?"today":""} ${isSel?"selected":""}" onclick="schSelectDate('${ds}')">
+      <div class="cal-day-num">${d}</div><div class="cal-dots">${dots}</div></div>`;
+  }
+  document.getElementById("sch-calGrid").innerHTML=html;
+  schRenderDayPanel();
+}
+
+
+/* Sync slot bookings → pilates_classes for attendance tracking */
+function syncSlotToAttendance(slot){
+  if(!slot||!(slot.bookings||[]).length) return;
+  const classes=loadClasses();
+  const existingIdx=classes.findIndex(c=>c.slotId===slot.id);
+  const students=loadStudents();
+  const cfg=bkLoadCfg();
+  const type=cfg.classTypes?.find(t=>String(t.id)===String(slot.typeId));
+  const className=(type?(type.icon||'')+' '+type.name:'課程');
+  // Build members — preserve existing status if already set
+  const existingMembers=existingIdx>=0?classes[existingIdx].members:[];
+  const members=slot.bookings.map(b=>{
+    const stu=students.find(s=>s.name.trim()===b.name.trim());
+    const prev=existingMembers.find(m=>m.studentName===b.name);
+    return {
+      studentId:stu?stu.id:('ext-'+b.name.replace(/\s/g,'-')),
+      studentName:b.name,
+      color:stu?stu.color||'c0':'c0',
+      status:prev?prev.status:'pending'
+    };
+  });
+  if(existingIdx>=0){
+    classes[existingIdx].members=members;
+    classes[existingIdx].name=className;
+    classes[existingIdx].time=slot.time;
+    classes[existingIdx].saved=classes[existingIdx].saved||false;
+  } else {
+    classes.push({
+      id:'slot-'+slot.id,
+      slotId:slot.id,
+      date:slot.date,
+      name:className,
+      time:slot.time,
+      location:slot.location||'',
+      saved:true,
+      members
+    });
+  }
+  saveClasses(classes);
+}
+
+function schSelectDate(ds){
+  schSelectedDate=ds;
+  schRenderCalendar();
+}
+
+function schRenderDayPanel(){
+  const slots=loadSlots().filter(s=>s.date===schSelectedDate).sort((a,b)=>a.time.localeCompare(b.time));
+  const cfg=bkLoadCfg();
+  const d=new Date(schSelectedDate+"T00:00:00");
+  const label=`${d.getMonth()+1}月${d.getDate()}日（${SCH_DAYS[d.getDay()]}）`;
+  let html=`<div style="font-size:13px;font-weight:500;color:var(--ink-mid);padding:12px 0 8px">${label}</div>`;
+  if(slots.length){
+    html+=slots.map(s=>{
+      const type=cfg.classTypes?.find(t=>String(t.id)===String(s.typeId));
+      const bookings=s.bookings||[], cap=s.capacity||1, full=bookings.length>=cap;
+      const names=bookings.length
+        ? bookings.map(b=>b.name+(b.phone?' ('+b.phone+')':'')).join('、')
+        : '（尚無預約）';
+      return `<div class="sch-slot-card" onclick="schOpenEditSlot('${s.id}')">
+        <div class="sch-slot-time">${s.time}</div>
+        <div class="sch-slot-body">
+          <div class="sch-slot-name">${type?(type.icon||"")+" "+type.name:"課程"}</div>
+          <div class="sch-slot-meta">${s.duration||60}分鐘${s.location?" · "+s.location:""}</div>
+          <div class="sch-slot-meta" style="margin-top:3px;color:var(--sage)">${names}</div>
+        </div>
+        <div class="sch-slot-spots ${full?"full":"ok"}">${bookings.length}/${cap}</div>
+      </div>`;
+    }).join("");
+  } else {
+    html+=`<div style="text-align:center;padding:24px 0;color:var(--ink-light);font-size:13px">這天還沒有課程時段</div>`;
+  }
+  html+=`<button class="sch-add-slot-btn" onclick="schOpenAddSlot()">＋ 新增 ${label} 的課程時段</button>`;
+  document.getElementById("sch-dayPanel").innerHTML=html;
+}
+
+function schOpenAddSlot(){
+  schInitCalendar();
+  document.getElementById("slot-date").value=schSelectedDate;
+  document.getElementById("slot-time").value="09:00";
+  document.getElementById("slot-duration").value="60";
+  document.getElementById("slot-capacity").value="1";
+  document.getElementById("slot-loc").value="";
+  document.getElementById("slot-repeat").value="none";
+  document.getElementById("slot-repeat-end-row").style.display="none";
+  document.getElementById("slot-edit-id").value="";
+  document.getElementById("slotSheetTitle").textContent="新增時段";
+  document.getElementById("slot-del-btn").style.display="none";
+  openSheet("sheet-slotAdd");
+}
+
+function schOpenEditSlot(slotId){
+  const s=loadSlots().find(s=>s.id===slotId);
+  if(!s) return;
+  schInitCalendar();
+  document.getElementById("slot-date").value=s.date;
+  document.getElementById("slot-time").value=s.time;
+  document.getElementById("slot-duration").value=s.duration||60;
+  const typeEl=document.getElementById("slot-type");
+  if(typeEl) typeEl.value=s.typeId||"";
+  document.getElementById("slot-capacity").value=s.capacity||1;
+  document.getElementById("slot-loc").value=s.location||"";
+  document.getElementById("slot-repeat").value="none";
+  document.getElementById("slot-repeat-end-row").style.display="none";
+  document.getElementById("slot-edit-id").value=slotId;
+  document.getElementById("slotSheetTitle").textContent="編輯時段";
+  document.getElementById("slot-del-btn").style.display="block";
+  openSheet("sheet-slotAdd");
+}
+
+function schSaveSlot(){
+  const date=document.getElementById("slot-date").value;
+  const time=document.getElementById("slot-time").value;
+  const duration=parseInt(document.getElementById("slot-duration").value)||60;
+  const typeId=document.getElementById("slot-type")?.value||"";
+  const capacity=parseInt(document.getElementById("slot-capacity").value)||1;
+  const location=document.getElementById("slot-loc").value.trim();
+  const repeat=document.getElementById("slot-repeat").value;
+  const repeatEnd=document.getElementById("slot-repeat-end").value;
+  const editId=document.getElementById("slot-edit-id").value;
+  if(!date||!time){ toast("請填寫日期與時間"); return; }
+  const oldBookings=editId?(loadSlots().find(s=>s.id===editId)?.bookings||[]):[];
+  let slots=loadSlots().filter(s=>s.id!==editId);
+  if(repeat==="weekly"&&repeatEnd&&repeatEnd>date){
+    let cur=new Date(date+"T00:00:00");
+    const end=new Date(repeatEnd+"T00:00:00");
+    while(cur<=end){
+      const ds=cur.toISOString().split("T")[0];
+      slots.push({id:`${ds}-${time}-${Date.now()+Math.random()*1000|0}`,date:ds,time,duration,typeId,capacity,location,bookings:[]});
+      cur.setDate(cur.getDate()+7);
+    }
+  } else {
+    slots.push({id:editId||`${date}-${time}-${Date.now()}`,date,time,duration,typeId,capacity,location,bookings:oldBookings});
+  }
+  saveSlots(slots);
+  // sync any booked slots to attendance classes
+  slots.filter(s=>s.date>=date&&(s.bookings||[]).length>0).forEach(syncSlotToAttendance);
+  closeSheets();
+  schRenderCalendar();
+  toast("✓ 時段已儲存");
+}
+
+function schDeleteSlot(){
+  const editId=document.getElementById("slot-edit-id").value;
+  if(!editId||!confirm("確定要刪除此時段嗎？")) return;
+  saveSlots(loadSlots().filter(s=>s.id!==editId));
+  // Also remove the corresponding attendance class
+  const updatedClasses=loadClasses().filter(c=>c.slotId!==editId);
+  saveClasses(updatedClasses);
+  closeSheets();
+  schRenderCalendar();
+  toast("已刪除時段及對應課堂");
+}
+
+
+/* ══════════════════════════════════
+   INIT
+══════════════════════════════════ */
+document.getElementById('att-dateInput').value=attDate;
+updateDateLabel();
+updateMonthLabel();
+renderStudents();
+updateBadges();
+</script>
+</body>
+</html>
