@@ -2369,6 +2369,155 @@ updateDateLabel();
 updateMonthLabel();
 renderStudents();
 updateBadges();
+
+
+
+/* ═══════════════════════════════════════════════════
+   FIREBASE REAL-TIME SYNC
+   資料即時同步 — Firestore
+═══════════════════════════════════════════════════ */
+const _FB_CONFIG = {
+  apiKey: "AIzaSyDksa4iYf3aGqhKi9cp-WfDJrtOh_utX1U",
+  authDomain: "gyrobooking-fbfd5.firebaseapp.com",
+  projectId: "gyrobooking-fbfd5",
+  storageBucket: "gyrobooking-fbfd5.firebasestorage.app",
+  messagingSenderId: "46281828012",
+  appId: "1:46281828012:web:abde543029136cce332109"
+};
+
+// Firebase loaded via CDN (module compat version — works in plain <script>)
+const _FB_BASE = 'https://www.gstatic.com/firebasejs/10.12.2';
+let _fbApp = null, _fbDb = null, _fbReady = false;
+let _fbListeners = {};  // real-time listeners
+
+async function _fbInit() {
+  if (_fbReady) return true;
+  try {
+    const { initializeApp, getApps } = await import(_FB_BASE + '/firebase-app.js');
+    const { getFirestore, doc, getDoc, setDoc, onSnapshot, enableNetwork } = await import(_FB_BASE + '/firebase-firestore.js');
+    _fbApp = getApps().length ? getApps()[0] : initializeApp(_FB_CONFIG);
+    _fbDb = getFirestore(_fbApp);
+    window._fbFirestore = { doc, getDoc, setDoc, onSnapshot };
+    _fbReady = true;
+    return true;
+  } catch(e) {
+    console.warn('Firebase init failed:', e);
+    return false;
+  }
+}
+
+// Keys to sync
+const DB_KEYS = ['students','tickets','classes','payments','slots','booking_cfg'];
+
+// Read from Firestore (with localStorage fallback)
+async function fbGet(key) {
+  if (!await _fbInit()) {
+    try { return JSON.parse(localStorage.getItem('pilates_'+key) || (key==='booking_cfg'?'{}':'[]')); } catch { return key==='booking_cfg'?{}:[]; }
+  }
+  try {
+    const { doc, getDoc } = window._fbFirestore;
+    const snap = await getDoc(doc(_fbDb, 'data', key));
+    if (snap.exists()) {
+      const val = snap.data().value;
+      // Cache to localStorage
+      localStorage.setItem('pilates_'+key, JSON.stringify(val));
+      return val;
+    }
+    // Fallback to localStorage if Firestore empty
+    try { return JSON.parse(localStorage.getItem('pilates_'+key) || (key==='booking_cfg'?'{}':'[]')); } catch { return key==='booking_cfg'?{}:[]; }
+  } catch(e) {
+    try { return JSON.parse(localStorage.getItem('pilates_'+key) || (key==='booking_cfg'?'{}':'[]')); } catch { return key==='booking_cfg'?{}:[]; }
+  }
+}
+
+// Write to Firestore + localStorage
+async function fbSet(key, value) {
+  localStorage.setItem('pilates_'+key, JSON.stringify(value));
+  if (!await _fbInit()) return;
+  try {
+    const { doc, setDoc } = window._fbFirestore;
+    await setDoc(doc(_fbDb, 'data', key), { value: value, updated: Date.now() });
+  } catch(e) {
+    console.warn('Firebase write failed:', e);
+  }
+}
+
+// Subscribe to real-time updates for all keys
+async function fbSubscribeAll() {
+  if (!await _fbInit()) return;
+  const { doc, onSnapshot } = window._fbFirestore;
+  DB_KEYS.forEach(key => {
+    if (_fbListeners[key]) return; // already subscribed
+    _fbListeners[key] = onSnapshot(doc(_fbDb, 'data', key), snap => {
+      if (!snap.exists()) return;
+      const val = snap.data().value;
+      const current = localStorage.getItem('pilates_'+key);
+      const incoming = JSON.stringify(val);
+      if (incoming !== current) {
+        localStorage.setItem('pilates_'+key, incoming);
+        // Refresh relevant UI
+        try {
+          if (key==='students' && typeof renderStudents==='function') renderStudents();
+          if (key==='tickets' && typeof renderStudents==='function') renderStudents();
+          if (key==='classes' && typeof renderAttendance==='function') renderAttendance();
+          if (key==='payments' && typeof renderFinance==='function') renderFinance();
+          if (key==='slots' && typeof schRenderCalendar==='function') schRenderCalendar();
+          if (key==='booking_cfg') {
+            if (typeof bkRenderSettingsPage==='function') bkCfg=bkLoadCfg();
+            if (typeof renderPurchase==='function') renderPurchase();
+            if (typeof renderSchedule==='function') renderSchedule();
+          }
+          if (typeof updateBadges==='function') updateBadges();
+        } catch(e) {}
+      }
+    }, e => console.warn('Firestore listener error:', e));
+  });
+}
+
+// Override all save functions to use Firestore
+function saveStudents(d){ localStorage.setItem('pilates_students',JSON.stringify(d)); fbSet('students',d); }
+function saveTickets(d){  localStorage.setItem('pilates_tickets', JSON.stringify(d)); fbSet('tickets',d); }
+function saveClasses(d){  localStorage.setItem('pilates_classes', JSON.stringify(d)); fbSet('classes',d); }
+function savePayments(d){ localStorage.setItem('pilates_payments',JSON.stringify(d)); fbSet('payments',d); }
+function saveSlots(d){    localStorage.setItem('pilates_slots',   JSON.stringify(d)); fbSet('slots',d); }
+function bkSaveCfg(d){   localStorage.setItem('pilates_booking_cfg',JSON.stringify(d)); fbSet('booking_cfg',d); }
+
+// Sync indicator dot
+(function addSyncDot(){
+  const dot=document.createElement('div');
+  dot.id='sync-dot';
+  dot.style.cssText='position:fixed;top:8px;right:8px;width:8px;height:8px;border-radius:50%;background:#6b8f71;opacity:0;z-index:9998;transition:opacity .4s;pointer-events:none';
+  document.body.appendChild(dot);
+  // Flash when writing
+  const origFbSet=fbSet;
+  window.fbSet=async function(k,v){
+    dot.style.opacity='1';
+    await origFbSet(k,v);
+    setTimeout(()=>dot.style.opacity='0',800);
+  };
+})();
+
+// On load: pull fresh data from Firestore, then subscribe to real-time updates
+window.addEventListener('load', async function(){
+  if (!await _fbInit()) return;
+  // Pull all keys fresh
+  try {
+    await Promise.all(DB_KEYS.map(k=>fbGet(k)));
+    // Re-render with fresh data
+    try {
+      if(typeof renderStudents==='function') renderStudents();
+      if(typeof renderAttendance==='function') renderAttendance();
+      if(typeof renderFinance==='function') renderFinance();
+      if(typeof updateBadges==='function') updateBadges();
+      if(typeof renderPurchase==='function') renderPurchase();
+      if(typeof bkRenderSettingsPage==='function' && document.getElementById('page-booking')?.classList.contains('active')) bkRenderSettingsPage();
+    } catch(e){}
+  } catch(e){}
+  // Subscribe to real-time changes
+  fbSubscribeAll();
+});
+
+
 </script>
 </body>
 </html>
