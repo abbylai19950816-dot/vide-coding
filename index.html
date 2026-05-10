@@ -264,8 +264,7 @@ const BK_DEFAULT={teacherName:"嬋柔老師",lineId:"",classTypes:[{id:1,name:"�
 function loadCfg(){try{const r=localStorage.getItem("pilates_booking_cfg");if(!r)return BK_DEFAULT;const s=JSON.parse(r);return{teacherName:s.teacherName||BK_DEFAULT.teacherName,lineId:s.lineId||"",classTypes:(s.classTypes&&s.classTypes.length)?s.classTypes:BK_DEFAULT.classTypes,infoBlocks:(s.infoBlocks&&s.infoBlocks.length)?s.infoBlocks:BK_DEFAULT.infoBlocks};}catch{return BK_DEFAULT;}}
 function loadSlots(){try{return JSON.parse(localStorage.getItem("pilates_slots")||"[]");}catch{return[];}}
 function loadPayments(){try{return JSON.parse(localStorage.getItem("pilates_payments")||"[]");}catch{return[];}}
-function savePayments(d){localStorage.setItem("pilates_payments",JSON.stringify(d));}
-function saveSlots(d){localStorage.setItem("pilates_slots",JSON.stringify(d));}
+// savePayments and saveSlots defined below with Firebase sync
 const DAYS=["日","一","二","三","四","五","六"];
 let cfg=loadCfg();
 let selTypeId=null,selPlanId=null,bookingData=null;
@@ -404,7 +403,7 @@ function submitPurchase(){
         ecName:"",ecRel:"",ecPhone:"",notes:note,
         color:COLORS[stuList.length%COLORS.length],fromBooking:true});
     }
-    localStorage.setItem("pilates_students",JSON.stringify(stuList));
+    saveStudents(stuList);  // triggers Firebase sync
   }catch(e){}
 
   // Create payment record
@@ -758,7 +757,7 @@ function loopBooking(){
       const deduct=Math.min(t.left,left);
       tickets[ti].left-=deduct; left-=deduct;
     }
-    localStorage.setItem('pilates_tickets',JSON.stringify(tickets));
+    saveTickets(tickets);  // triggers Firebase sync
   }catch(e){}
 
   // Sync to pilates_classes
@@ -780,7 +779,7 @@ function loopBooking(){
       if(existingIdx>=0){allClasses[existingIdx].members=members;allClasses[existingIdx].name=clsName;}
       else allClasses.push({id:'slot-'+updatedSlot.id,slotId:updatedSlot.id,date:updatedSlot.date,name:clsName,time:updatedSlot.time,location:updatedSlot.location||'',saved:true,members});
     }
-    localStorage.setItem('pilates_classes',JSON.stringify(allClasses));
+    saveClasses(allClasses);  // triggers Firebase sync
   }catch(e){}
 
   // Update student scheduledBookings
@@ -792,7 +791,7 @@ function loopBooking(){
       for(const slot of future.slice(0,booked)){
         students[si].scheduledBookings.push({slotId:slot.id,date:slot.date,time:slot.time,typeId:slot.typeId,typeName:slot.typeName||'',ts:Date.now()});
       }
-      localStorage.setItem('pilates_students',JSON.stringify(students));
+      saveStudents(students);  // Firebase sync
     }
   }catch(e){}
 
@@ -869,7 +868,7 @@ function batchSubmitBooking(){
       const deduct=Math.min(t.left,left);
       tickets[ti].left-=deduct; left-=deduct;
     }
-    localStorage.setItem('pilates_tickets',JSON.stringify(tickets));
+    saveTickets(tickets);  // triggers Firebase sync
     const newRem=tickets.filter(t=>(t.studentName||'').trim().toLowerCase()===verifiedName.toLowerCase()&&t.left>0&&(!t.expireDate||t.expireDate>=now)).reduce((s,t)=>s+t.left,0);
     const rb=document.getElementById('sch-remain-badge');
     if(rb) rb.textContent=newRem>0?'剩餘 '+newRem+' 堂可預約':'已無剩餘堂數';
@@ -887,12 +886,12 @@ function batchSubmitBooking(){
       if(existingIdx>=0){allClasses[existingIdx].members=members;allClasses[existingIdx].name=clsName;}
       else allClasses.push({id:'slot-'+slot.id,slotId:slot.id,date:slot.date,name:clsName,time:slot.time,location:slot.location||'',saved:true,members});
     }
-    localStorage.setItem('pilates_classes',JSON.stringify(allClasses));
+    saveClasses(allClasses);  // triggers Firebase sync
     const si=allStudents.findIndex(st=>st.name.trim()===verifiedName);
     if(si>=0){
       allStudents[si].scheduledBookings=allStudents[si].scheduledBookings||[];
       for(const slot of bookedSlots) allStudents[si].scheduledBookings.push({slotId:slot.id,date:slot.date,time:slot.time,typeId:slot.typeId,typeName:slot.typeName||'',ts:Date.now()});
-      localStorage.setItem('pilates_students',JSON.stringify(allStudents));
+      saveStudents(allStudents);  // triggers Firebase sync
     }
   }catch(e){}
 
