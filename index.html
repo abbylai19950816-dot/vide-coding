@@ -146,6 +146,29 @@ footer{text-align:center;padding:14px 20px 30px;font-size:12px;color:var(--ink-l
 .slot-preview-time{font-size:15px;font-weight:500;color:var(--sage-deep)}
 .slot-preview-meta{font-size:12px;color:var(--ink-mid);margin-top:3px}
 </style>
+<!-- Firebase SDK -->
+<script type="module">
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
+import { getFirestore, doc, getDoc, setDoc, onSnapshot } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
+const firebaseConfig={apiKey:"AIzaSyDksa4iYf3aGqhKi9cp-WfDJrtOh_utX1U",authDomain:"gyrobooking-fbfd5.firebaseapp.com",projectId:"gyrobooking-fbfd5",storageBucket:"gyrobooking-fbfd5.firebasestorage.app",messagingSenderId:"46281828012",appId:"1:46281828012:web:abde543029136cce332109"};
+const app=initializeApp(firebaseConfig);
+const db=getFirestore(app);
+const DB_KEYS=['students','tickets','classes','payments','slots','booking_cfg'];
+window._fb={
+  async get(key){
+    try{const snap=await getDoc(doc(db,'data',key));if(snap.exists()){const v=snap.data().value;localStorage.setItem('pilates_'+key,JSON.stringify(v));return v;}}catch(e){console.warn('fbGet',key,e);}
+    try{return JSON.parse(localStorage.getItem('pilates_'+key)||(key==='booking_cfg'?'{}':'[]'));}catch{return key==='booking_cfg'?{}:[];}
+  },
+  async set(key,value){
+    localStorage.setItem('pilates_'+key,JSON.stringify(value));
+    try{await setDoc(doc(db,'data',key),{value,updated:Date.now()});}catch(e){console.warn('fbSet',key,e);}
+  },
+  subscribe(key,cb){return onSnapshot(doc(db,'data',key),snap=>{if(snap.exists())cb(key,snap.data().value);},e=>console.warn('listener',key,e));},
+  subscribeAll(cb){DB_KEYS.forEach(k=>this.subscribe(k,cb));}
+};
+window._fbReady=true;
+window.dispatchEvent(new Event('firebase-ready'));
+</script>
 </head>
 <body>
 <div class="page active" id="page-purchase">
@@ -924,92 +947,94 @@ renderPurchase();
 
 
 
+
 /* ═══════════════════════════════════════════════════
    FIREBASE REAL-TIME SYNC
-   資料即時同步 — Firestore
+   Reads from window._fb (set up in <head> module script)
 ═══════════════════════════════════════════════════ */
-const _FB_CONFIG = {
-  apiKey: "AIzaSyDksa4iYf3aGqhKi9cp-WfDJrtOh_utX1U",
-  authDomain: "gyrobooking-fbfd5.firebaseapp.com",
-  projectId: "gyrobooking-fbfd5",
-  storageBucket: "gyrobooking-fbfd5.firebasestorage.app",
-  messagingSenderId: "46281828012",
-  appId: "1:46281828012:web:abde543029136cce332109"
-};
-const _FB_BASE = 'https://www.gstatic.com/firebasejs/10.12.2';
-let _fbApp=null,_fbDb=null,_fbReady=false,_fbListeners={};
 
-async function _fbInit(){
-  if(_fbReady) return true;
-  try{
-    const {initializeApp,getApps}=await import(_FB_BASE+'/firebase-app.js');
-    const {getFirestore,doc,getDoc,setDoc,onSnapshot}=await import(_FB_BASE+'/firebase-firestore.js');
-    _fbApp=getApps().length?getApps()[0]:initializeApp(_FB_CONFIG);
-    _fbDb=getFirestore(_fbApp);
-    window._fbs={doc,getDoc,setDoc,onSnapshot};
-    _fbReady=true; return true;
-  }catch(e){console.warn('Firebase init:',e);return false;}
+const DB_KEYS_SYNC = ['students','tickets','classes','payments','slots','booking_cfg'];
+let _fbListeners = {};
+
+async function fbGet(key) {
+  if (window._fb) return await window._fb.get(key);
+  try { return JSON.parse(localStorage.getItem('pilates_'+key)||(key==='booking_cfg'?'{}':'[]')); }
+  catch { return key==='booking_cfg'?{}:[]; }
 }
 
-const DB_KEYS=['students','tickets','classes','payments','slots','booking_cfg'];
-
-async function fbGet(key){
-  const fallback=()=>{try{return JSON.parse(localStorage.getItem('pilates_'+key)||(key==='booking_cfg'?'{}':'[]'));}catch{return key==='booking_cfg'?{}:[];}};
-  if(!await _fbInit()) return fallback();
-  try{
-    const snap=await _fbs.getDoc(_fbs.doc(_fbDb,'data',key));
-    if(snap.exists()){const v=snap.data().value;localStorage.setItem('pilates_'+key,JSON.stringify(v));return v;}
-    return fallback();
-  }catch(e){return fallback();}
+async function fbSet(key, value) {
+  localStorage.setItem('pilates_'+key, JSON.stringify(value));
+  if (window._fb) {
+    const dot = document.getElementById('sync-dot');
+    if (dot) dot.style.opacity = '1';
+    await window._fb.set(key, value);
+    if (dot) setTimeout(() => dot.style.opacity = '0', 800);
+  }
 }
 
-async function fbSet(key,value){
-  localStorage.setItem('pilates_'+key,JSON.stringify(value));
-  if(!await _fbInit()) return;
-  try{await _fbs.setDoc(_fbs.doc(_fbDb,'data',key),{value:value,updated:Date.now()});}catch(e){console.warn('fbSet:',e);}
-}
-
-async function fbSubscribeAll(){
-  if(!await _fbInit()) return;
-  DB_KEYS.forEach(key=>{
-    if(_fbListeners[key]) return;
-    _fbListeners[key]=_fbs.onSnapshot(_fbs.doc(_fbDb,'data',key),snap=>{
-      if(!snap.exists()) return;
-      const v=snap.data().value;
-      const cur=localStorage.getItem('pilates_'+key);
-      if(JSON.stringify(v)!==cur){
-        localStorage.setItem('pilates_'+key,JSON.stringify(v));
-        try{
-          if(key==='slots'&&typeof renderSlotList==='function') renderSlotList();
-          if(key==='booking_cfg'){if(typeof renderPurchase==='function'){cfg=loadCfg();renderPurchase();}}
-        }catch(e){}
+function fbSubscribeAll() {
+  if (!window._fb) return;
+  window._fb.subscribeAll(function(key, value) {
+    const cur = localStorage.getItem('pilates_'+key);
+    if (JSON.stringify(value) === cur) return;
+    localStorage.setItem('pilates_'+key, JSON.stringify(value));
+    try {
+      if (key==='students'  && typeof renderStudents==='function')  renderStudents();
+      if (key==='tickets'   && typeof renderStudents==='function')  renderStudents();
+      if (key==='classes'   && typeof renderAttendance==='function') renderAttendance();
+      if (key==='payments'  && typeof renderFinance==='function')   renderFinance();
+      if (key==='slots'     && typeof schRenderCalendar==='function') schRenderCalendar();
+      if (key==='slots'     && typeof renderSlotList==='function')  renderSlotList();
+      if (key==='booking_cfg') {
+        if (typeof bkLoadCfg==='function') { try { bkCfg=bkLoadCfg(); } catch(e){} }
+        if (typeof renderPurchase==='function') renderPurchase();
+        if (typeof renderSchedule==='function') renderSchedule();
       }
-    },e=>console.warn('listener:',e));
+      if (typeof updateBadges==='function') updateBadges();
+    } catch(e) {}
   });
 }
 
-function saveStudents(d){localStorage.setItem('pilates_students',JSON.stringify(d));fbSet('students',d);}
-function saveTickets(d){localStorage.setItem('pilates_tickets',JSON.stringify(d));fbSet('tickets',d);}
-function saveClasses(d){localStorage.setItem('pilates_classes',JSON.stringify(d));fbSet('classes',d);}
-function savePayments(d){localStorage.setItem('pilates_payments',JSON.stringify(d));fbSet('payments',d);}
-function saveSlots(d){localStorage.setItem('pilates_slots',JSON.stringify(d));fbSet('slots',d);}
-function bkSaveCfg(d){localStorage.setItem('pilates_booking_cfg',JSON.stringify(d));fbSet('booking_cfg',d);}
+// Override save functions to push to Firebase
+function saveStudents(d){ localStorage.setItem('pilates_students',JSON.stringify(d)); fbSet('students',d); }
+function saveTickets(d){  localStorage.setItem('pilates_tickets', JSON.stringify(d)); fbSet('tickets',d); }
+function saveClasses(d){  localStorage.setItem('pilates_classes', JSON.stringify(d)); fbSet('classes',d); }
+function savePayments(d){ localStorage.setItem('pilates_payments',JSON.stringify(d)); fbSet('payments',d); }
+function saveSlots(d){    localStorage.setItem('pilates_slots',   JSON.stringify(d)); fbSet('slots',d); }
+function bkSaveCfg(d){   localStorage.setItem('pilates_booking_cfg',JSON.stringify(d)); fbSet('booking_cfg',d); }
 
 // Sync dot indicator
-(function(){
-  const dot=document.createElement('div');
-  dot.style.cssText='position:fixed;top:8px;right:8px;width:8px;height:8px;border-radius:50%;background:#6b8f71;opacity:0;z-index:9998;transition:opacity .4s;pointer-events:none';
+(function() {
+  const dot = document.createElement('div');
+  dot.id = 'sync-dot';
+  dot.style.cssText = 'position:fixed;top:8px;right:8px;width:8px;height:8px;border-radius:50%;background:#6b8f71;opacity:0;z-index:9998;transition:opacity .4s;pointer-events:none';
   document.body.appendChild(dot);
-  const orig=fbSet;
-  window.fbSet=async function(k,v){dot.style.opacity='1';await orig(k,v);setTimeout(()=>dot.style.opacity='0',800);};
 })();
 
-window.addEventListener('load',async function(){
-  if(!await _fbInit()) return;
-  await Promise.all(DB_KEYS.map(k=>fbGet(k)));
-  try{cfg=loadCfg();renderPurchase();}catch(e){}
+// Pull fresh data on load, then subscribe to real-time updates
+async function initFirebaseSync() {
+  // Pull all keys from Firestore into localStorage
+  await Promise.all(DB_KEYS_SYNC.map(k => fbGet(k)));
+  // Re-render with fresh data
+  try {
+    if (typeof renderStudents==='function')   renderStudents();
+    if (typeof renderAttendance==='function') renderAttendance();
+    if (typeof renderFinance==='function')    renderFinance();
+    if (typeof updateBadges==='function')     updateBadges();
+    if (typeof renderPurchase==='function')   renderPurchase();
+    if (typeof renderSchedule==='function')   renderSchedule();
+    if (typeof bkLoadCfg==='function') { try { bkCfg=bkLoadCfg(); } catch(e){} }
+  } catch(e) {}
+  // Subscribe to real-time changes
   fbSubscribeAll();
-});
+}
+
+// Run when Firebase module is ready
+if (window._fbReady) {
+  initFirebaseSync();
+} else {
+  window.addEventListener('firebase-ready', initFirebaseSync);
+}
 
 </script>
 </body>
