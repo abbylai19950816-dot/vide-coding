@@ -690,15 +690,10 @@ window.dispatchEvent(new Event('firebase-ready'));
       <div id="bk-ctypeEditor"></div>
       <button class="bk-pe-add" onclick="bkAddCtype()" style="margin-bottom:4px">＋ 新增課程類型</button>
 
-      <!-- Danger Zone -->
-      <div class="section-label" style="margin-top:24px;color:var(--warn)">危險操作</div>
-      <div class="form-section" style="border:1.5px solid var(--warn-bg);border-radius:var(--radius-sm);padding:12px">
-        <p style="font-size:12px;color:var(--ink-mid);margin-bottom:10px">清空所有資料（學員、方案、出缺勤、收費、時段），此動作無法復原。</p>
-        <button onclick="clearAllFirestoreData()" style="background:var(--warn-bg);color:var(--warn);border:1.5px solid var(--warn);border-radius:99px;padding:8px 18px;font-size:13px;font-weight:500;font-family:inherit;cursor:pointer">🗑 清空所有資料</button>
-      </div>
       <p style="font-size:12px;color:var(--ink-light);margin:0 0 8px 2px;line-height:1.5">學員看到的介紹文字，可自由新增、刪除、修改</p>
       <div id="bk-infoEditor"></div>
       <button class="bk-pe-add" onclick="bkAddInfoBlock()" style="margin-bottom:4px">＋ 新增區塊</button>
+
 
     </div>
   </div>
@@ -1938,20 +1933,6 @@ let bkBookingData = null;
 /* ══════════════════════════════════
    BOOKING PAGE (settings only — student page is booking-public.html)
 ══════════════════════════════════ */
-async function clearAllFirestoreData(){
-  if(!confirm('確定要清空所有資料嗎？此動作無法復原。')) return;
-  if(!confirm('再次確認：所有學員、方案、出缺勤、收費、時段資料都會被刪除。')) return;
-  const keys=['students','tickets','classes','payments','slots'];
-  // Clear localStorage
-  keys.forEach(k=>{ localStorage.setItem('pilates_'+k,'[]'); });
-  // Clear Firestore
-  if(window._fb){
-    await Promise.all(keys.map(k=>window._fb.set(k,[])));
-  }
-  renderStudents();
-  updateBadges();
-  toast('✓ 所有資料已清空');
-}
 
 
 function bkReset(){ /* no-op: booking page removed from admin */ }
