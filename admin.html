@@ -560,7 +560,7 @@ window.dispatchEvent(new Event('firebase-ready'));
 <script>
 (function(){
   // Change this password to whatever you want
-  var PW = 'zhinrou2025';
+  var PW = 'admin';
   var SESSION_KEY = 'admin_auth';
   if(sessionStorage.getItem(SESSION_KEY)==='ok'){
     document.getElementById('pw-gate').style.display='none';
@@ -690,8 +690,12 @@ window.dispatchEvent(new Event('firebase-ready'));
       <div id="bk-ctypeEditor"></div>
       <button class="bk-pe-add" onclick="bkAddCtype()" style="margin-bottom:4px">＋ 新增課程類型</button>
 
-      <!-- Info blocks -->
-      <div class="section-label" style="margin-top:16px">報名頁介紹區塊</div>
+      <!-- Danger Zone -->
+      <div class="section-label" style="margin-top:24px;color:var(--warn)">危險操作</div>
+      <div class="form-section" style="border:1.5px solid var(--warn-bg);border-radius:var(--radius-sm);padding:12px">
+        <p style="font-size:12px;color:var(--ink-mid);margin-bottom:10px">清空所有資料（學員、方案、出缺勤、收費、時段），此動作無法復原。</p>
+        <button onclick="clearAllFirestoreData()" style="background:var(--warn-bg);color:var(--warn);border:1.5px solid var(--warn);border-radius:99px;padding:8px 18px;font-size:13px;font-weight:500;font-family:inherit;cursor:pointer">🗑 清空所有資料</button>
+      </div>
       <p style="font-size:12px;color:var(--ink-light);margin:0 0 8px 2px;line-height:1.5">學員看到的介紹文字，可自由新增、刪除、修改</p>
       <div id="bk-infoEditor"></div>
       <button class="bk-pe-add" onclick="bkAddInfoBlock()" style="margin-bottom:4px">＋ 新增區塊</button>
@@ -1039,7 +1043,7 @@ function updateBadges(){
   const el2=document.getElementById('nav-badge-finance');
   if(el2){ el2.textContent=unpaidCount||''; el2.classList.toggle('show',unpaidCount>0); }
   // low ticket warning on student nav
-  const lowTkt = loadTickets().filter(t=>!isTicketExpired(t)&&t.left>0&&t.left<=3).length;
+  const _tkts = loadTickets(); const lowTkt = Array.isArray(_tkts)?_tkts.filter(t=>t&&!isTicketExpired(t)&&t.left>0&&t.left<=3).length:0;
   const el1=document.getElementById('nav-badge-students');
   if(el1){ el1.textContent=lowTkt||''; el1.classList.toggle('show',lowTkt>0); }
 }
@@ -1073,8 +1077,8 @@ function renderStudents(){
   if(q) students = students.filter(s=>s.name.toLowerCase().includes(q)||(s.phone||'').includes(q));
   const allTkts = loadTickets();
   const total = loadStudents().length;
-  const active = allTkts.filter(t=>!isTicketExpired(t)).length;
-  const low = allTkts.filter(t=>!isTicketExpired(t)&&t.left>0&&t.left<=3).length;
+  const active = Array.isArray(allTkts) ? allTkts.filter(t=>t&&!isTicketExpired(t)).length : 0;
+  const low = Array.isArray(allTkts) ? allTkts.filter(t=>t&&!isTicketExpired(t)&&t.left>0&&t.left<=3).length : 0;
   document.getElementById('stu-stats').innerHTML=
     '<div class="stat-pill"><div class="stat-num">'+total+'</div><div class="stat-label">學員總數</div></div>'+
     '<div class="stat-pill"><div class="stat-num">'+active+'</div><div class="stat-label">有效方案</div></div>'+
@@ -1934,7 +1938,22 @@ let bkBookingData = null;
 /* ══════════════════════════════════
    BOOKING PAGE (settings only — student page is booking-public.html)
 ══════════════════════════════════ */
-function bkRenderPlansForPage(){ bkRenderSettingsPage(); }
+async function clearAllFirestoreData(){
+  if(!confirm('確定要清空所有資料嗎？此動作無法復原。')) return;
+  if(!confirm('再次確認：所有學員、方案、出缺勤、收費、時段資料都會被刪除。')) return;
+  const keys=['students','tickets','classes','payments','slots'];
+  // Clear localStorage
+  keys.forEach(k=>{ localStorage.setItem('pilates_'+k,'[]'); });
+  // Clear Firestore
+  if(window._fb){
+    await Promise.all(keys.map(k=>window._fb.set(k,[])));
+  }
+  renderStudents();
+  updateBadges();
+  toast('✓ 所有資料已清空');
+}
+
+
 function bkReset(){ /* no-op: booking page removed from admin */ }
 function bkSubmit(){ /* no-op */ }
 function bkOpenLine(){ /* no-op */ }
@@ -2396,13 +2415,19 @@ updateBadges();
 
 
 
+
 /* ═══════════════════════════════════════════════════
    FIREBASE REAL-TIME SYNC
-   Reads from window._fb (set up in <head> module script)
+   - Static import via <head> module script
+   - initFirebaseSync runs ONCE
+   - Listeners prevent duplicates
+   - Debounced render to prevent read storms
 ═══════════════════════════════════════════════════ */
 
 const DB_KEYS_SYNC = ['students','tickets','classes','payments','slots','booking_cfg'];
-let _fbListeners = {};
+const _fbUnsubscribers = {};  // prevent duplicate listeners
+let _syncInitDone = false;    // run initFirebaseSync only once
+let _renderTimer = null;      // debounce renders
 
 async function fbGet(key) {
   if (window._fb) return await window._fb.get(key);
@@ -2412,34 +2437,43 @@ async function fbGet(key) {
 
 async function fbSet(key, value) {
   localStorage.setItem('pilates_'+key, JSON.stringify(value));
-  if (window._fb) {
-    const dot = document.getElementById('sync-dot');
-    if (dot) dot.style.opacity = '1';
-    await window._fb.set(key, value);
-    if (dot) setTimeout(() => dot.style.opacity = '0', 800);
-  }
+  const dot = document.getElementById('sync-dot');
+  if (dot) dot.style.opacity = '1';
+  if (window._fb) await window._fb.set(key, value);
+  if (dot) setTimeout(() => dot.style.opacity = '0', 800);
+}
+
+function _debouncedRender() {
+  // Debounce: only re-render 500ms after the LAST incoming change
+  clearTimeout(_renderTimer);
+  _renderTimer = setTimeout(function() {
+    try {
+      if (typeof renderStudents==='function')   renderStudents();
+      if (typeof renderAttendance==='function') renderAttendance();
+      if (typeof renderFinance==='function')    renderFinance();
+      if (typeof updateBadges==='function')     updateBadges();
+    } catch(e) {}
+  }, 500);
 }
 
 function fbSubscribeAll() {
   if (!window._fb) return;
-  window._fb.subscribeAll(function(key, value) {
-    const cur = localStorage.getItem('pilates_'+key);
-    if (JSON.stringify(value) === cur) return;
-    localStorage.setItem('pilates_'+key, JSON.stringify(value));
-    try {
-      if (key==='students'  && typeof renderStudents==='function')  renderStudents();
-      if (key==='tickets'   && typeof renderStudents==='function')  renderStudents();
-      if (key==='classes'   && typeof renderAttendance==='function') renderAttendance();
-      if (key==='payments'  && typeof renderFinance==='function')   renderFinance();
-      if (key==='slots'     && typeof schRenderCalendar==='function') schRenderCalendar();
-      if (key==='slots'     && typeof renderSlotList==='function')  renderSlotList();
-      if (key==='booking_cfg') {
-        if (typeof bkLoadCfg==='function') { try { bkCfg=bkLoadCfg(); } catch(e){} }
-        if (typeof renderPurchase==='function') renderPurchase();
-        if (typeof renderSchedule==='function') renderSchedule();
-      }
-      if (typeof updateBadges==='function') updateBadges();
-    } catch(e) {}
+  DB_KEYS_SYNC.forEach(function(key) {
+    if (_fbUnsubscribers[key]) return; // already subscribed — skip
+    _fbUnsubscribers[key] = window._fb.subscribe(key, function(k, value) {
+      const cur = localStorage.getItem('pilates_'+k);
+      const incoming = JSON.stringify(value);
+      if (incoming === cur) return; // no change — skip render
+      localStorage.setItem('pilates_'+k, incoming);
+      // Targeted render for booking_cfg and slots (needed on student page)
+      try {
+        if (k==='booking_cfg') {
+          try { bkCfg=bkLoadCfg(); } catch(e){}
+        }
+        if (k==='slots' && typeof schRenderCalendar==='function') schRenderCalendar();
+      } catch(e) {}
+      _debouncedRender();
+    });
   });
 }
 
@@ -2455,33 +2489,41 @@ function bkSaveCfg(d){   localStorage.setItem('pilates_booking_cfg',JSON.stringi
 (function() {
   const dot = document.createElement('div');
   dot.id = 'sync-dot';
+  dot.title = '雲端同步中';
   dot.style.cssText = 'position:fixed;top:8px;right:8px;width:8px;height:8px;border-radius:50%;background:#6b8f71;opacity:0;z-index:9998;transition:opacity .4s;pointer-events:none';
   document.body.appendChild(dot);
 })();
 
-// Pull fresh data on load, then subscribe to real-time updates
 async function initFirebaseSync() {
-  // Pull all keys from Firestore into localStorage
-  await Promise.all(DB_KEYS_SYNC.map(k => fbGet(k)));
-  // Re-render with fresh data
+  if (_syncInitDone) return;  // GUARD: only run once
+  _syncInitDone = true;
+
+  // Pull all 6 keys from Firestore (6 reads total, one-time on load)
+  if (window._fb) {
+    await Promise.all(DB_KEYS_SYNC.map(function(k){ return window._fb.get(k); }));
+  }
+
+  // Re-render UI with fresh Firestore data
   try {
-    if (typeof renderStudents==='function')   renderStudents();
-    if (typeof renderAttendance==='function') renderAttendance();
-    if (typeof renderFinance==='function')    renderFinance();
-    if (typeof updateBadges==='function')     updateBadges();
-    if (typeof renderPurchase==='function')   renderPurchase();
-    if (typeof renderSchedule==='function')   renderSchedule();
-    if (typeof bkLoadCfg==='function') { try { bkCfg=bkLoadCfg(); } catch(e){} }
+    if (typeof renderStudents==='function')    renderStudents();
+    if (typeof renderAttendance==='function')  renderAttendance();
+    if (typeof renderFinance==='function')     renderFinance();
+    if (typeof updateBadges==='function')      updateBadges();
+    if (typeof bkRenderSettingsPage==='function' &&
+        document.getElementById('page-booking')?.classList.contains('active')) {
+      bkRenderSettingsPage();
+    }
   } catch(e) {}
-  // Subscribe to real-time changes
+
+  // Subscribe to real-time pushes (no polling, no interval)
   fbSubscribeAll();
 }
 
-// Run when Firebase module is ready
+// Run once when Firebase module signals ready
 if (window._fbReady) {
   initFirebaseSync();
 } else {
-  window.addEventListener('firebase-ready', initFirebaseSync);
+  window.addEventListener('firebase-ready', initFirebaseSync, { once: true });
 }
 
 </script>

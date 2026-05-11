@@ -948,13 +948,14 @@ renderPurchase();
 
 
 
+
 /* ═══════════════════════════════════════════════════
-   FIREBASE REAL-TIME SYNC
-   Reads from window._fb (set up in <head> module script)
+   FIREBASE REAL-TIME SYNC (student page)
 ═══════════════════════════════════════════════════ */
 
 const DB_KEYS_SYNC = ['students','tickets','classes','payments','slots','booking_cfg'];
-let _fbListeners = {};
+const _fbUnsubscribers = {};
+let _syncInitDone = false;
 
 async function fbGet(key) {
   if (window._fb) return await window._fb.get(key);
@@ -964,38 +965,26 @@ async function fbGet(key) {
 
 async function fbSet(key, value) {
   localStorage.setItem('pilates_'+key, JSON.stringify(value));
-  if (window._fb) {
-    const dot = document.getElementById('sync-dot');
-    if (dot) dot.style.opacity = '1';
-    await window._fb.set(key, value);
-    if (dot) setTimeout(() => dot.style.opacity = '0', 800);
-  }
+  if (window._fb) await window._fb.set(key, value);
 }
 
 function fbSubscribeAll() {
   if (!window._fb) return;
-  window._fb.subscribeAll(function(key, value) {
-    const cur = localStorage.getItem('pilates_'+key);
-    if (JSON.stringify(value) === cur) return;
-    localStorage.setItem('pilates_'+key, JSON.stringify(value));
-    try {
-      if (key==='students'  && typeof renderStudents==='function')  renderStudents();
-      if (key==='tickets'   && typeof renderStudents==='function')  renderStudents();
-      if (key==='classes'   && typeof renderAttendance==='function') renderAttendance();
-      if (key==='payments'  && typeof renderFinance==='function')   renderFinance();
-      if (key==='slots'     && typeof schRenderCalendar==='function') schRenderCalendar();
-      if (key==='slots'     && typeof renderSlotList==='function')  renderSlotList();
-      if (key==='booking_cfg') {
-        if (typeof bkLoadCfg==='function') { try { bkCfg=bkLoadCfg(); } catch(e){} }
-        if (typeof renderPurchase==='function') renderPurchase();
-        if (typeof renderSchedule==='function') renderSchedule();
-      }
-      if (typeof updateBadges==='function') updateBadges();
-    } catch(e) {}
+  // Only subscribe to keys the student page needs
+  ['slots','booking_cfg'].forEach(function(key) {
+    if (_fbUnsubscribers[key]) return;
+    _fbUnsubscribers[key] = window._fb.subscribe(key, function(k, value) {
+      const cur = localStorage.getItem('pilates_'+k);
+      if (JSON.stringify(value) === cur) return;
+      const incoming=JSON.stringify(value); localStorage.setItem('pilates_'+k, incoming);
+      try {
+        if (k==='slots' && typeof renderSlotList==='function') renderSlotList();
+        if (k==='booking_cfg') { cfg=loadCfg(); if(typeof renderPurchase==='function') renderPurchase(); }
+      } catch(e) {}
+    });
   });
 }
 
-// Override save functions to push to Firebase
 function saveStudents(d){ localStorage.setItem('pilates_students',JSON.stringify(d)); fbSet('students',d); }
 function saveTickets(d){  localStorage.setItem('pilates_tickets', JSON.stringify(d)); fbSet('tickets',d); }
 function saveClasses(d){  localStorage.setItem('pilates_classes', JSON.stringify(d)); fbSet('classes',d); }
@@ -1003,37 +992,21 @@ function savePayments(d){ localStorage.setItem('pilates_payments',JSON.stringify
 function saveSlots(d){    localStorage.setItem('pilates_slots',   JSON.stringify(d)); fbSet('slots',d); }
 function bkSaveCfg(d){   localStorage.setItem('pilates_booking_cfg',JSON.stringify(d)); fbSet('booking_cfg',d); }
 
-// Sync dot indicator
-(function() {
-  const dot = document.createElement('div');
-  dot.id = 'sync-dot';
-  dot.style.cssText = 'position:fixed;top:8px;right:8px;width:8px;height:8px;border-radius:50%;background:#6b8f71;opacity:0;z-index:9998;transition:opacity .4s;pointer-events:none';
-  document.body.appendChild(dot);
-})();
-
-// Pull fresh data on load, then subscribe to real-time updates
 async function initFirebaseSync() {
-  // Pull all keys from Firestore into localStorage
-  await Promise.all(DB_KEYS_SYNC.map(k => fbGet(k)));
-  // Re-render with fresh data
-  try {
-    if (typeof renderStudents==='function')   renderStudents();
-    if (typeof renderAttendance==='function') renderAttendance();
-    if (typeof renderFinance==='function')    renderFinance();
-    if (typeof updateBadges==='function')     updateBadges();
-    if (typeof renderPurchase==='function')   renderPurchase();
-    if (typeof renderSchedule==='function')   renderSchedule();
-    if (typeof bkLoadCfg==='function') { try { bkCfg=bkLoadCfg(); } catch(e){} }
-  } catch(e) {}
-  // Subscribe to real-time changes
+  if (_syncInitDone) return;
+  _syncInitDone = true;
+  // Pull only what student page needs on load (2 reads instead of 6)
+  if (window._fb) {
+    await Promise.all(['slots','booking_cfg'].map(k => window._fb.get(k)));
+  }
+  try { cfg=loadCfg(); if(typeof renderPurchase==='function') renderPurchase(); } catch(e) {}
   fbSubscribeAll();
 }
 
-// Run when Firebase module is ready
 if (window._fbReady) {
   initFirebaseSync();
 } else {
-  window.addEventListener('firebase-ready', initFirebaseSync);
+  window.addEventListener('firebase-ready', initFirebaseSync, { once: true });
 }
 
 </script>
