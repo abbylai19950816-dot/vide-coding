@@ -544,7 +544,7 @@ body{font-family:'Noto Sans TC',sans-serif;background:var(--sand);color:var(--in
 <!-- Firebase SDK -->
 <script type="module">
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
-import { getFirestore, doc, getDoc, setDoc, onSnapshot } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
+import { getFirestore, doc, getDoc, setDoc, onSnapshot, writeBatch } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 const firebaseConfig={apiKey:"AIzaSyDksa4iYf3aGqhKi9cp-WfDJrtOh_utX1U",authDomain:"gyrobooking-fbfd5.firebaseapp.com",projectId:"gyrobooking-fbfd5",storageBucket:"gyrobooking-fbfd5.firebasestorage.app",messagingSenderId:"46281828012",appId:"1:46281828012:web:abde543029136cce332109"};
 const app=initializeApp(firebaseConfig);
 const db=getFirestore(app);
@@ -572,6 +572,25 @@ window._fb={
     return onSnapshot(doc(db,'data',key),snap=>{if(snap.exists())cb(key,snap.data().value);},e=>console.warn('listener',key,e));
   },
   subscribeAll(cb){DB_KEYS.forEach(k=>this.subscribe(k,cb));},
+  // batch(): returns a helper that queues multiple writes → 1 Firestore round-trip
+  batch(){
+    const b=writeBatch(db);
+    const ops=[];
+    return {
+      set(key,value){
+        const serialized=JSON.stringify(value);
+        localStorage.setItem('pilates_'+key,serialized);
+        _flagsCache&&key==='web_config'?null:null; // flags cache unchanged
+        ops.push(key);
+        b.set(doc(db,'data',key),{value,updated:Date.now()});
+      },
+      async commit(){
+        // Mark all keys as own writes before committing
+        ops.forEach(k=>{ _ownWrites[k]=localStorage.getItem('pilates_'+k); });
+        try{ await b.commit(); }catch(e){ console.warn('batch commit',e); }
+      }
+    };
+  },
 
   // web_config/flags — use in-memory cache, single getDoc on first load only
   async getFlags(){
@@ -1054,6 +1073,7 @@ window._fb.initFlags().finally(()=>{
   <div class="sheet-body">
     <input type="hidden" id="cn-slotId">
     <input type="hidden" id="cn-studentId">
+    <input type="hidden" id="cn-logId">
     <div class="form-section">
       <div class="form-section-label">課程資訊</div>
       <div class="form-row"><label>日期與時間</label><span id="cn-datetime" style="font-size:14px;color:var(--ink);font-weight:500"></span></div>
@@ -1068,9 +1088,21 @@ window._fb.initFlags().finally(()=>{
       </div>
     </div>
     <div class="form-section">
-      <div class="form-section-label">課程備註</div>
+      <div class="form-section-label">課堂日誌</div>
       <div class="form-row" style="align-items:flex-start">
-        <textarea id="cn-note" rows="4" placeholder="上課狀況、老師觀察、學員進度…"></textarea>
+        <textarea id="cn-log-note" rows="6" placeholder="今天的課堂狀況、學員進度、下次重點…" style="font-size:15px;line-height:1.8"></textarea>
+      </div>
+    </div>
+    <div class="form-section">
+      <div class="form-section-label" style="color:var(--warn)">⚠️ 注意狀況</div>
+      <div class="form-row" style="align-items:flex-start">
+        <textarea id="cn-log-alerts" rows="2" placeholder="例：腰椎需注意，勿做深度前彎…" style="font-size:13px"></textarea>
+      </div>
+    </div>
+    <div class="form-section">
+      <div class="form-section-label">其他備註</div>
+      <div class="form-row" style="align-items:flex-start">
+        <textarea id="cn-note" rows="2" placeholder="其他備注事項…"></textarea>
       </div>
     </div>
     <button class="btn-save" onclick="saveClassNote()">儲存課程紀錄</button>
@@ -1193,14 +1225,23 @@ function fmtDateShort(str){
 }
 
 /* Storage */
-function loadStudents(){ try{return JSON.parse(localStorage.getItem('pilates_students')||'[]')}catch{return[]} }
-function saveStudents(d){ localStorage.setItem('pilates_students',JSON.stringify(d)) }
-function loadTickets(){ try{return JSON.parse(localStorage.getItem('pilates_tickets')||'[]')}catch{return[]} }
-function saveTickets(d){ localStorage.setItem('pilates_tickets',JSON.stringify(d)) }
-function loadClasses(){ try{return JSON.parse(localStorage.getItem('pilates_classes')||'[]')}catch{return[]} }
-function saveClasses(d){ localStorage.setItem('pilates_classes',JSON.stringify(d)) }
-function loadPayments(){ try{return JSON.parse(localStorage.getItem('pilates_payments')||'[]')}catch{return[]} }
-function savePayments(d){ localStorage.setItem('pilates_payments',JSON.stringify(d)) }
+/* ── In-memory read-through cache ──
+   load*() returns cached value, else parses localStorage once.
+   Updated by fbSet (own writes) and onSnapshot (remote writes). */
+const _cache = {};
+function _cacheGet(key,fallback){
+  if(_cache[key]!==undefined) return _cache[key];
+  try{const raw=localStorage.getItem('pilates_'+key);_cache[key]=raw?JSON.parse(raw):fallback;}catch{_cache[key]=fallback;}
+  return _cache[key];
+}
+function _cacheSet(key,value){ _cache[key]=value; }
+function _cacheInvalidate(key){ delete _cache[key]; }
+
+function loadStudents(){ return _cacheGet('students',[]); }
+function loadTickets(){  return _cacheGet('tickets',[]); }
+function loadClasses(){  return _cacheGet('classes',[]); }
+function loadPayments(){ return _cacheGet('payments',[]); }
+// save* defined below with Firebase sync
 
 /* First-install init — only runs if no data exists yet */
 (function firstInstall(){
@@ -1252,7 +1293,15 @@ function switchPage(page){
   currentPage = page;
   closeSheets();
   if(page==='students') renderStudents();
-  else if(page==='attendance') renderAttendance();
+  else if(page==='attendance'){
+    // Only sync slots→attendance if slots data has changed since last sync
+    const _slotsNow = localStorage.getItem('pilates_slots')||'[]';
+    if(_slotsNow !== _lastSlotsSyncHash){
+      JSON.parse(_slotsNow).filter(s=>(s.bookings||[]).length>0).forEach(syncSlotToAttendance);
+      _lastSlotsSyncHash = _slotsNow;
+    }
+    renderAttendance();
+  }
   else if(page==='finance') renderFinance();
   else if(page==='logs'){ renderLogs(); }
   else if(page==='booking') bkRenderSettingsPage();
@@ -1397,27 +1446,6 @@ function openStudentDetail(id){
         return '<div class="info-row" style="align-items:center"><span class="info-label">'+( d.getMonth()+1)+'/'+d.getDate()+'（'+SCH_D[d.getDay()]+'）</span><span class="info-val" style="display:flex;align-items:center;gap:4px;flex-wrap:wrap">'+b.time+'　'+(b.typeName||'')+noteBtn+cancelBtn+'</span></div>';
         }).join('');
     })()+
-    '<div style="font-size:13px;font-weight:500;color:var(--ink-mid);margin:16px 0 8px">課程日誌</div>'+
-    (function(){
-      const logs=(s.courseLogs||[]).slice(0,5);
-      if(!logs.length) return '<div style="font-size:12px;color:var(--ink-light);padding:4px 0 8px">尚無課程日誌</div>';
-      const SCH=['日','一','二','三','四','五','六'];
-      return logs.map(function(l){
-        const d=new Date(l.date+'T00:00:00');
-        const dateLabel=(d.getMonth()+1)+'月'+d.getDate()+'日（'+SCH[d.getDay()]+'）　'+(l.time||'');
-        const typeId=l.classTypeId||''; const stuId=s.id;
-        return '<div class="log-card" style="margin-bottom:8px" onclick="closeSheets();switchPage(\'logs\');setTimeout(()=>openLogEdit(\''+l.id+'\'),200)">'
-          +'<div class="log-card-header"><div>'
-          +'<div style="font-size:13px;font-weight:500;color:var(--sage-deep)">'+( l.classTypeName||'課程')+'</div>'
-          +'<div style="font-size:12px;color:var(--ink-mid);margin-top:1px">'+dateLabel+'</div>'
-          +'</div><span class="log-card-badge">出席 '+(l.attendance||0)+' 人</span></div>'
-          +(l.alerts?'<div class="log-card-alert" style="font-size:11px">⚠️ '+l.alerts+'</div>':'')
-          +(l.note?'<div class="log-card-note" style="font-size:12px;margin-top:4px">'+l.note+'</div>':'')
-          +'</div>';
-      }).join('')
-      +'<button onclick="closeSheets();switchPage(\'logs\');setTimeout(()=>renderLogL2(\''+((s.courseLogs[0]&&s.courseLogs[0].classTypeId)||'')+'\'),200)" '
-      +'style="width:100%;background:var(--sand);border:none;border-radius:99px;padding:8px;font-size:12px;color:var(--ink-mid);font-family:inherit;cursor:pointer;margin-top:2px">查看全部日誌 →</button>';
-    })()+
     '<div class="info-row"><span class="info-label">電話</span><span class="info-val">'+(s.phone||'未記錄')+'</span></div>'+
     '<div class="info-row"><span class="info-label">Line ID</span><span class="info-val">'+(s.line||'—')+'</span></div>'+
     '<div class="info-row"><span class="info-label">緊急聯絡</span><span class="info-val">'+(s.ecName?s.ecName+'（'+(s.ecRel||'')+'）'+(s.ecPhone?'<br>'+s.ecPhone:''):'未填寫')+'</span></div>'+
@@ -1516,23 +1544,23 @@ function openClassNote(slotId, studentId, evt){
   const dateLabel=(d.getMonth()+1)+'月'+d.getDate()+'日（'+SCH_D[d.getDay()]+'） '+slot.time;
   const typeName=type?(type.icon||'')+' '+type.name:'課程';
 
-  // Get existing class record for this slot
   const classes=loadClasses();
   const cls=classes.find(c=>c.slotId===slotId);
   const member=cls?.members?.find(m=>String(m.studentId)===String(studentId));
+  const booking=slot.bookings?.find(b=>b.name===stu.name);
+
+  // Find existing log for this slot + student
+  const existingLog=getStudentLogs(studentId).find(l=>l.slotId===slotId);
 
   document.getElementById('cn-slotId').value=slotId;
   document.getElementById('cn-studentId').value=studentId;
+  document.getElementById('cn-logId').value=existingLog?.id||'';
   document.getElementById('cn-datetime').textContent=dateLabel;
   document.getElementById('cn-type').textContent=typeName;
-
-  // Status
-  const statusEl=document.getElementById('cn-status');
-  statusEl.value=member?.status||'pending';
-
-  // Note — stored in slot booking or class member
-  const booking=slot.bookings?.find(b=>b.name===stu.name);
+  document.getElementById('cn-status').value=member?.status||'pending';
   document.getElementById('cn-note').value=booking?.note||member?.note||'';
+  document.getElementById('cn-log-note').value=existingLog?.note||'';
+  document.getElementById('cn-log-alerts').value=existingLog?.alerts||'';
 
   openSheet('sheet-classNote');
 }
@@ -1540,62 +1568,107 @@ function openClassNote(slotId, studentId, evt){
 function saveClassNote(){
   const slotId=document.getElementById('cn-slotId').value;
   const studentId=parseInt(document.getElementById('cn-studentId').value);
+  const logId=document.getElementById('cn-logId').value;
   const newStatus=document.getElementById('cn-status').value;
   const note=document.getElementById('cn-note').value.trim();
-
+  const logNote=document.getElementById('cn-log-note').value.trim();
+  const logAlerts=document.getElementById('cn-log-alerts').value.trim();
   const stu=loadStudents().find(s=>s.id===studentId);
   if(!stu){toast('找不到學員資料');return;}
 
-  // Save note to slot booking
+  // Collect all changes, then commit as ONE batch write
   const slots=loadSlots();
   const sIdx=slots.findIndex(s=>s.id===slotId);
+  const slot=sIdx>=0?slots[sIdx]:null;
+  const classes=loadClasses();
+  const cIdx=classes.findIndex(c=>c.slotId===slotId);
+  const tickets=loadTickets();
+  const logs=loadLogs();
+  const now=todayStr();
+  const nowISO=new Date().toISOString();
+  let prevStatus='pending';
+  let ticketChanged=false;
+  let dirty={slots:false,classes:false,tickets:false,logs:false};
+
+  // Slots: only if booking note changed
   if(sIdx>=0){
     const bIdx=(slots[sIdx].bookings||[]).findIndex(b=>b.name===stu.name);
-    if(bIdx>=0){
+    if(bIdx>=0&&slots[sIdx].bookings[bIdx].note!==note){
       slots[sIdx].bookings[bIdx].note=note;
-      saveSlots(slots);
+      dirty.slots=true;
     }
   }
 
-  // Update status and note in attendance class
-  const classes=loadClasses();
-  const cIdx=classes.findIndex(c=>c.slotId===slotId);
+  // Classes: only if status or note changed
   if(cIdx>=0){
     const mIdx=classes[cIdx].members.findIndex(m=>String(m.studentId)===String(studentId));
     if(mIdx>=0){
-      const prevStatus=classes[cIdx].members[mIdx].status;
-      classes[cIdx].members[mIdx].status=newStatus;
-      classes[cIdx].members[mIdx].note=note;
-      classes[cIdx].saved=true;
-      saveClasses(classes);
-
-      // Handle ticket deduction/refund for status change
-      const now=todayStr();
-      const tickets=loadTickets();
-      const tIdx=tickets.findIndex(t=>t.studentId===studentId&&(!t.expireDate||t.expireDate>=now));
-      if(newStatus==='makeup' && prevStatus!=='makeup' && tIdx>=0){
-        tickets[tIdx].left+=1;
-        tickets[tIdx].log=tickets[tIdx].log||[];
-        tickets[tIdx].log.push({date:now,action:'makeup',note:'課程紀錄：標記補課'});
-        saveTickets(tickets);
-        toast('✓ 已儲存，堂數 +1');
-      } else if(prevStatus==='makeup' && newStatus!=='makeup' && tIdx>=0){
-        tickets[tIdx].left=Math.max(0,tickets[tIdx].left-1);
-        tickets[tIdx].log=tickets[tIdx].log||[];
-        tickets[tIdx].log.push({date:now,action:'deduct',note:'課程紀錄：補課撤銷'});
-        saveTickets(tickets);
-        toast('✓ 已儲存，堂數 -1');
-      } else {
-        toast('✓ 課程紀錄已儲存');
+      prevStatus=classes[cIdx].members[mIdx].status;
+      const statusChanged=prevStatus!==newStatus;
+      const noteChanged=classes[cIdx].members[mIdx].note!==note;
+      if(statusChanged||noteChanged){
+        classes[cIdx].members[mIdx].status=newStatus;
+        classes[cIdx].members[mIdx].note=note;
+        classes[cIdx].saved=true;
+        dirty.classes=true;
       }
-    } else {
-      saveClasses(classes);
-      toast('✓ 課程紀錄已儲存');
+      // Tickets: only on makeup status change
+      if(statusChanged){
+        const tIdx=tickets.findIndex(t=>t.studentId===studentId&&(!t.expireDate||t.expireDate>=now));
+        if(newStatus==='makeup'&&prevStatus!=='makeup'&&tIdx>=0){
+          tickets[tIdx].left+=1;
+          tickets[tIdx].log=tickets[tIdx].log||[];
+          tickets[tIdx].log.push({date:now,action:'makeup',note:'課程紀錄：標記補課'});
+          dirty.tickets=true; ticketChanged=true;
+        } else if(prevStatus==='makeup'&&newStatus!=='makeup'&&tIdx>=0){
+          tickets[tIdx].left=Math.max(0,tickets[tIdx].left-1);
+          tickets[tIdx].log=tickets[tIdx].log||[];
+          tickets[tIdx].log.push({date:now,action:'deduct',note:'課程紀錄：補課撤銷'});
+          dirty.tickets=true; ticketChanged=true;
+        }
+      }
     }
-  } else {
-    toast('✓ 備註已儲存');
   }
 
+  // Logs: only if content changed/new
+  if(logNote||logAlerts){
+    const cfg=bkLoadCfg();
+    const type=slot?cfg.classTypes?.find(t=>String(t.id)===String(slot.typeId)):null;
+    if(logId){
+      const lIdx=logs.findIndex(l=>l.id===logId);
+      if(lIdx>=0){
+        if(logs[lIdx].note!==logNote||logs[lIdx].alerts!==logAlerts){
+          logs[lIdx]={...logs[lIdx],note:logNote,alerts:logAlerts,updatedAt:nowISO};
+          dirty.logs=true;
+        }
+      } else {
+        logs.push({id:'log-'+Date.now(),slotId,date:slot?.date||now,time:slot?.time||'',classTypeId:String(slot?.typeId||''),classTypeName:type?.name||'',studentIds:[studentId],studentNames:[stu.name],attendance:1,note:logNote,alerts:logAlerts,createdAt:nowISO,updatedAt:nowISO});
+        dirty.logs=true;
+      }
+    } else {
+      logs.push({id:'log-'+Date.now(),slotId,date:slot?.date||now,time:slot?.time||'',classTypeId:String(slot?.typeId||''),classTypeName:type?.name||'',studentIds:[studentId],studentNames:[stu.name],attendance:1,note:logNote,alerts:logAlerts,createdAt:nowISO,updatedAt:nowISO});
+      dirty.logs=true;
+    }
+  }
+
+  // Write to localStorage immediately for instant UI response
+  if(dirty.slots) localStorage.setItem('pilates_slots',JSON.stringify(slots));
+  if(dirty.classes) localStorage.setItem('pilates_classes',JSON.stringify(classes));
+  if(dirty.tickets) localStorage.setItem('pilates_tickets',JSON.stringify(tickets));
+  if(dirty.logs) localStorage.setItem('pilates_course_logs',JSON.stringify(logs));
+
+  // Commit all dirty collections as ONE batch to Firestore
+  const dirtyKeys=Object.entries(dirty).filter(([,v])=>v).map(([k])=>k);
+  if(dirtyKeys.length>0 && window._fb){
+    const b=window._fb.batch();
+    const dataMap={slots,classes,tickets,logs:logs};
+    const keyMap={slots:'slots',classes:'classes',tickets:'tickets',logs:'course_logs'};
+    dirtyKeys.forEach(k=>b.set(keyMap[k],dataMap[k]));
+    b.commit();  // fire-and-forget, localStorage already updated
+  }
+
+  const toastMsg=ticketChanged&&newStatus==='makeup'?'✓ 已儲存，堂數 +1':ticketChanged?'✓ 已儲存，堂數 -1':'✓ 課程紀錄已儲存';
+  toast(toastMsg);
   closeSheets();
   openStudentDetail(studentId);
   updateBadges();
@@ -1779,8 +1852,6 @@ function switchAttTab(tab){
   renderAttendance();
 }
 function renderAttendance(){
-  // Sync any slot bookings to attendance classes first
-  loadSlots().filter(s=>(s.bookings||[]).length>0).forEach(syncSlotToAttendance);
   const classes=loadClasses();
   const all=classes.flatMap(c=>c.members);
   document.getElementById('att-stats').innerHTML=`
@@ -2140,7 +2211,7 @@ const BK_DEFAULT = {
   ]
 };
 function bkLoadCfg(){ try{return {...BK_DEFAULT,...JSON.parse(localStorage.getItem('pilates_booking_cfg')||'{}')};}catch{return BK_DEFAULT;} }
-function bkSaveCfg(c){ localStorage.setItem('pilates_booking_cfg',JSON.stringify(c)); }
+// bkSaveCfg defined below with Firebase sync
 
 let bkCfg = bkLoadCfg();
 let bkSelectedTypeId = null;
@@ -2386,11 +2457,8 @@ function bkDelInfoBlock(i){
    L2: logs for a type (by student or date)
    L3: single log detail/edit
 ══════════════════════════════════ */
-function loadLogs(){ try{return JSON.parse(localStorage.getItem('pilates_course_logs')||'[]');}catch{return[];} }
-function saveLogs(d){
-  localStorage.setItem('pilates_course_logs',JSON.stringify(d));
-  fbSet('course_logs',d);  // Firebase sync
-}
+function loadLogs(){ return _cacheGet('course_logs',[]); }
+function saveLogs(d){ fbSet('course_logs',d); }  // fbSet handles localStorage
 
 // Navigation state
 let _logLevel = 1;          // 1=type list, 2=type detail, 3=edit (sheet)
@@ -2783,18 +2851,13 @@ function deleteLog(){
 }
 
 function syncLogsToStudents(allLogs){
-  const students=loadStudents();
-  students.forEach(s=>{
-    s.courseLogs=allLogs
-      .filter(l=>(l.studentIds||[]).some(id=>id===s.id))
-      .sort((a,b)=>b.date.localeCompare(a.date))
-      .map(l=>({
-        id:l.id, date:l.date, time:l.time,
-        classTypeId:l.classTypeId, classTypeName:l.classTypeName,
-        attendance:l.attendance, alerts:l.alerts, note:l.note
-      }));
-  });
-  saveStudents(students);
+  // No-op: courseLogs is now computed on-the-fly in openStudentDetail
+  // Removing this write saves 1 Firestore write per log save
+}
+function getStudentLogs(studentId){
+  return loadLogs()
+    .filter(l=>(l.studentIds||[]).some(id=>String(id)===String(studentId)))
+    .sort((a,b)=>b.date.localeCompare(a.date));
 }
 
 /* ══════════════════════════════════
@@ -2802,8 +2865,8 @@ function syncLogsToStudents(allLogs){
 /* ══════════════════════════════════
    SCHEDULE / CALENDAR
 ══════════════════════════════════ */
-function loadSlots(){ try{return JSON.parse(localStorage.getItem("pilates_slots")||"[]");}catch{return[];} }
-function saveSlots(d){ localStorage.setItem("pilates_slots",JSON.stringify(d)); }
+function loadSlots(){ return _cacheGet("slots",[]); }
+// saveSlots defined below with Firebase sync
 
 const SCH_DAYS=["日","一","二","三","四","五","六"];
 let schYear=new Date(Date.now()+8*3600000).getFullYear();
@@ -3070,6 +3133,8 @@ const DB_KEYS_SYNC = ['students','tickets','classes','payments','slots','booking
 const _fbUnsubscribers = {};  // prevent duplicate listeners
 let _syncInitDone = false;    // run initFirebaseSync only once
 let _renderTimer = null;      // debounce renders
+const _ownWrites = {};        // track our own writes to skip onSnapshot echo
+let _lastSlotsSyncHash = '';  // hash of slots data last synced to attendance
 
 async function fbGet(key) {
   if (window._fb) return await window._fb.get(key);
@@ -3078,7 +3143,10 @@ async function fbGet(key) {
 }
 
 async function fbSet(key, value) {
-  localStorage.setItem('pilates_'+key, JSON.stringify(value));
+  const serialized = JSON.stringify(value);
+  localStorage.setItem('pilates_'+key, serialized);
+  _cacheSet(key, value);          // update in-memory cache immediately
+  _ownWrites[key] = serialized;   // mark as own write to skip echo
   const dot = document.getElementById('sync-dot');
   if (dot) dot.style.opacity = '1';
   if (window._fb) await window._fb.set(key, value);
@@ -3087,13 +3155,17 @@ async function fbSet(key, value) {
 
 function _debouncedRender() {
   // Debounce: only re-render 500ms after the LAST incoming change
+  // Only re-render the ACTIVE page to avoid unnecessary work
   clearTimeout(_renderTimer);
   _renderTimer = setTimeout(function() {
     try {
-      if (typeof renderStudents==='function')   renderStudents();
-      if (typeof renderAttendance==='function') renderAttendance();
-      if (typeof renderFinance==='function')    renderFinance();
-      if (typeof updateBadges==='function')     updateBadges();
+      const activePage = document.querySelector('.page.active')?.id || '';
+      if (activePage==='page-students' && typeof renderStudents==='function') renderStudents();
+      else if (activePage==='page-attendance' && typeof renderAttendance==='function') renderAttendance();
+      else if (activePage==='page-finance' && typeof renderFinance==='function') renderFinance();
+      else if (activePage==='page-schedule' && typeof schRenderCalendar==='function') schRenderCalendar();
+      else if (activePage==='page-logs' && typeof renderLogs==='function') renderLogs();
+      if (typeof updateBadges==='function') updateBadges();
     } catch(e) {}
   }, 500);
 }
@@ -3103,10 +3175,13 @@ function fbSubscribeAll() {
   DB_KEYS_SYNC.forEach(function(key) {
     if (_fbUnsubscribers[key]) return; // already subscribed — skip
     _fbUnsubscribers[key] = window._fb.subscribe(key, function(k, value) {
-      const cur = localStorage.getItem('pilates_'+k);
       const incoming = JSON.stringify(value);
+      // Skip if this is our own write echoing back from Firestore
+      if (_ownWrites[k] === incoming) { delete _ownWrites[k]; return; }
+      const cur = localStorage.getItem('pilates_'+k);
       if (incoming === cur) return; // no change — skip render
       localStorage.setItem('pilates_'+k, incoming);
+      _cacheSet(k, value);        // update in-memory cache from remote data
       // Targeted render for booking_cfg and slots (needed on student page)
       try {
         if (k==='booking_cfg') {
@@ -3119,13 +3194,14 @@ function fbSubscribeAll() {
   });
 }
 
-// Override save functions to push to Firebase
-function saveStudents(d){ localStorage.setItem('pilates_students',JSON.stringify(d)); fbSet('students',d); }
-function saveTickets(d){  localStorage.setItem('pilates_tickets', JSON.stringify(d)); fbSet('tickets',d); }
-function saveClasses(d){  localStorage.setItem('pilates_classes', JSON.stringify(d)); fbSet('classes',d); }
-function savePayments(d){ localStorage.setItem('pilates_payments',JSON.stringify(d)); fbSet('payments',d); }
-function saveSlots(d){    localStorage.setItem('pilates_slots',   JSON.stringify(d)); fbSet('slots',d); }
-function bkSaveCfg(d){   localStorage.setItem('pilates_booking_cfg',JSON.stringify(d)); fbSet('booking_cfg',d); }
+// Override save functions — fbSet writes localStorage + Firestore
+// Note: fbSet already calls localStorage.setItem, so we don't duplicate it here
+function saveStudents(d){ fbSet('students',d); }
+function saveTickets(d){  fbSet('tickets',d); }
+function saveClasses(d){  fbSet('classes',d); }
+function savePayments(d){ fbSet('payments',d); }
+function saveSlots(d){    _lastSlotsSyncHash=''; fbSet('slots',d); }
+function bkSaveCfg(d){   fbSet('booking_cfg',d); }
 
 // Sync dot indicator
 (function() {
@@ -3142,7 +3218,7 @@ async function initFirebaseSync() {
 
   // Pull all keys from Firestore into localStorage (7 reads, one-time on load)
   if (window._fb) {
-    await Promise.all(DB_KEYS_SYNC.map(function(k){ return window._fb.get(k); }));
+    await Promise.all(DB_KEYS_SYNC.map(async function(k){ const v=await window._fb.get(k); _cacheSet(k,v); }));
   }
 
   // Re-render UI with fresh Firestore data
