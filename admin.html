@@ -1034,9 +1034,9 @@ window._fb.initFlags().finally(()=>{
 </div>
 
 <!-- Ticket Add (reads from booking config) -->
-<div class="sheet" id="sheet-tktAdd">
+<div class="sheet" id="sheet-tktAdd" style="z-index:500">
   <div class="sheet-handle"></div>
-  <div class="sheet-header"><span class="sheet-title">新增方案</span><button class="btn-close" onclick="closeSheets()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="3" y1="3" x2="21" y2="21"/><line x1="21" y1="3" x2="3" y2="21"/></svg></button></div>
+  <div class="sheet-header"><span class="sheet-title">新增方案</span><button class="btn-close" onclick="closeSubSheet('sheet-tktAdd')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="3" y1="3" x2="21" y2="21"/><line x1="21" y1="3" x2="3" y2="21"/></svg></button></div>
   <div class="sheet-body">
     <div class="form-section">
       <div class="form-section-label">學員</div>
@@ -1110,9 +1110,9 @@ window._fb.initFlags().finally(()=>{
 </div>
 
 <!-- Student Edit -->
-<div class="sheet" id="sheet-stuEdit">
+<div class="sheet" id="sheet-stuEdit" style="z-index:500">
   <div class="sheet-handle"></div>
-  <div class="sheet-header"><span class="sheet-title">編輯學員資料</span><button class="btn-close" onclick="closeSheets()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="3" y1="3" x2="21" y2="21"/><line x1="21" y1="3" x2="3" y2="21"/></svg></button></div>
+  <div class="sheet-header"><span class="sheet-title">編輯學員資料</span><button class="btn-close" onclick="closeSubSheet('sheet-stuEdit')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="3" y1="3" x2="21" y2="21"/><line x1="21" y1="3" x2="3" y2="21"/></svg></button></div>
   <div class="sheet-body">
     <input type="hidden" id="fe-id">
     <div class="form-section">
@@ -1136,9 +1136,9 @@ window._fb.initFlags().finally(()=>{
 </div>
 
 <!-- Ticket Detail -->
-<div class="sheet" id="sheet-tktDetail">
+<div class="sheet" id="sheet-tktDetail" style="z-index:500">
   <div class="sheet-handle"></div>
-  <div class="sheet-header"><span class="sheet-title">方案詳情</span><button class="btn-close" onclick="closeSheets()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="3" y1="3" x2="21" y2="21"/><line x1="21" y1="3" x2="3" y2="21"/></svg></button></div>
+  <div class="sheet-header"><span class="sheet-title">方案詳情</span><button class="btn-close" onclick="closeSubSheet('sheet-tktDetail')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="3" y1="3" x2="21" y2="21"/><line x1="21" y1="3" x2="3" y2="21"/></svg></button></div>
   <div class="sheet-body" id="sheet-tktDetail-body"></div>
 </div>
 
@@ -1386,7 +1386,9 @@ function saveStudentEdit(){
   if(idx<0) return;
   students[idx] = Object.assign({},students[idx],{name:name,phone:document.getElementById('fe-phone').value.trim(),line:document.getElementById('fe-line').value.trim(),ecName:document.getElementById('fe-ecname').value.trim(),ecRel:document.getElementById('fe-ecrel').value.trim(),ecPhone:document.getElementById('fe-ecphone').value.trim(),notes:document.getElementById('fe-notes').value.trim()});
   saveStudents(students);
-  closeSheets(); renderStudents();
+  renderStudents();
+  closeSubSheet('sheet-stuEdit');
+  openStudentDetail(id);  // refresh stuDetail with updated data
   toast('已更新 '+name+' 的資料');
 }
 function openStudentDetail(id){
@@ -1429,8 +1431,8 @@ function openStudentDetail(id){
       '<div class="info-row"><span class="info-label">身體備註</span><span class="info-val">'+(s.notes||'無')+'</span></div>'+
     '</div>'+
     '<div style="display:flex;gap:8px;margin-bottom:16px">'+
-      '<button onclick="closeSheets();openStudentEdit('+s.id+')" style="flex:1;background:var(--sage-light);color:var(--sage);border:none;border-radius:99px;padding:10px;font-size:13px;font-weight:500;font-family:inherit;cursor:pointer">✏️ 編輯資料</button>'+
-      '<button onclick="closeSheets();openTicketAdd('+s.id+')" style="flex:1;background:var(--sage);color:#fff;border:none;border-radius:99px;padding:10px;font-size:13px;font-weight:500;font-family:inherit;cursor:pointer">＋ 新增方案</button>'+
+      '<button onclick="openStudentEdit('+s.id+')" style="flex:1;background:var(--sage-light);color:var(--sage);border:none;border-radius:99px;padding:10px;font-size:13px;font-weight:500;font-family:inherit;cursor:pointer">✏️ 編輯資料</button>'+
+      '<button onclick="openTicketAdd('+s.id+')" style="flex:1;background:var(--sage);color:#fff;border:none;border-radius:99px;padding:10px;font-size:13px;font-weight:500;font-family:inherit;cursor:pointer">＋ 新增方案</button>'+
     '</div>'+
     '<div style="font-size:13px;font-weight:500;color:var(--ink-mid);margin-bottom:8px">方案紀錄</div>'+tktRows+
     '<div style="font-size:13px;font-weight:500;color:var(--ink-mid);margin:16px 0 8px">上課統計</div>'+
@@ -1535,9 +1537,11 @@ function deleteTicketFromDetail(ticketId, studentId){
   toast('已刪除方案紀錄');
 }
 function closeClassNote(){
-  // Close classNote sheet but keep stuDetail open
-  document.getElementById('sheet-classNote').classList.remove('open');
-  // Re-ensure stuDetail and backdrop are visible
+  closeSubSheet('sheet-classNote');
+}
+// Universal: close a sub-sheet and return to sheet-stuDetail
+function closeSubSheet(sheetId){
+  document.getElementById(sheetId)?.classList.remove('open');
   document.getElementById('sheet-stuDetail').classList.add('open');
   document.getElementById('backdrop').classList.add('show');
 }
@@ -1796,7 +1800,9 @@ function saveTicket(){
   const payments=loadPayments();
   payments.push({id:tktId+1,studentId:studentId,studentName:student.name,color:student.color||'c0',item:(type?.name||'')+(plan?'・'+plan.name:''),amount:price,date:boughtDate,method:method,status:status,note:''});
   savePayments(payments);
-  closeSheets(); renderStudents(); updateBadges();
+  renderStudents(); updateBadges();
+  closeSubSheet('sheet-tktAdd');
+  openStudentDetail(studentId);  // return to student detail
   toast('已為 '+student.name+' 新增方案，收費紀錄已建立');
 }
 function openTicketDetail(id){ const t=loadTickets().find(function(t){return t.id===id;}); if(t) openStudentDetail(t.studentId); }
