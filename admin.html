@@ -517,6 +517,27 @@ body{font-family:'Noto Sans TC',sans-serif;background:var(--sand);color:var(--in
 .bk-slot-tag{font-size:11px;color:var(--ink-mid);margin-top:2px}
 .bk-slot-spots{font-size:11px;text-align:right;flex-shrink:0}
 .bk-slot-spots.full{color:var(--warn)}
+/* ── Course Logs ── */
+.log-card{background:var(--white);border-radius:var(--radius);padding:16px;margin-bottom:10px;border:1px solid var(--sand-dark);cursor:pointer;transition:box-shadow .15s}
+.log-card:active{box-shadow:0 2px 12px rgba(107,143,113,.15)}
+.log-card-header{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:8px}
+.log-card-title{font-size:15px;font-weight:600;color:var(--ink)}
+.log-card-date{font-size:12px;color:var(--ink-mid);margin-top:2px}
+.log-card-badge{background:var(--sage-light);color:var(--sage-deep);font-size:11px;font-weight:500;padding:3px 10px;border-radius:99px;flex-shrink:0}
+.log-card-students{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:8px}
+.log-stu-chip{background:var(--sand);border-radius:99px;padding:2px 10px;font-size:11px;color:var(--ink-mid)}
+.log-card-alert{background:var(--warn-bg);border-radius:8px;padding:7px 10px;font-size:12px;color:var(--warn);margin-bottom:8px;line-height:1.5}
+.log-card-note{font-size:13px;color:var(--ink-mid);line-height:1.7;white-space:pre-wrap;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.log-stu-picker-chip{background:var(--sand);border:1.5px solid var(--sand-dark);border-radius:99px;padding:5px 12px;font-size:12px;cursor:pointer;transition:all .15s;font-family:inherit;color:var(--ink)}
+.log-stu-picker-chip.selected{background:var(--sage);border-color:var(--sage);color:#fff}
+/* Type cards (L1) */
+.type-card{background:var(--white);border-radius:var(--radius);padding:16px;margin-bottom:10px;border:1px solid var(--sand-dark);cursor:pointer;display:flex;align-items:center;gap:14px;transition:box-shadow .15s}
+.type-card:active{box-shadow:0 2px 12px rgba(107,143,113,.15)}
+.type-card-icon{width:52px;height:52px;border-radius:50%;background:var(--sage-light);display:flex;align-items:center;justify-content:center;font-size:26px;flex-shrink:0}
+.type-card-body{flex:1;min-width:0}
+.type-card-name{font-size:15px;font-weight:600;color:var(--ink)}
+.type-card-sub{font-size:12px;color:var(--ink-mid);margin-top:2px}
+.type-card-right{text-align:right;flex-shrink:0}
 .toast{position:fixed;bottom:80px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--ink);color:var(--white);padding:10px 20px;border-radius:99px;font-size:14px;font-weight:500;z-index:999;opacity:0;transition:opacity .2s,transform .2s;white-space:nowrap;pointer-events:none}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 </style>
@@ -527,21 +548,65 @@ import { getFirestore, doc, getDoc, setDoc, onSnapshot } from 'https://www.gstat
 const firebaseConfig={apiKey:"AIzaSyDksa4iYf3aGqhKi9cp-WfDJrtOh_utX1U",authDomain:"gyrobooking-fbfd5.firebaseapp.com",projectId:"gyrobooking-fbfd5",storageBucket:"gyrobooking-fbfd5.firebasestorage.app",messagingSenderId:"46281828012",appId:"1:46281828012:web:abde543029136cce332109"};
 const app=initializeApp(firebaseConfig);
 const db=getFirestore(app);
-const DB_KEYS=['students','tickets','classes','payments','slots','booking_cfg'];
+const DB_KEYS=['students','tickets','classes','payments','slots','booking_cfg','course_logs'];
+
+const FLAGS_DEFAULT={maintenanceMode:false,allowBooking:true,appVersion:'1.0.0',syncInitDoneAt:null};
+// In-memory flags cache — avoids repeated getDoc on every setFlags call
+let _flagsCache=null;
+
 window._fb={
+  // data/* collection — each key is one document
   async get(key){
-    try{const snap=await getDoc(doc(db,'data',key));if(snap.exists()){const v=snap.data().value;localStorage.setItem('pilates_'+key,JSON.stringify(v));return v;}}catch(e){console.warn('fbGet',key,e);}
+    try{
+      const snap=await getDoc(doc(db,'data',key));
+      if(snap.exists()){const v=snap.data().value;localStorage.setItem('pilates_'+key,JSON.stringify(v));return v;}
+    }catch(e){console.warn('fbGet',key,e);}
     try{return JSON.parse(localStorage.getItem('pilates_'+key)||(key==='booking_cfg'?'{}':'[]'));}catch{return key==='booking_cfg'?{}:[];}
   },
   async set(key,value){
     localStorage.setItem('pilates_'+key,JSON.stringify(value));
     try{await setDoc(doc(db,'data',key),{value,updated:Date.now()});}catch(e){console.warn('fbSet',key,e);}
   },
-  subscribe(key,cb){return onSnapshot(doc(db,'data',key),snap=>{if(snap.exists())cb(key,snap.data().value);},e=>console.warn('listener',key,e));},
-  subscribeAll(cb){DB_KEYS.forEach(k=>this.subscribe(k,cb));}
+  // onSnapshot — counts as ONE read per document, then free for real-time updates
+  subscribe(key,cb){
+    return onSnapshot(doc(db,'data',key),snap=>{if(snap.exists())cb(key,snap.data().value);},e=>console.warn('listener',key,e));
+  },
+  subscribeAll(cb){DB_KEYS.forEach(k=>this.subscribe(k,cb));},
+
+  // web_config/flags — use in-memory cache, single getDoc on first load only
+  async getFlags(){
+    if(_flagsCache) return {..._flagsCache};  // return cache — NO extra reads
+    try{
+      const snap=await getDoc(doc(db,'web_config','flags'));
+      _flagsCache=snap.exists()?{...FLAGS_DEFAULT,...snap.data()}:{...FLAGS_DEFAULT};
+    }catch(e){console.warn('getFlags',e);_flagsCache={...FLAGS_DEFAULT};}
+    return {..._flagsCache};
+  },
+  async setFlags(updates){
+    // Use cache — no getDoc needed
+    _flagsCache={...(_flagsCache||FLAGS_DEFAULT),...updates,updatedAt:new Date().toISOString()};
+    try{await setDoc(doc(db,'web_config','flags'),_flagsCache);}catch(e){console.warn('setFlags',e);return false;}
+    return true;
+  },
+  subscribeFlags(cb){
+    return onSnapshot(doc(db,'web_config','flags'),snap=>{
+      if(snap.exists()){_flagsCache={...FLAGS_DEFAULT,...snap.data()};cb({..._flagsCache});}
+    },e=>console.warn('flagsListener',e));
+  },
+  // initFlags: only write if doc doesn't exist (1 read max, then cached)
+  async initFlags(){
+    await this.getFlags();  // populates _flagsCache
+    if(!_flagsCache.createdAt){
+      // First time — create the doc
+      _flagsCache={..._flagsCache,createdAt:new Date().toISOString()};
+      try{await setDoc(doc(db,'web_config','flags'),_flagsCache);}catch(e){}
+    }
+  }
 };
 window._fbReady=true;
-window.dispatchEvent(new Event('firebase-ready'));
+window._fb.initFlags().finally(()=>{
+  window.dispatchEvent(new Event('firebase-ready'));
+});
 </script>
 </head>
 <body>
@@ -631,6 +696,28 @@ window.dispatchEvent(new Event('firebase-ready'));
   </div>
 </div>
 
+<!-- ══════════════ PAGE: LOGS ══════════════ -->
+<div class="page" id="page-logs">
+  <div class="topbar">
+    <div class="topbar-row">
+      <div style="display:flex;align-items:center;gap:8px">
+        <button id="log-back-btn" onclick="logNavBack()" style="display:none;background:none;border:none;cursor:pointer;padding:4px;color:var(--sage)">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg>
+        </button>
+        <h1 id="log-page-title" style="font-size:17px">課程日誌</h1>
+      </div>
+      <button class="btn-add" id="log-add-btn" onclick="openLogAdd()" style="display:none">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        新增日誌
+      </button>
+    </div>
+    <div id="log-breadcrumb" style="display:none;font-size:12px;color:var(--ink-light);padding:2px 0 4px"></div>
+  </div>
+  <div class="page-scroll">
+    <div class="list-wrap" id="log-list"></div>
+  </div>
+</div>
+
 <!-- ══════════════ PAGE: FINANCE ══════════════ -->
 <div class="page" id="page-finance">
   <div class="topbar">
@@ -671,8 +758,38 @@ window.dispatchEvent(new Event('firebase-ready'));
   <div class="page-scroll">
     <div style="padding:12px 16px 80px">
 
+      <!-- App Flags -->
+      <div class="section-label">系統旗標</div>
+      <div class="form-section">
+        <div class="form-row" style="justify-content:space-between">
+          <div>
+            <div style="font-size:14px;font-weight:500">維護模式</div>
+            <div style="font-size:11px;color:var(--ink-light);margin-top:2px">開啟後學員頁面顯示維護中</div>
+          </div>
+          <label class="bk-toggle" style="width:40px;height:22px">
+            <input type="checkbox" id="flag-maintenance" onchange="saveFlag('maintenanceMode',this.checked)">
+            <span class="bk-toggle-slider"></span>
+          </label>
+        </div>
+        <div class="form-row" style="justify-content:space-between;margin-top:8px">
+          <div>
+            <div style="font-size:14px;font-weight:500">開放預約時段</div>
+            <div style="font-size:11px;color:var(--ink-light);margin-top:2px">關閉後學員無法選擇課程時段</div>
+          </div>
+          <label class="bk-toggle" style="width:40px;height:22px">
+            <input type="checkbox" id="flag-booking" onchange="saveFlag('allowBooking',this.checked)">
+            <span class="bk-toggle-slider"></span>
+          </label>
+        </div>
+        <div class="form-row" style="margin-top:8px">
+          <label style="flex-shrink:0">版本號</label>
+          <input id="flag-version" type="text" placeholder="1.0.0" style="text-align:right" onblur="saveFlag('appVersion',this.value)">
+        </div>
+        <div id="flags-sync-time" style="font-size:11px;color:var(--ink-light);text-align:right;margin-top:4px"></div>
+      </div>
+
       <!-- Basic Info -->
-      <div class="section-label">基本資訊</div>
+      <div class="section-label" style="margin-top:16px">基本資訊</div>
       <div class="form-section">
         <div class="form-row"><label>工作室名稱</label><input id="bkcfg-name" type="text" placeholder="例：Catbake 嬋貓所"></div>
         <div class="form-row"><label>Line ID</label><input id="bkcfg-line" type="text" placeholder="例：@yourlineid"></div>
@@ -739,6 +856,10 @@ window.dispatchEvent(new Event('firebase-ready'));
     <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><circle cx="8" cy="15" r="1" fill="currentColor"/><circle cx="12" cy="15" r="1" fill="currentColor"/><circle cx="16" cy="15" r="1" fill="currentColor"/></svg>
     <span class="nav-label">行事曆</span>
   </button>
+  <button class="nav-item" id="nav-logs" onclick="switchPage('logs')">
+    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg>
+    <span class="nav-label">日誌</span>
+  </button>
   <button class="nav-item" id="nav-finance" onclick="switchPage('finance')">
     <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
     <span class="nav-label">收費</span>
@@ -780,6 +901,82 @@ window.dispatchEvent(new Event('firebase-ready'));
     <button class="btn-save" onclick="schSaveSlot()">儲存時段</button>
     <button class="btn-danger" id="slot-del-btn" style="display:none" onclick="schDeleteSlot()">刪除此時段</button>
   </div>
+</div>
+
+<!-- Log Add/Edit Sheet -->
+<div class="sheet" id="sheet-logEdit">
+  <div class="sheet-handle"></div>
+  <div class="sheet-header">
+    <span class="sheet-title" id="log-sheet-title">新增課程日誌</span>
+    <button class="btn-close" onclick="closeSheets()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="3" y1="3" x2="21" y2="21"/><line x1="21" y1="3" x2="3" y2="21"/></svg></button>
+  </div>
+  <div class="sheet-body">
+    <input type="hidden" id="log-edit-id">
+
+    <!-- 選已開課時段 -->
+    <div class="form-section">
+      <div class="form-section-label">選擇課程時段</div>
+      <div id="log-slot-picker-wrap">
+        <button type="button" onclick="openLogSlotPicker()" style="width:100%;background:var(--sand);border:1.5px dashed var(--sand-dark);border-radius:var(--radius-sm);padding:12px;font-size:13px;color:var(--ink-mid);font-family:inherit;cursor:pointer;text-align:center">
+          📅 從行事曆選課程時段（自動帶入資訊）
+        </button>
+      </div>
+      <div id="log-slot-selected" style="display:none;background:var(--sage-light);border-radius:var(--radius-sm);padding:10px 12px;font-size:13px">
+        <div id="log-slot-label" style="font-weight:500;color:var(--ink)"></div>
+        <div id="log-slot-sub" style="font-size:12px;color:var(--ink-mid);margin-top:2px"></div>
+        <button type="button" onclick="clearLogSlot()" style="font-size:11px;color:var(--warn);background:none;border:none;cursor:pointer;font-family:inherit;margin-top:4px;padding:0">✕ 清除，改用手動填寫</button>
+      </div>
+    </div>
+
+    <!-- 手動填寫（slotId 未選時顯示） -->
+    <div id="log-manual-fields">
+      <div class="form-section">
+        <div class="form-section-label">課程資訊</div>
+        <div class="form-row"><label>課程類型</label><select id="log-type"></select></div>
+        <div class="form-row"><label>日期</label><input id="log-date" type="date"></div>
+        <div class="form-row"><label>時間</label><input id="log-time" type="time"></div>
+      </div>
+      <div class="form-section">
+        <div class="form-section-label">出席學員（可複選）</div>
+        <div id="log-student-picker" style="display:flex;flex-wrap:wrap;gap:6px;padding:4px 0"></div>
+      </div>
+    </div>
+
+    <!-- 出席人數（always show） -->
+    <div class="form-section">
+      <div class="form-section-label">出席人數</div>
+      <div class="form-row"><input id="log-attendance" type="number" min="0" max="20" value="1" style="text-align:right;width:80px"><span style="font-size:14px;color:var(--ink-mid);margin-left:6px">人</span></div>
+    </div>
+
+    <!-- 課堂日誌（先，放大） -->
+    <div class="form-section">
+      <div class="form-section-label">課堂日誌</div>
+      <div class="form-row" style="align-items:flex-start">
+        <textarea id="log-note" rows="7" placeholder="今天的課堂狀況、學員進度、下次重點…" style="font-size:15px;line-height:1.8"></textarea>
+      </div>
+    </div>
+
+    <!-- 注意狀況（後，縮小） -->
+    <div class="form-section">
+      <div class="form-section-label" style="color:var(--warn)">⚠️ 注意狀況</div>
+      <div class="form-row" style="align-items:flex-start">
+        <textarea id="log-alerts" rows="2" placeholder="例：腰椎需注意，勿做深度前彎…" style="font-size:13px"></textarea>
+      </div>
+    </div>
+
+    <button class="btn-save" onclick="saveLog()">儲存日誌</button>
+    <button class="btn-danger" id="log-del-btn" style="display:none;margin-top:8px" onclick="deleteLog()">刪除此日誌</button>
+  </div>
+</div>
+
+<!-- Log Slot Picker Sheet -->
+<div class="sheet" id="sheet-logSlotPicker">
+  <div class="sheet-handle"></div>
+  <div class="sheet-header">
+    <span class="sheet-title">選擇課程時段</span>
+    <button class="btn-close" onclick="closeSheet('sheet-logSlotPicker')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="3" y1="3" x2="21" y2="21"/><line x1="21" y1="3" x2="3" y2="21"/></svg></button>
+  </div>
+  <div class="sheet-body" id="log-slot-picker-list" style="padding-top:8px"></div>
 </div>
 
 <div class="backdrop" id="backdrop" onclick="closeSheets()"></div>
@@ -1020,7 +1217,7 @@ function savePayments(d){ localStorage.setItem('pilates_payments',JSON.stringify
 
 
 /* Sheet helpers */
-const allSheets = ['sheet-stuAdd','sheet-stuDetail','sheet-stuEdit','sheet-tktAdd','sheet-tktDetail','sheet-classAdd','sheet-payAdd','sheet-payDetail','sheet-slotAdd','sheet-classNote'];
+const allSheets = ['sheet-stuAdd','sheet-stuDetail','sheet-stuEdit','sheet-tktAdd','sheet-tktDetail','sheet-classAdd','sheet-payAdd','sheet-payDetail','sheet-slotAdd','sheet-classNote','sheet-logEdit','sheet-logSlotPicker'];
 function openSheet(id){ document.getElementById('backdrop').classList.add('open'); document.getElementById(id).classList.add('open'); }
 function closeSheets(){
   document.getElementById('backdrop').classList.remove('open');
@@ -1057,6 +1254,7 @@ function switchPage(page){
   if(page==='students') renderStudents();
   else if(page==='attendance') renderAttendance();
   else if(page==='finance') renderFinance();
+  else if(page==='logs'){ renderLogs(); }
   else if(page==='booking') bkRenderSettingsPage();
   else if(page==='schedule'){ schInitCalendar(); schRenderCalendar(); }
   updateBadges();
@@ -1199,7 +1397,27 @@ function openStudentDetail(id){
         return '<div class="info-row" style="align-items:center"><span class="info-label">'+( d.getMonth()+1)+'/'+d.getDate()+'（'+SCH_D[d.getDay()]+'）</span><span class="info-val" style="display:flex;align-items:center;gap:4px;flex-wrap:wrap">'+b.time+'　'+(b.typeName||'')+noteBtn+cancelBtn+'</span></div>';
         }).join('');
     })()+
-    '<div style="font-size:13px;font-weight:500;color:var(--ink-mid);margin:16px 0 8px">聯絡資訊</div>'+
+    '<div style="font-size:13px;font-weight:500;color:var(--ink-mid);margin:16px 0 8px">課程日誌</div>'+
+    (function(){
+      const logs=(s.courseLogs||[]).slice(0,5);
+      if(!logs.length) return '<div style="font-size:12px;color:var(--ink-light);padding:4px 0 8px">尚無課程日誌</div>';
+      const SCH=['日','一','二','三','四','五','六'];
+      return logs.map(function(l){
+        const d=new Date(l.date+'T00:00:00');
+        const dateLabel=(d.getMonth()+1)+'月'+d.getDate()+'日（'+SCH[d.getDay()]+'）　'+(l.time||'');
+        const typeId=l.classTypeId||''; const stuId=s.id;
+        return '<div class="log-card" style="margin-bottom:8px" onclick="closeSheets();switchPage(\'logs\');setTimeout(()=>openLogEdit(\''+l.id+'\'),200)">'
+          +'<div class="log-card-header"><div>'
+          +'<div style="font-size:13px;font-weight:500;color:var(--sage-deep)">'+( l.classTypeName||'課程')+'</div>'
+          +'<div style="font-size:12px;color:var(--ink-mid);margin-top:1px">'+dateLabel+'</div>'
+          +'</div><span class="log-card-badge">出席 '+(l.attendance||0)+' 人</span></div>'
+          +(l.alerts?'<div class="log-card-alert" style="font-size:11px">⚠️ '+l.alerts+'</div>':'')
+          +(l.note?'<div class="log-card-note" style="font-size:12px;margin-top:4px">'+l.note+'</div>':'')
+          +'</div>';
+      }).join('')
+      +'<button onclick="closeSheets();switchPage(\'logs\');setTimeout(()=>renderLogL2(\''+((s.courseLogs[0]&&s.courseLogs[0].classTypeId)||'')+'\'),200)" '
+      +'style="width:100%;background:var(--sand);border:none;border-radius:99px;padding:8px;font-size:12px;color:var(--ink-mid);font-family:inherit;cursor:pointer;margin-top:2px">查看全部日誌 →</button>';
+    })()+
     '<div class="info-row"><span class="info-label">電話</span><span class="info-val">'+(s.phone||'未記錄')+'</span></div>'+
     '<div class="info-row"><span class="info-label">Line ID</span><span class="info-val">'+(s.line||'—')+'</span></div>'+
     '<div class="info-row"><span class="info-label">緊急聯絡</span><span class="info-val">'+(s.ecName?s.ecName+'（'+(s.ecRel||'')+'）'+(s.ecPhone?'<br>'+s.ecPhone:''):'未填寫')+'</span></div>'+
@@ -1940,7 +2158,31 @@ function bkSubmit(){ /* no-op */ }
 function bkOpenLine(){ /* no-op */ }
 function bkApplyCfg(){ /* no-op: settings applied via bkRenderSettingsPage */ }
 
+/* -- flags (web_config/flags in Firestore) -- */
+async function loadFlags(){
+  if(window._fb) return await window._fb.getFlags();
+  return {maintenanceMode:false,allowBooking:true,appVersion:'1.0.0',syncInitDoneAt:null};
+}
+async function saveFlag(key,value){
+  if(window._fb){
+    const ok=await window._fb.setFlags({[key]:value});
+    toast(ok?'✓ 旗標已更新':'更新失敗，請稍後再試');
+  }
+}
+async function renderFlagsUI(){
+  const flags=await loadFlags();
+  const mEl=document.getElementById('flag-maintenance');
+  const bEl=document.getElementById('flag-booking');
+  const vEl=document.getElementById('flag-version');
+  const tEl=document.getElementById('flags-sync-time');
+  if(mEl) mEl.checked=!!flags.maintenanceMode;
+  if(bEl) bEl.checked=flags.allowBooking!==false;
+  if(vEl) vEl.value=flags.appVersion||'1.0.0';
+  if(tEl&&flags.syncInitDoneAt) tEl.textContent='上次初始化同步：'+new Date(flags.syncInitDoneAt).toLocaleString('zh-TW');
+}
+
 function bkRenderSettingsPage(){
+  renderFlagsUI();  // load flags from Firestore
   const c=bkLoadCfg();
   const nameEl=document.getElementById("bkcfg-name");
   const lineEl=document.getElementById("bkcfg-line");
@@ -2138,6 +2380,425 @@ function bkDelInfoBlock(i){
   bkRenderInfoEditor();
 }
 
+/* ══════════════════════════════════
+   COURSE LOGS — 3-level navigation
+   L1: course type cards
+   L2: logs for a type (by student or date)
+   L3: single log detail/edit
+══════════════════════════════════ */
+function loadLogs(){ try{return JSON.parse(localStorage.getItem('pilates_course_logs')||'[]');}catch{return[];} }
+function saveLogs(d){
+  localStorage.setItem('pilates_course_logs',JSON.stringify(d));
+  fbSet('course_logs',d);  // Firebase sync
+}
+
+// Navigation state
+let _logLevel = 1;          // 1=type list, 2=type detail, 3=edit (sheet)
+let _logTypeId = null;      // selected type at L2
+let _logSelectedSlotId = null; // slot chosen from calendar picker
+let _logSelectedStudents = [];
+
+/* ─── L1: Course type cards ─── */
+function renderLogs(){
+  _logLevel = 1;
+  _logTypeId = null;
+  document.getElementById('log-back-btn').style.display = 'none';
+  document.getElementById('log-add-btn').style.display = 'none';
+  document.getElementById('log-page-title').textContent = '課程日誌';
+  document.getElementById('log-breadcrumb').style.display = 'none';
+
+  const cfg = bkLoadCfg();
+  const types = cfg.classTypes||[];
+  const logs = loadLogs();
+  const wrap = document.getElementById('log-list');
+
+  if(!types.length){
+    wrap.innerHTML='<div class="empty"><p>尚未設定課程類型<br>請至設定頁面新增</p></div>';
+    return;
+  }
+
+  // Build type cards — show log count and last log date
+  wrap.innerHTML = types.map(t=>{
+    const typeLogs = logs.filter(l=>String(l.classTypeId)===String(t.id));
+    const count = typeLogs.length;
+    const last = typeLogs.sort((a,b)=>b.date.localeCompare(a.date))[0];
+    const lastDate = last ? (()=>{const d=new Date(last.date+'T00:00:00');return (d.getMonth()+1)+'月'+d.getDate()+'日';})() : null;
+    const minPrice = (t.plans||[]).reduce((m,p)=>p.price<m?p.price:m, Infinity);
+    const priceLabel = isFinite(minPrice)?'單堂起<br><strong>$'+minPrice.toLocaleString()+'</strong>':'';
+    return `<div class="type-card" onclick="renderLogL2('${t.id}')">
+      <div class="type-card-icon">${t.icon||'📋'}</div>
+      <div class="type-card-body">
+        <div class="type-card-name">${t.name}</div>
+        <div class="type-card-sub">${t.desc||''}</div>
+      </div>
+      <div class="type-card-right">
+        <div style="font-size:11px;color:var(--ink-mid);text-align:right">${count?count+'筆日誌':'尚無日誌'}</div>
+        ${lastDate?'<div style="font-size:10px;color:var(--ink-light);text-align:right">最近：'+lastDate+'</div>':''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+/* ─── L2: Student cards for a type ─── */
+function renderLogL2(typeId){
+  _logLevel = 2;
+  _logTypeId = typeId;
+  _logStudentId = null;
+  const cfg = bkLoadCfg();
+  const type = cfg.classTypes?.find(t=>String(t.id)===String(typeId));
+  const typeName = type ? (type.icon||'')+' '+type.name : '課程';
+
+  document.getElementById('log-page-title').textContent = typeName;
+  document.getElementById('log-back-btn').style.display = 'flex';
+  document.getElementById('log-add-btn').style.display = 'flex';
+  document.getElementById('log-breadcrumb').style.display = 'block';
+  document.getElementById('log-breadcrumb').textContent = '課程日誌 › '+typeName;
+
+  const logs = loadLogs().filter(l=>String(l.classTypeId)===String(typeId));
+  const wrap = document.getElementById('log-list');
+
+  if(!logs.length){
+    wrap.innerHTML=`<div class="empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg><p>這個課程還沒有日誌<br><span style="color:var(--sage);cursor:pointer" onclick="openLogAdd()">＋ 新增第一筆</span></p></div>`;
+    return;
+  }
+
+  // Collect unique students across all logs of this type
+  const students = loadStudents();
+  const stuMap = {}; // studentId → {name, color, logs[]}
+  logs.forEach(l=>{
+    (l.studentIds||[]).forEach((sid,i)=>{
+      const sName = (l.studentNames||[])[i] || students.find(s=>s.id===sid)?.name || '未知';
+      const sColor = students.find(s=>s.id===sid)?.color||'c0';
+      if(!stuMap[sid]) stuMap[sid]={id:sid,name:sName,color:sColor,logs:[]};
+      stuMap[sid].logs.push(l);
+    });
+  });
+
+  // Also include logs with no students (show as "未指定學員")
+  const noStuLogs = logs.filter(l=>!(l.studentIds||[]).length);
+  if(noStuLogs.length){
+    stuMap['__none__']={id:'__none__',name:'未指定學員',color:'c0',logs:noStuLogs};
+  }
+
+  const entries = Object.values(stuMap).sort((a,b)=>a.name.localeCompare(b.name,'zh-Hant'));
+
+  wrap.innerHTML = entries.map(stu=>{
+    const lastLog = stu.logs.slice().sort((a,b)=>b.date.localeCompare(a.date))[0];
+    const d = lastLog ? new Date(lastLog.date+'T00:00:00') : null;
+    const lastDate = d ? (d.getMonth()+1)+'月'+d.getDate()+'日' : '—';
+    const stu_obj = students.find(s=>s.id===stu.id);
+    return `<div class="type-card" onclick="renderLogL3('${typeId}','${stu.id}')">
+      <div class="type-card-icon av42 ${stu.color}" style="font-size:18px;font-weight:600;color:#fff;background:unset">${stu.name.slice(0,1)}</div>
+      <div class="type-card-body">
+        <div class="type-card-name">${stu.name}</div>
+        <div class="type-card-sub">${stu.logs.length} 筆日誌</div>
+      </div>
+      <div class="type-card-right">
+        <div style="font-size:11px;color:var(--ink-mid)">最近</div>
+        <div style="font-size:12px;color:var(--ink-mid)">${lastDate}</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+/* ─── L3: Logs for a student in this type ─── */
+let _logStudentId = null;
+
+function renderLogL3(typeId, studentId){
+  _logLevel = 3;
+  _logTypeId = typeId;
+  _logStudentId = studentId;
+
+  const cfg = bkLoadCfg();
+  const type = cfg.classTypes?.find(t=>String(t.id)===String(typeId));
+  const typeName = type ? (type.icon||'')+' '+type.name : '課程';
+  const students = loadStudents();
+  const stu = students.find(s=>String(s.id)===String(studentId));
+  const stuName = stu?.name || (studentId==='__none__'?'未指定學員':'學員');
+
+  document.getElementById('log-page-title').textContent = stuName;
+  document.getElementById('log-back-btn').style.display = 'flex';
+  document.getElementById('log-add-btn').style.display = 'flex';
+  document.getElementById('log-breadcrumb').style.display = 'block';
+  document.getElementById('log-breadcrumb').textContent = '課程日誌 › '+typeName+' › '+stuName;
+
+  const logs = loadLogs()
+    .filter(l=>String(l.classTypeId)===String(typeId) &&
+      (studentId==='__none__' ? !(l.studentIds||[]).length : (l.studentIds||[]).some(id=>String(id)===String(studentId))))
+    .sort((a,b)=>b.date.localeCompare(a.date));
+
+  const wrap = document.getElementById('log-list');
+  if(!logs.length){
+    wrap.innerHTML=`<div class="empty"><p>${stuName} 在此課程還沒有日誌<br><span style="color:var(--sage);cursor:pointer" onclick="openLogAdd()">＋ 新增</span></p></div>`;
+    return;
+  }
+
+  const DAYS=['日','一','二','三','四','五','六'];
+  // Group by month
+  const byMonth={};
+  logs.forEach(l=>{const m=l.date.slice(0,7);if(!byMonth[m])byMonth[m]=[];byMonth[m].push(l);});
+
+  wrap.innerHTML=Object.entries(byMonth).map(([month,mLogs])=>{
+    const [y,mo]=month.split('-');
+    const cards=mLogs.map(l=>{
+      const d=new Date(l.date+'T00:00:00');
+      const dateLabel=(d.getMonth()+1)+'月'+d.getDate()+'日（'+DAYS[d.getDay()]+'）　'+l.time;
+      const alertHtml=l.alerts?`<div class="log-card-alert">⚠️ ${l.alerts}</div>`:'';
+      const noteHtml=l.note?`<div class="log-card-note">${l.note}</div>`:'';
+      const allStu=(l.studentNames||[]).join('、');
+      return `<div class="log-card" onclick="openLogEdit('${l.id}')">
+        <div class="log-card-header">
+          <div><div style="font-weight:500;font-size:14px;color:var(--ink)">${dateLabel}</div>
+          ${allStu?`<div style="font-size:11px;color:var(--ink-mid);margin-top:2px">出席：${allStu}</div>`:''}</div>
+          <span class="log-card-badge">出席 ${l.attendance||0} 人</span>
+        </div>
+        ${alertHtml}${noteHtml}
+      </div>`;
+    }).join('');
+    return `<div class="section-label">${y}年${parseInt(mo)}月</div>${cards}`;
+  }).join('');
+}
+
+function logNavBack(){
+  if(_logLevel===3) renderLogL2(_logTypeId);
+  else if(_logLevel===2) renderLogs();
+}
+
+/* ─── L4: Add / Edit sheet ─── */
+function openLogAdd(){
+  const cfg = bkLoadCfg();
+  document.getElementById('log-sheet-title').textContent='新增課程日誌';
+  document.getElementById('log-edit-id').value='';
+  document.getElementById('log-date').value=todayStr();
+  document.getElementById('log-time').value='09:00';
+  document.getElementById('log-attendance').value='1';
+  document.getElementById('log-alerts').value='';
+  document.getElementById('log-note').value='';
+  document.getElementById('log-del-btn').style.display='none';
+  // Pre-fill type if at L2
+  const typeSel=document.getElementById('log-type');
+  typeSel.innerHTML=(cfg.classTypes||[]).map(t=>`<option value="${t.id}">${t.icon||''} ${t.name}</option>`).join('');
+  if(_logTypeId) typeSel.value=_logTypeId;
+  _logSelectedSlotId=null;
+  clearLogSlot();
+  renderLogStudentPicker([]);
+  openSheet('sheet-logEdit');
+}
+
+function openLogEdit(logId){
+  const log=loadLogs().find(l=>l.id===logId);
+  if(!log) return;
+  const cfg=bkLoadCfg();
+  document.getElementById('log-sheet-title').textContent='編輯課程日誌';
+  document.getElementById('log-edit-id').value=logId;
+  document.getElementById('log-date').value=log.date;
+  document.getElementById('log-time').value=log.time||'09:00';
+  document.getElementById('log-attendance').value=log.attendance||0;
+  document.getElementById('log-alerts').value=log.alerts||'';
+  document.getElementById('log-note').value=log.note||'';
+  document.getElementById('log-del-btn').style.display='block';
+  const typeSel=document.getElementById('log-type');
+  typeSel.innerHTML=(cfg.classTypes||[]).map(t=>`<option value="${t.id}">${t.icon||''} ${t.name}</option>`).join('');
+  typeSel.value=log.classTypeId||'';
+  _logSelectedSlotId=log.slotId||null;
+  if(_logSelectedSlotId){
+    const slot=loadSlots().find(s=>s.id===_logSelectedSlotId);
+    if(slot) _showSlotSelected(slot);
+    else clearLogSlot();
+  } else clearLogSlot();
+  renderLogStudentPicker(log.studentIds||[]);
+  openSheet('sheet-logEdit');
+}
+
+/* ─── Slot picker ─── */
+async function openLogSlotPicker(){
+  // Pull latest slots from Firebase before showing picker
+  if(window._fb) await window._fb.get('slots');
+
+  const slots=loadSlots();
+  const cfg=bkLoadCfg();
+  const today=todayStr();
+  // Show slots from past 60 days AND upcoming 30 days that have bookings
+  const cutoff=(()=>{
+    const d=new Date(today+'T00:00:00');
+    d.setDate(d.getDate()-60);
+    const y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,'0'),dd=String(d.getDate()).padStart(2,'0');
+    return y+'-'+m+'-'+dd;
+  })();
+  const future=(()=>{
+    const d=new Date(today+'T00:00:00');
+    d.setDate(d.getDate()+30);
+    const y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,'0'),dd=String(d.getDate()).padStart(2,'0');
+    return y+'-'+m+'-'+dd;
+  })();
+  const recent=slots
+    .filter(s=>s.date>=cutoff && s.date<=future && (s.bookings||[]).length>0)
+    .sort((a,b)=>b.date.localeCompare(a.date)||b.time.localeCompare(a.time))
+    .slice(0,50);
+
+  const DAYS=['日','一','二','三','四','五','六'];
+  const list=document.getElementById('log-slot-picker-list');
+
+  if(!recent.length){
+    list.innerHTML='<div style="padding:24px 20px;text-align:center;color:var(--ink-mid);font-size:13px;line-height:1.8">最近 60 天內沒有找到含預約的時段<br><small style="color:var(--ink-light)">（時段需在行事曆建立，且有學員完成預約）</small><br><button onclick="closeSheet(\'sheet-logSlotPicker\')" style="margin-top:12px;background:var(--sand);border:none;border-radius:99px;padding:8px 18px;font-size:13px;font-family:inherit;cursor:pointer;color:var(--ink-mid)">改用手動填寫</button></div>';
+  } else {
+    const byDate={};
+    recent.forEach(s=>{const m=s.date;if(!byDate[m])byDate[m]=[];byDate[m].push(s);});
+    list.innerHTML=Object.entries(byDate).map(([date,daySlots])=>{
+      const d=new Date(date+'T00:00:00');
+      const label=(d.getMonth()+1)+'月'+d.getDate()+'日（'+DAYS[d.getDay()]+'）';
+      const cards=daySlots.map(s=>{
+        const type=cfg.classTypes?.find(t=>String(t.id)===String(s.typeId));
+        const tname=type?(type.icon||'')+' '+type.name:'課程';
+        const names=(s.bookings||[]).map(b=>b.name).join('、');
+        return `<div onclick="selectLogSlot('${s.id}')" style="padding:12px 16px;border-bottom:1px solid var(--sand-dark);cursor:pointer;active:background:var(--sand)">
+          <div style="font-size:14px;font-weight:500">${tname} ${s.time}</div>
+          <div style="font-size:12px;color:var(--ink-mid);margin-top:2px">預約學員：${names||'無'}</div>
+        </div>`;
+      }).join('');
+      return `<div style="font-size:11px;font-weight:600;color:var(--ink-mid);padding:8px 16px 4px;background:var(--sand)">${label}</div>${cards}`;
+    }).join('');
+  }
+  openSheet('sheet-logSlotPicker');
+}
+
+function selectLogSlot(slotId){
+  _logSelectedSlotId=slotId;
+  const slot=loadSlots().find(s=>s.id===slotId);
+  if(!slot){closeSheet('sheet-logSlotPicker');return;}
+  _showSlotSelected(slot);
+  // Auto-fill date, time, type, students
+  const cfg=bkLoadCfg();
+  const type=cfg.classTypes?.find(t=>String(t.id)===String(slot.typeId));
+  document.getElementById('log-date').value=slot.date;
+  document.getElementById('log-time').value=slot.time||'09:00';
+  const typeSel=document.getElementById('log-type');
+  if(type) typeSel.value=slot.typeId;
+  // Auto-select students who booked this slot
+  const students=loadStudents();
+  const bookedIds=(slot.bookings||[])
+    .map(b=>students.find(s=>s.name===b.name)?.id)
+    .filter(Boolean);
+  document.getElementById('log-attendance').value=(slot.bookings||[]).length;
+  renderLogStudentPicker(bookedIds);
+  closeSheet('sheet-logSlotPicker');
+}
+
+function _showSlotSelected(slot){
+  const cfg=bkLoadCfg();
+  const type=cfg.classTypes?.find(t=>String(t.id)===String(slot.typeId));
+  const DAYS=['日','一','二','三','四','五','六'];
+  const d=new Date(slot.date+'T00:00:00');
+  const dateLabel=(d.getMonth()+1)+'月'+d.getDate()+'日（'+DAYS[d.getDay()]+'）';
+  const tname=type?(type.icon||'')+' '+type.name:'課程';
+  document.getElementById('log-slot-label').textContent=tname+'　'+dateLabel+' '+slot.time;
+  document.getElementById('log-slot-sub').textContent='預約學員：'+((slot.bookings||[]).map(b=>b.name).join('、')||'無');
+  document.getElementById('log-slot-selected').style.display='block';
+  document.getElementById('log-slot-picker-wrap').style.display='none';
+  document.getElementById('log-manual-fields').style.display='none';  // hide manual fields when slot selected
+}
+
+function clearLogSlot(){
+  _logSelectedSlotId=null;
+  document.getElementById('log-slot-selected').style.display='none';
+  document.getElementById('log-slot-picker-wrap').style.display='block';
+  document.getElementById('log-manual-fields').style.display='block';
+}
+
+function closeSheet(sheetId){
+  document.getElementById(sheetId)?.classList.remove('open');
+  document.getElementById('backdrop')?.classList.remove('show');
+  // Re-open parent if closing slot picker
+  if(sheetId==='sheet-logSlotPicker'){
+    document.getElementById('sheet-logEdit')?.classList.add('open');
+    document.getElementById('backdrop')?.classList.add('show');
+  }
+}
+
+/* ─── Student picker ─── */
+function renderLogStudentPicker(selectedIds){
+  _logSelectedStudents=[...selectedIds];
+  const students=loadStudents();
+  const wrap=document.getElementById('log-student-picker');
+  if(!students.length){wrap.innerHTML='<div style="font-size:12px;color:var(--ink-light)">尚無學員</div>';return;}
+  wrap.innerHTML=students.map(s=>{
+    const sel=_logSelectedStudents.includes(s.id);
+    return `<button type="button" class="log-stu-picker-chip ${sel?'selected':''}" onclick="toggleLogStudent(${s.id})">${s.name}</button>`;
+  }).join('');
+}
+
+function toggleLogStudent(studentId){
+  const idx=_logSelectedStudents.indexOf(studentId);
+  if(idx>=0) _logSelectedStudents.splice(idx,1);
+  else _logSelectedStudents.push(studentId);
+  renderLogStudentPicker(_logSelectedStudents);
+}
+
+/* ─── Save / Delete ─── */
+function saveLog(){
+  const cfg=bkLoadCfg();
+  const editId=document.getElementById('log-edit-id').value;
+  const typeId=_logSelectedSlotId
+    ? loadSlots().find(s=>s.id===_logSelectedSlotId)?.typeId
+    : document.getElementById('log-type').value;
+  const date=document.getElementById('log-date').value;
+  const time=document.getElementById('log-time').value;
+  const attendance=parseInt(document.getElementById('log-attendance').value)||0;
+  const note=document.getElementById('log-note').value.trim();
+  const alerts=document.getElementById('log-alerts').value.trim();
+  if(!date){toast('請填寫日期');return;}
+
+  const type=cfg.classTypes?.find(t=>String(t.id)===String(typeId));
+  const students=loadStudents();
+  const studentNames=_logSelectedStudents.map(id=>students.find(s=>s.id===id)?.name||'').filter(Boolean);
+  const logs=loadLogs();
+  const now=new Date().toISOString();
+
+  if(editId){
+    const idx=logs.findIndex(l=>l.id===editId);
+    if(idx>=0) logs[idx]={...logs[idx],slotId:_logSelectedSlotId||null,date,time,classTypeId:String(typeId),classTypeName:type?.name||'',studentIds:_logSelectedStudents,studentNames,attendance,note,alerts,updatedAt:now};
+  } else {
+    logs.push({id:'log-'+Date.now(),slotId:_logSelectedSlotId||null,date,time,classTypeId:String(typeId),classTypeName:type?.name||'',studentIds:_logSelectedStudents,studentNames,attendance,note,alerts,createdAt:now,updatedAt:now});
+  }
+  saveLogs(logs);
+  syncLogsToStudents(logs);
+  closeSheets();
+  if(_logLevel===3 && _logTypeId && _logStudentId) renderLogL3(_logTypeId, _logStudentId);
+  else if(_logTypeId) renderLogL2(_logTypeId);
+  else renderLogs();
+  toast('✓ 課程日誌已儲存');
+}
+
+function deleteLog(){
+  const editId=document.getElementById('log-edit-id').value;
+  if(!editId||!confirm('確定要刪除此日誌嗎？')) return;
+  const logs=loadLogs().filter(l=>l.id!==editId);
+  saveLogs(logs);
+  syncLogsToStudents(logs);
+  closeSheets();
+  if(_logLevel===3 && _logTypeId && _logStudentId) renderLogL3(_logTypeId, _logStudentId);
+  else if(_logTypeId) renderLogL2(_logTypeId);
+  else renderLogs();
+  toast('已刪除日誌');
+}
+
+function syncLogsToStudents(allLogs){
+  const students=loadStudents();
+  students.forEach(s=>{
+    s.courseLogs=allLogs
+      .filter(l=>(l.studentIds||[]).some(id=>id===s.id))
+      .sort((a,b)=>b.date.localeCompare(a.date))
+      .map(l=>({
+        id:l.id, date:l.date, time:l.time,
+        classTypeId:l.classTypeId, classTypeName:l.classTypeName,
+        attendance:l.attendance, alerts:l.alerts, note:l.note
+      }));
+  });
+  saveStudents(students);
+}
+
+/* ══════════════════════════════════
+   SCHEDULE / CALENDAR
 /* ══════════════════════════════════
    SCHEDULE / CALENDAR
 ══════════════════════════════════ */
@@ -2405,7 +3066,7 @@ updateBadges();
    - Debounced render to prevent read storms
 ═══════════════════════════════════════════════════ */
 
-const DB_KEYS_SYNC = ['students','tickets','classes','payments','slots','booking_cfg'];
+const DB_KEYS_SYNC = ['students','tickets','classes','payments','slots','booking_cfg','course_logs'];
 const _fbUnsubscribers = {};  // prevent duplicate listeners
 let _syncInitDone = false;    // run initFirebaseSync only once
 let _renderTimer = null;      // debounce renders
@@ -2479,7 +3140,7 @@ async function initFirebaseSync() {
   if (_syncInitDone) return;  // GUARD: only run once
   _syncInitDone = true;
 
-  // Pull all 6 keys from Firestore (6 reads total, one-time on load)
+  // Pull all keys from Firestore into localStorage (7 reads, one-time on load)
   if (window._fb) {
     await Promise.all(DB_KEYS_SYNC.map(function(k){ return window._fb.get(k); }));
   }

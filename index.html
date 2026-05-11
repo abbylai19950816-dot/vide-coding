@@ -154,9 +154,14 @@ const firebaseConfig={apiKey:"AIzaSyDksa4iYf3aGqhKi9cp-WfDJrtOh_utX1U",authDomai
 const app=initializeApp(firebaseConfig);
 const db=getFirestore(app);
 const DB_KEYS=['students','tickets','classes','payments','slots','booking_cfg'];
+const FLAGS_DEFAULT={maintenanceMode:false,allowBooking:true,appVersion:'1.0.0'};
+let _flagsCache=null;
 window._fb={
   async get(key){
-    try{const snap=await getDoc(doc(db,'data',key));if(snap.exists()){const v=snap.data().value;localStorage.setItem('pilates_'+key,JSON.stringify(v));return v;}}catch(e){console.warn('fbGet',key,e);}
+    try{
+      const snap=await getDoc(doc(db,'data',key));
+      if(snap.exists()){const v=snap.data().value;localStorage.setItem('pilates_'+key,JSON.stringify(v));return v;}
+    }catch(e){console.warn('fbGet',key,e);}
     try{return JSON.parse(localStorage.getItem('pilates_'+key)||(key==='booking_cfg'?'{}':'[]'));}catch{return key==='booking_cfg'?{}:[];}
   },
   async set(key,value){
@@ -164,7 +169,19 @@ window._fb={
     try{await setDoc(doc(db,'data',key),{value,updated:Date.now()});}catch(e){console.warn('fbSet',key,e);}
   },
   subscribe(key,cb){return onSnapshot(doc(db,'data',key),snap=>{if(snap.exists())cb(key,snap.data().value);},e=>console.warn('listener',key,e));},
-  subscribeAll(cb){DB_KEYS.forEach(k=>this.subscribe(k,cb));}
+  subscribeAll(cb){DB_KEYS.forEach(k=>this.subscribe(k,cb));},
+  // flags — cached in memory, single getDoc on first call only
+  async getFlags(){
+    if(_flagsCache) return {..._flagsCache};
+    try{const snap=await getDoc(doc(db,'web_config','flags'));_flagsCache=snap.exists()?{...FLAGS_DEFAULT,...snap.data()}:{...FLAGS_DEFAULT};}
+    catch(e){_flagsCache={...FLAGS_DEFAULT};}
+    return {..._flagsCache};
+  },
+  subscribeFlags(cb){
+    return onSnapshot(doc(db,'web_config','flags'),snap=>{
+      if(snap.exists()){_flagsCache={...FLAGS_DEFAULT,...snap.data()};cb({..._flagsCache});}
+    },e=>console.warn('flagsListener',e));
+  }
 };
 window._fbReady=true;
 window.dispatchEvent(new Event('firebase-ready'));
@@ -825,6 +842,16 @@ function loopBooking(){
 
 function openSlotConfirm(){
   if(selectedSlots.size === 0){ alert('請先選擇時段'); return; }
+  // Check allowBooking flag
+  if(window._fb){
+    window._fb.getFlags().then(function(flags){
+      if(!flags.allowBooking){ alert('目前暫停開放線上預約，請聯絡老師。'); return; }
+      _doOpenSlotConfirm();
+    });
+  } else { _doOpenSlotConfirm(); }
+}
+function _doOpenSlotConfirm(){
+  if(selectedSlots.size === 0){ alert('請先選擇時段'); return; }
   if(selectedSlots.size === 1){
     // Single slot — show confirmation sheet
     const slotId = [...selectedSlots][0];
@@ -995,6 +1022,23 @@ function bkSaveCfg(d){   localStorage.setItem('pilates_booking_cfg',JSON.stringi
 async function initFirebaseSync() {
   if (_syncInitDone) return;
   _syncInitDone = true;
+
+  // Check flags before loading anything
+  if (window._fb) {
+    const flags = await window._fb.getFlags();
+    if (flags.maintenanceMode) {
+      document.body.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;font-family:Noto Sans TC,sans-serif;background:#f5f1eb;text-align:center;padding:40px"><div style="font-size:48px;margin-bottom:16px">🌿</div><div style="font-size:20px;font-weight:500;color:#2a2620;margin-bottom:8px">系統維護中</div><div style="font-size:14px;color:#6b6258;line-height:1.7">我們正在進行系統更新<br>請稍後再回來，感謝你的耐心等候</div></div>';
+      return;
+    }
+    // Subscribe to flag changes (e.g. admin turns on maintenance mode while student is on page)
+    window._fb.subscribeFlags(function(flags) {
+      if (flags.maintenanceMode) location.reload();
+      if (!flags.allowBooking) {
+        const bar = document.getElementById('schBookBar');
+        if (bar) bar.classList.remove('show');
+      }
+    });
+  }
   // Pull only what student page needs on load (2 reads instead of 6)
   if (window._fb) {
     await Promise.all(['slots','booking_cfg'].map(k => window._fb.get(k)));
