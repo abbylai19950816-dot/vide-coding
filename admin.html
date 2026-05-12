@@ -831,6 +831,10 @@ onAuthStateChanged(auth, (user) => {
         <div class="form-row"><label>頁尾文字</label><input id="bkcfg-footer-text" type="text" placeholder="用心陪伴每一位學員"></div>
       </div>
 
+      <!-- Form fields editor -->
+      <div class="section-label" style="margin-top:16px">報名表欄位</div>
+      <div class="form-section" id="bk-form-fields-editor"></div>
+
       <!-- Course types -->
       <div class="section-label" style="margin-top:16px">課程類型與定價</div>
       <p style="font-size:12px;color:var(--ink-light);margin:0 0 8px 2px;line-height:1.5">學員先選課程類型，再選堂數方案</p>
@@ -1329,13 +1333,20 @@ function renderStudents(){
   let students = loadStudents();
   if(q) students = students.filter(s=>s.name.toLowerCase().includes(q)||(s.phone||'').includes(q));
   const allTkts = loadTickets();
-  const total = loadStudents().length;
-  const active = Array.isArray(allTkts) ? allTkts.filter(t=>t&&!isTicketExpired(t)).length : 0;
-  const low = Array.isArray(allTkts) ? allTkts.filter(t=>t&&!isTicketExpired(t)&&t.left>0&&t.left<=3).length : 0;
+  const allStus = loadStudents();
+  const total = allStus.length;
+  const active = Array.isArray(allTkts) ? allTkts.filter(t=>t&&!isTicketExpired(t)&&t.left>0).length : 0;
+  // 需購課：學員的所有方案都用完(left<=0或expired)，或剩餘堂數<=3
+  const needBuy = Array.isArray(allTkts) ? allStus.filter(s=>{
+    const myTkts=allTkts.filter(t=>t&&t.studentId===s.id);
+    if(!myTkts.length) return false; // 沒有方案不算
+    const valid=myTkts.filter(t=>!isTicketExpired(t)&&t.left>0);
+    return valid.length===0 || valid.some(t=>t.left<=3); // 沒有有效方案 或 快用完
+  }).length : 0;
   document.getElementById('stu-stats').innerHTML=
     '<div class="stat-pill"><div class="stat-num">'+total+'</div><div class="stat-label">學員總數</div></div>'+
     '<div class="stat-pill"><div class="stat-num">'+active+'</div><div class="stat-label">有效方案</div></div>'+
-    '<div class="stat-pill"><div class="stat-num warn">'+low+'</div><div class="stat-label">需補票</div></div>';
+    '<div class="stat-pill"><div class="stat-num warn">'+needBuy+'</div><div class="stat-label">需購課</div></div>';
   const wrap = document.getElementById('stu-list');
   if(!students.length){ wrap.innerHTML='<div class="empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg><p>'+(q?'找不到符合的學員':'還沒有學員，點右上角新增！')+'</p></div>'; return; }
   wrap.innerHTML = students.map(function(s){
@@ -1404,10 +1415,11 @@ function saveStudentEdit(){
 }
 function openStudentDetail(id){
   const students = loadStudents();
-  const s = students.find(function(s){return s.id===id;});
+  const sid = String(id);
+  const s = students.find(function(s){return String(s.id)===sid;});
   if(!s) return;
   const allTkts = loadTickets();
-  const allMyTkts = allTkts.filter(function(t){return t.studentId===id;});
+  const allMyTkts = allTkts.filter(function(t){return String(t.studentId)===sid;});
   const STATUS_LBL = {present:'到課',absent:'缺席',leave:'請假',makeup:'補課'};
   const tktRows = allMyTkts.sort((a,b)=>b.boughtDate.localeCompare(a.boughtDate)).map(function(t){
     const exp=isTicketExpired(t),low=isTicketLow(t);
@@ -1424,12 +1436,14 @@ function openStudentDetail(id){
       : '';
     return '<div class="card" style="margin-bottom:6px;cursor:default;'+(exp?'opacity:.6':'')+'"><div style="flex:1"><div class="card-name" style="font-size:14px">'+(t.typeName||t.planName||t.total+'堂方案')+'</div><div class="card-meta">購買：'+t.boughtDate+' · NT$ '+(t.price||0).toLocaleString()+'</div>'+(t.total>1?'<div style="margin-top:6px"><div class="progress-track"><div class="progress-fill '+(low?'warn':'')+'" style="width:'+pct+'%"></div></div></div>':'')+'<div style="display:flex;align-items:center;justify-content:space-between;margin-top:6px"><span class="badge '+cls+'">'+statusTxt+'</span>'+ctrlBtns+'</div></div></div>';
   }).join('') || '<div style="font-size:13px;color:var(--ink-mid);padding:8px 0">無方案紀錄</div>';
-  const classes = loadClasses().filter(function(c){return c.saved&&c.members.some(function(m){return m.studentId===id;});});
+  const classes = loadClasses().filter(function(c){return c.saved&&c.members.some(function(m){return String(m.studentId)===sid;});});
   const attCounts={present:0,absent:0,leave:0,makeup:0};
-  classes.forEach(function(c){const m=c.members.find(function(m){return m.studentId===id;});if(m)attCounts[m.status]=(attCounts[m.status]||0)+1;});
+  classes.forEach(function(c){const m=c.members.find(function(m){return String(m.studentId)===sid;});if(m)attCounts[m.status]=(attCounts[m.status]||0)+1;});
   const attTotal=classes.length;
   const absentCount=(attCounts.absent||0)+(attCounts.leave||0); const attRate=attTotal?Math.round(attCounts.present/attTotal*100):0; const absRate=attTotal?Math.round(absentCount/attTotal*100):0;
-  const recentClasses=classes.sort((a,b)=>b.date.localeCompare(a.date)).slice(0,5);
+  const today=todayStr();
+  const recentClasses=classes.filter(cl=>cl.date<=today).sort((a,b)=>b.date.localeCompare(a.date)).slice(0,3);
+  const SCH_D=['日','一','二','三','四','五','六'];
   document.getElementById('sheet-stuDetail-body').innerHTML=
     '<div class="avatar av72 '+s.color+'" style="display:flex">'+s.name.slice(0,1)+'</div>'+
     '<div class="detail-name">'+s.name+'</div>'+
@@ -1452,23 +1466,66 @@ function openStudentDetail(id){
       '<div style="text-align:center;flex:1"><div style="font-size:20px;font-weight:700;color:var(--sage)">'+attRate+'%</div><div style="font-size:11px;color:var(--ink-mid)">到課率</div></div>'+
       '<div style="text-align:center;flex:1"><div style="font-size:20px;font-weight:700;color:var(--absent)">'+(absentCount||0)+'</div><div style="font-size:11px;color:var(--ink-mid)">缺席（含請假）</div></div>'+
     '</div>'+
-    (recentClasses.length?'<div style="font-size:12px;color:var(--ink-mid);margin-bottom:6px">最近上課</div>'+recentClasses.map(function(c){const m=c.members.find(function(m){return m.studentId===id;});return '<div class="info-row"><span class="info-label">'+c.date+'</span><span class="info-val">'+c.name+' <span class="hist-status '+(m?m.status:'')+'" style="font-size:12px;font-weight:500">'+(STATUS_LBL[m?m.status:''||'']||'')+'</span></span></div>';}).join(''):'')+
-    // Scheduled bookings from booking-public
+    '<div style="display:flex;align-items:center;justify-content:space-between;margin:16px 0 8px">'+
+      '<div style="font-size:13px;font-weight:500;color:var(--ink-mid)">最近上課</div>'+
+      '<button data-sid="'+id+'" onclick="openStudentAllHistory(this.dataset.sid)" style="font-size:11px;color:var(--sage);background:none;border:none;cursor:pointer;font-family:inherit;padding:0">查看全部 →</button>'+
+    '</div>'+
+    (recentClasses.length?recentClasses.map(function(cl){
+      const m=cl.members.find(function(m){return String(m.studentId)===sid;});
+      const slotRef=cl.slotId||cl.id;
+      return '<div class="info-row"><span class="info-label">'+cl.date+'</span>'+
+        '<span class="info-val" style="display:flex;align-items:center;gap:6px">'+
+          '<span style="font-size:13px">'+cl.name+'</span>'+
+          '<span class="hist-status '+(m?m.status:'')+'" style="font-size:11px;font-weight:500">'+(STATUS_LBL[m?m.status:'']||'')+'</span>'+
+          '<button onclick="openClassNote(\''+slotRef+'\','+sid+',event)" style="font-size:11px;background:var(--sage-light);color:var(--sage-deep);border:none;border-radius:99px;padding:2px 8px;cursor:pointer;font-family:inherit">課程紀錄</button>'+
+        '</span></div>';
+    }).join(''):'<div style="font-size:12px;color:var(--ink-light);padding:4px 0 8px">還沒有上課紀錄</div>')+
     (function(){
-      const booked = (s.scheduledBookings||[]).slice().sort(function(a,b){return b.date.localeCompare(a.date);}).slice(0,5);
-      if(!booked.length) return '';
-      const SCH_D=['日','一','二','三','四','五','六'];
-      return '<div style="font-size:13px;font-weight:500;color:var(--ink-mid);margin:16px 0 8px">預約課程時段</div>'
-        +booked.map(function(b){
+      const futureBooked=(s.scheduledBookings||[]).filter(function(b){return b.date>=today;}).sort(function(a,b){return a.date.localeCompare(b.date);});
+      if(!futureBooked.length) return '<div style="font-size:13px;font-weight:500;color:var(--ink-mid);margin:16px 0 8px">預約課程時段</div><div style="font-size:12px;color:var(--ink-light);padding:4px 0 8px">目前沒有未來的預約</div>';
+      return '<div style="font-size:13px;font-weight:500;color:var(--ink-mid);margin:16px 0 8px">預約課程時段</div>'+
+        futureBooked.map(function(b){
           const d=new Date(b.date+'T00:00:00');
           const cancelBtn='<button onclick="cancelStudentBooking('+id+',\''+b.slotId+'\',event)" style="font-size:11px;background:var(--warn-bg);color:var(--warn);border:none;border-radius:99px;padding:2px 10px;cursor:pointer;font-family:inherit;margin-left:6px">取消</button>';
-          const noteBtn='<button onclick="openClassNote(\''+b.slotId+'\','+id+',event)" style="font-size:11px;background:var(--sage-light);color:var(--sage-deep);border:none;border-radius:99px;padding:2px 10px;cursor:pointer;font-family:inherit;margin-left:4px">課程紀錄</button>';
-        return '<div class="info-row" style="align-items:center"><span class="info-label">'+( d.getMonth()+1)+'/'+d.getDate()+'（'+SCH_D[d.getDay()]+'）</span><span class="info-val" style="display:flex;align-items:center;gap:4px;flex-wrap:wrap">'+b.time+'　'+(b.typeName||'')+noteBtn+cancelBtn+'</span></div>';
+          const noteBtn='<button onclick="openClassNote(\''+b.slotId+'\','+sid+',event)" style="font-size:11px;background:var(--sage-light);color:var(--sage-deep);border:none;border-radius:99px;padding:2px 10px;cursor:pointer;font-family:inherit;margin-left:4px">課程紀錄</button>';
+          return '<div class="info-row" style="align-items:center"><span class="info-label">'+(d.getMonth()+1)+'/'+d.getDate()+'（'+SCH_D[d.getDay()]+'）</span><span class="info-val" style="display:flex;align-items:center;gap:4px;flex-wrap:wrap">'+b.time+'　'+(b.typeName||'')+noteBtn+cancelBtn+'</span></div>';
         }).join('');
     })()+
     '<button class="btn-danger" onclick="deleteStudent('+s.id+')">刪除學員</button>';
   openSheet('sheet-stuDetail');
 }
+function openStudentAllHistory(studentId){
+  const sid = String(studentId);
+  const SCH_D=['日','一','二','三','四','五','六'];
+  const s=loadStudents().find(s=>String(s.id)===sid);
+  if(!s) return;
+  const today=todayStr();
+  const classes=loadClasses().filter(cl=>cl.members.some(m=>String(m.studentId)===sid)&&cl.date<=today)
+    .sort((a,b)=>b.date.localeCompare(a.date));
+  const body=document.getElementById('sheet-stuDetail-body');
+  const backBtn=`<button data-sid="${sid}" onclick="openStudentDetail(this.dataset.sid)" style="font-size:13px;color:var(--sage);background:none;border:none;cursor:pointer;font-family:inherit;padding:0 0 16px">← 返回</button>`;
+  if(!classes.length){
+    body.innerHTML=backBtn+
+      '<div style="font-size:15px;font-weight:500;margin-bottom:16px">'+s.name+'的上課紀錄</div>'+
+      '<div style="font-size:13px;color:var(--ink-light)">還沒有上課紀錄</div>';
+    return;
+  }
+  body.innerHTML=backBtn+
+    '<div style="font-size:15px;font-weight:500;margin-bottom:16px">'+s.name+'的上課紀錄（共'+classes.length+'堂）</div>'+
+    classes.map(cl=>{
+      const m=cl.members.find(m=>String(m.studentId)===sid);
+      const d=new Date(cl.date+'T00:00:00');
+      const slotRef=cl.slotId||cl.id;
+      return '<div class="info-row" style="padding:8px 0;border-bottom:1px solid var(--sand-dark)">'+
+        '<span class="info-label" style="min-width:90px">'+cl.date+'<br><span style="font-size:10px;color:var(--ink-light)">（'+SCH_D[d.getDay()]+'）</span></span>'+
+        '<span class="info-val" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">'+
+          '<span style="font-size:13px">'+cl.name+(cl.time?' ・'+cl.time:'')+'</span>'+
+          '<span class="hist-status '+(m?m.status:'')+'" style="font-size:11px">'+(STATUS_LBL[m?m.status:'']||'')+'</span>'+
+          '<button data-slot="'+slotRef+'" data-sid="'+sid+'" onclick="openClassNote(this.dataset.slot,this.dataset.sid,event)" style="font-size:11px;background:var(--sage-light);color:var(--sage-deep);border:none;border-radius:99px;padding:2px 8px;cursor:pointer;font-family:inherit">課程紀錄</button>'+
+        '</span></div>';
+    }).join('');
+}
+
 function cancelStudentBooking(studentId, slotId, evt){
   if(evt) evt.stopPropagation();
   if(!confirm('確定要取消這筆預約並補回 1 堂嗎？')) return;
@@ -1823,7 +1880,7 @@ function deleteTicket(id){ if(!confirm('確定要刪除此方案嗎？')) return
 /* ══════════════════════════════════
       ATTENDANCE
 ══════════════════════════════════ */
-let attTab='roll', attDate=todayStr(), rollState={}, openStuId=null;
+let attTab='roll', attDate=todayStr(), rollState={}, openStuId=null, rollFilter=null; // rollFilter: null=全部, 'present','leave','makeup','pending'
 
 function setDate(val){ attDate=val; updateDateLabel(); renderAttendance(); }
 function openDatePicker(){
@@ -1877,16 +1934,23 @@ function switchAttTab(tab){
   const showDateNav=tab==='roll';
   document.getElementById('att-dateNav').style.display=showDateNav?'flex':'none';
   document.getElementById('att-addBtn').style.display=showDateNav?'flex':'none';
+  document.getElementById('att-stats').style.display=tab==='roll'?'flex':'none';
   renderAttendance();
 }
 function renderAttendance(){
   const classes=loadClasses();
   const all=classes.flatMap(c=>c.members);
+  const todayClasses=loadClasses().filter(c=>c.date===attDate);
+  const todayAll=todayClasses.flatMap(c=>c.members);
+  const _pres=todayAll.filter(m=>m.status==='present').length;
+  const _leav=todayAll.filter(m=>m.status==='leave').length;
+  const _make=todayAll.filter(m=>m.status==='makeup').length;
+  const _pend=todayAll.filter(m=>!m.status||m.status==='pending').length;
   document.getElementById('att-stats').innerHTML=`
-    <div class="stat-pill"><div class="stat-num green">${all.filter(m=>m.status==='present').length}</div><div class="stat-label">到課</div></div>
-    <div class="stat-pill"><div class="stat-num red">${all.filter(m=>m.status==='absent').length}</div><div class="stat-label">缺席</div></div>
-    <div class="stat-pill"><div class="stat-num purple">${all.filter(m=>m.status==='leave').length}</div><div class="stat-label">請假</div></div>
-    <div class="stat-pill"><div class="stat-num blue">${all.filter(m=>m.status==='makeup').length}</div><div class="stat-label">補課</div></div>
+    <div class="stat-pill"><div class="stat-num green">${_pres}</div><div class="stat-label">到課</div></div>
+    <div class="stat-pill"><div class="stat-num purple">${_leav}</div><div class="stat-label">請假</div></div>
+    <div class="stat-pill"><div class="stat-num blue">${_make}</div><div class="stat-label">補課</div></div>
+    <div class="stat-pill"><div class="stat-num" style="color:var(--ink-mid)">${_pend}</div><div class="stat-label">待確認</div></div>
   `;
   if(attTab==='roll') renderRoll();
   else if(attTab==='history') renderHistory();
@@ -1896,11 +1960,14 @@ function renderRoll(){
   const classes=loadClasses().filter(c=>c.date===attDate);
   const wrap=document.getElementById('att-list');
   if(!classes.length){ wrap.innerHTML=`<div class="empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg><p>今天還沒有課程<br><span style="color:var(--sage);cursor:pointer" onclick="openClassAdd()">＋ 新增課堂</span></p></div>`; document.getElementById('att-savebar').classList.remove('show'); return; }
-  wrap.innerHTML=classes.map(cls=>{
-    // Sync rollState from saved class members
+
+  let html = '';
+  html += classes.map(cls=>{
     if(!rollState[cls.id]) rollState[cls.id]={};
     cls.members.forEach(m=>{ rollState[cls.id][m.studentId]=m.status||'pending'; });
-    const rows=cls.members.map(m=>{
+    const filtered = cls.members;
+    if(!filtered.length) return `<div class="section-label">${cls.name}・${cls.time||''}</div><div style="font-size:13px;color:var(--ink-light);padding:8px 0 4px">無符合篩選的學員</div>`;
+    const rows=filtered.map(m=>{
       const st=m.status||'pending';
       const borderCls=st==='present'?'':st==='pending'?'pending':st+'-border';
       return `<div class="card ${borderCls}" style="cursor:default">
@@ -1918,6 +1985,7 @@ function renderRoll(){
     }).join('');
     return `<div class="section-label">${cls.name}・${cls.time||''}${cls.location?' ・'+cls.location:''}</div>${rows}`;
   }).join('');
+  wrap.innerHTML = html;
   document.getElementById('att-savebar').classList.remove('show');
 }
 function setStatus(classId,studentId,status){
@@ -1974,32 +2042,48 @@ function saveRoll(){
   document.getElementById('att-savebar').classList.remove('show');
   toast('✓ 點名紀錄已儲存');
 }
+let histOpenId=null; // which class card is expanded in history
 function renderHistory(){
   const classes=loadClasses().filter(c=>c.saved).sort((a,b)=>b.date.localeCompare(a.date));
   const wrap=document.getElementById('att-list');
   if(!classes.length){wrap.innerHTML=`<div class="empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 15"/></svg><p>還沒有歷史紀錄</p></div>`;return}
   const byDate={};
-  classes.forEach(c=>{ if(!byDate[c.date]) byDate[c.date]=[]; byDate[c.date].push(c); });
-  wrap.innerHTML=Object.entries(byDate).map(([date,clsList])=>clsList.map((cls,ci)=>{
-    const counts={present:0,absent:0,leave:0,makeup:0};
-    cls.members.forEach(m=>counts[m.status]=(counts[m.status]||0)+1);
-    const badges=Object.entries(counts).filter(([,v])=>v>0).map(([k,v])=>`<span class="mini-badge mb-${k}">${STATUS_LABEL[k]} ${v}</span>`).join('');
-    const rows=cls.members.map(m=>`<div class="hist-row"><div class="avatar av28 ${m.color}">${m.studentName.slice(0,1)}</div><span class="hist-rname">${m.studentName}</span><span class="hist-status ${m.status}">${STATUS_LABEL[m.status]}</span></div>`).join('');
-    return `<div class="hist-card"><div class="hist-header"><div>${ci===0?`<div class="hist-date">${fmtDate(date)}</div>`:''}<div class="hist-day">${cls.name}${cls.time?' ・'+cls.time:''}</div></div><div class="hist-badges">${badges}</div></div><div class="hist-rows">${rows}</div></div>`;
-  }).join('')).join('');
+  classes.forEach(cl=>{ if(!byDate[cl.date]) byDate[cl.date]=[]; byDate[cl.date].push(cl); });
+  wrap.innerHTML=Object.entries(byDate).map(([date,clsList])=>{
+    const dateLabel=`<div class="section-label">${fmtDate(date)}</div>`;
+    const cards=clsList.map(cls=>{
+      const counts={present:0,leave:0,makeup:0,pending:0};
+      cls.members.forEach(m=>counts[m.status||'pending']=(counts[m.status||'pending']||0)+1);
+      const badges=Object.entries(counts).filter(([,v])=>v>0).map(([k,v])=>`<span class="mini-badge mb-${k}">${STATUS_LABEL[k]} ${v}</span>`).join('');
+      const isOpen=histOpenId===cls.id;
+      const rows=isOpen?cls.members.map(m=>`<div class="hist-row"><div class="avatar av28 ${m.color}">${m.studentName.slice(0,1)}</div><span class="hist-rname">${m.studentName}</span><span class="hist-status ${m.status||'pending'}">${STATUS_LABEL[m.status||'pending']}</span></div>`).join(''):'';
+      return `<div class="hist-card" onclick="histOpenId=${isOpen?null:`'${cls.id}'`};renderHistory()" style="cursor:pointer">
+        <div class="hist-header">
+          <div>
+            <div class="hist-day">${cls.name}${cls.time?' ・'+cls.time:''}</div>
+            <div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:4px">${badges}</div>
+          </div>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="transform:rotate(${isOpen?180:0}deg);transition:.2s;flex-shrink:0"><polyline points="6 9 12 15 18 9"/></svg>
+        </div>
+        ${isOpen?`<div class="hist-rows" style="margin-top:8px;padding-top:8px;border-top:1px solid var(--sand-dark)">${rows}</div>`:''}
+      </div>`;
+    }).join('');
+    return dateLabel+cards;
+  }).join('');
 }
 function renderStuAtt(){
-  const students=loadStudents(), classes=loadClasses().filter(c=>c.saved);
+  const students=loadStudents(), classes=loadClasses(); // include all, not just saved
   const wrap=document.getElementById('att-list');
   if(!students.length){wrap.innerHTML='<div class="empty"><p>沒有學員資料</p></div>';return}
   wrap.innerHTML=students.map(s=>{
-    const my=classes.filter(c=>c.members.some(m=>m.studentId===s.id)).sort((a,b)=>b.date.localeCompare(a.date));
+    const ssid=String(s.id);
+    const my=classes.filter(c=>c.members.some(m=>String(m.studentId)===ssid)).sort((a,b)=>b.date.localeCompare(a.date));
     const counts={present:0,absent:0,leave:0,makeup:0};
-    my.forEach(c=>{ const m=c.members.find(m=>m.studentId===s.id); if(m) counts[m.status]=(counts[m.status]||0)+1; });
+    my.forEach(c=>{ const m=c.members.find(m=>String(m.studentId)===ssid); if(m) counts[m.status]=(counts[m.status]||0)+1; });
     const total=my.length, rate=total?Math.round(counts.present/total*100):0;
-    const dots=my.slice(0,12).map(c=>{ const m=c.members.find(m=>m.studentId===s.id); return `<div class="dot ${m?m.status:'none'}"></div>`; }).join('');
+    const dots=my.slice(0,12).map(c=>{ const m=c.members.find(m=>String(m.studentId)===ssid); return `<div class="dot ${m?m.status:'none'}"></div>`; }).join('');
     const isOpen=openStuId===s.id;
-    const rows=my.slice(0,10).map(c=>{ const m=c.members.find(m=>m.studentId===s.id); return `<div class="stu-log-row"><span style="color:var(--ink-mid);font-size:13px">${fmtDate(c.date)} ${c.name}</span><span class="hist-status ${m?.status||''}">${STATUS_LABEL[m?.status||'present']}</span></div>`; }).join('');
+    const rows=my.slice(0,10).map(c=>{ const m=c.members.find(m=>String(m.studentId)===ssid); return `<div class="stu-log-row"><span style="color:var(--ink-mid);font-size:13px">${fmtDate(c.date)} ${c.name}</span><span class="hist-status ${m?.status||''}">${STATUS_LABEL[m?.status||'present']}</span></div>`; }).join('');
     return `<div class="stu-card"><div class="stu-header" onclick="openStuId=${isOpen?null:s.id};renderStuAtt()"><div class="avatar av42 ${s.color}">${s.name.slice(0,1)}</div><div class="stu-info"><div class="card-name">${s.name}</div><div class="card-meta">共 ${total} 堂・到課率 ${rate}%・缺席 ${(counts.absent||0)+(counts.leave||0)} 次（含請假）</div></div><div class="stu-dots">${dots}</div></div><div class="stu-expand ${isOpen?'open':''}">${rows||'<div style="font-size:13px;color:var(--ink-mid);padding:8px 0">還沒有上課紀錄</div>'}</div></div>`;
   }).join('');
 }
@@ -2223,6 +2307,12 @@ const BK_DEFAULT = {
   heroTitle:'找到屬於你的課程節奏',
   heroSub:'選擇適合你的課程類型與方案',
   footerText:'用心陪伴每一位學員',
+  formFields:[
+    {id:'name',   label:'你的姓名',                  type:'text',     required:true,  enabled:true},
+    {id:'phone',  label:'手機號碼',                  type:'tel',      required:true,  enabled:true},
+    {id:'social', label:'LINE 或 Instagram ID',      type:'text',     required:true,  enabled:true},
+    {id:'note',   label:'備註（身體狀況、時間偏好等）', type:'textarea', required:false, enabled:true},
+  ],
   classTypes:[
     { id:1, name:'一對一', icon:'🧘', desc:'專屬個人訓練',
       plans:[{id:1,sessions:10,name:'10堂套票',price:6000},{id:2,sessions:5,name:'5堂體驗',price:3200},{id:3,sessions:1,name:'單堂',price:700}] },
@@ -2295,14 +2385,17 @@ function bkRenderSettingsPage(){
   if(footerTextEl) footerTextEl.value=c.footerText||"";
   bkEditCtypes=(c.classTypes||BK_DEFAULT.classTypes).map(t=>({...t,plans:(t.plans||[]).map(p=>({...p}))}));
   bkEditInfoBlocks=(c.infoBlocks||BK_DEFAULT.infoBlocks).map(b=>({...b}));
+  bkEditFormFields=(c.formFields||BK_DEFAULT.formFields).map(f=>({...f}));
   bkRenderCtypeEditor();
   bkRenderInfoEditor();
+  bkRenderFormFieldEditor();
 }
 function bkOpenSettings(){ bkRenderSettingsPage(); }
 function bkCloseSettings(){ /* no-op: now a page */ }
 function bkSaveSettings(){
   bkSyncCtypes();
   bkSyncInfoBlocks();
+  bkSyncFormFields();
   const emptyType=bkEditCtypes.find(t=>!t.name.trim());
   if(emptyType){ toast("請填寫每個課程類型的名稱"); return; }
   const newCfg={
@@ -2313,6 +2406,7 @@ function bkSaveSettings(){
     footerText:(document.getElementById("bkcfg-footer-text")?.value||"").trim()||BK_DEFAULT.footerText,
     classTypes:bkEditCtypes,
     infoBlocks:bkEditInfoBlocks.filter(b=>b.title.trim()||b.body.trim()),
+    formFields:bkEditFormFields||BK_DEFAULT.formFields,
   };
   bkSaveCfg(newCfg);
   bkCfg=newCfg;
@@ -2470,6 +2564,49 @@ function bkSyncInfoBlocks(){
     body:document.getElementById(`bkie-body-${i}`)?.value||'',
   }));
 }
+
+function bkRenderFormFieldEditor(){
+  const wrap=document.getElementById('bk-form-fields-editor');
+  if(!wrap) return;
+  wrap.innerHTML=bkEditFormFields.map((f,i)=>{
+    const locked=f.id==='name'||f.id==='phone';
+    return `<div style="padding:10px 0;border-bottom:1px solid var(--sand-dark)">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <input value="${f.label}" onchange="bkEditFormFields[${i}].label=this.value"
+          style="flex:1;border:1.5px solid var(--sand-dark);border-radius:8px;padding:6px 10px;font-size:13px;font-family:inherit;outline:none"
+          placeholder="欄位名稱" ${locked?'disabled':''}>
+        <div style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--ink-mid);flex-shrink:0">
+          必填<input type="checkbox" ${f.required?'checked':''} ${locked?'disabled':''}
+            onchange="bkEditFormFields[${i}].required=this.checked"
+            style="accent-color:var(--sage);width:16px;height:16px;margin-left:2px">
+        </div>
+        <label class="bk-toggle" style="width:36px;height:20px;flex-shrink:0">
+          <input type="checkbox" ${f.enabled!==false?'checked':''} ${locked?'disabled':''}
+            onchange="bkEditFormFields[${i}].enabled=this.checked">
+          <span class="bk-toggle-slider"></span>
+        </label>
+        ${!locked?`<button onclick="bkDelFormField(${i})" style="background:none;border:none;color:var(--warn);font-size:16px;cursor:pointer;padding:0;line-height:1">×</button>`:''}
+      </div>
+      ${locked?'<div style="font-size:10px;color:var(--ink-light)">必要欄位，不可停用</div>':''}
+    </div>`;
+  }).join('')+
+  `<button onclick="bkAddFormField()" style="width:100%;background:var(--sand);border:1.5px dashed var(--sand-dark);border-radius:8px;padding:8px;font-size:13px;color:var(--ink-mid);font-family:inherit;cursor:pointer;margin-top:8px">＋ 新增欄位</button>`;
+}
+
+function bkAddFormField(){
+  bkEditFormFields.push({id:'custom-'+Date.now(),label:'新欄位',type:'text',required:false,enabled:true});
+  bkRenderFormFieldEditor();
+}
+
+function bkDelFormField(i){
+  bkEditFormFields.splice(i,1);
+  bkRenderFormFieldEditor();
+}
+function bkSyncFormFields(){
+  // Labels are updated in-place via onchange, so bkEditFormFields is already current
+  // Nothing extra needed — but this is the hook if we need DOM sync later
+}
+
 function bkAddInfoBlock(){
   bkSyncInfoBlocks();
   bkEditInfoBlocks.push({icon:'',title:'',body:''});

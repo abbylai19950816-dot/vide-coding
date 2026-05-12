@@ -223,10 +223,7 @@ signInAnonymously(auth).catch(e=>console.warn('anon auth failed',e)).finally(()=
         <span class="fp-name" id="fpName">—</span>
         <span class="fp-price" id="fpPrice">—</span>
       </div>
-      <div class="field"><label>你的姓名 <span style="color:var(--warn)">*</span></label><input type="text" id="fname" placeholder="請輸入姓名" required></div>
-      <div class="field"><label>手機號碼 <span style="color:var(--warn)">*</span></label><input type="tel" id="fphone" placeholder="0912-345-678" required></div>
-      <div class="field"><label>LINE 或 Instagram ID <span style="color:var(--warn)">*</span></label><input type="text" id="fsocial" placeholder="請輸入 LINE ID 或 @Instagram 帳號" required></div>
-      <div class="field"><label>備註（身體狀況、時間偏好等）</label><textarea id="fnote" placeholder="選填，有任何想告訴老師的都可以寫"></textarea></div>
+      <div id="dynFormFields"></div>
       <button class="btn-submit" onclick="submitPurchase()">送出預約申請 →</button>
     </div>
   </div>
@@ -306,8 +303,13 @@ signInAnonymously(auth).catch(e=>console.warn('anon auth failed',e)).finally(()=
   </div>
 </div>
 <script>
-const BK_DEFAULT={teacherName:"嬋柔老師",lineId:"",classTypes:[{id:1,name:"一對一",icon:"🧘",desc:"專屬個人訓練",plans:[{id:1,sessions:10,name:"10堂套票",price:6000,validDays:180,makeup:true,flex:true},{id:2,sessions:5,name:"5堂體驗",price:3200,validDays:90,makeup:true,flex:true},{id:3,sessions:1,name:"單堂",price:700,validDays:30,makeup:false,flex:false}]},{id:2,name:"一對二",icon:"🤸",desc:"雙人共同練習",plans:[{id:1,sessions:10,name:"10堂套票",price:4500,validDays:180,makeup:true,flex:true},{id:2,sessions:1,name:"單堂",price:500,validDays:30,makeup:false,flex:false}]},{id:3,name:"團課",icon:"🌿",desc:"小班制，最多6人",plans:[{id:1,sessions:20,name:"20堂套票",price:5500,validDays:180,makeup:true,flex:false},{id:2,sessions:10,name:"10堂套票",price:3000,validDays:180,makeup:true,flex:false},{id:3,sessions:1,name:"單堂",price:400,validDays:30,makeup:false,flex:false}]}],infoBlocks:[{icon:"🌿",title:"什麼是墊上嬋柔？",body:"結合柔軟、呼吸與身心覺察的全身性運動，適合各年齡層，不需要任何基礎。"},{icon:"📍",title:"上課地點",body:"台南市，詳細地址於預約確認後提供。"},{icon:"💳",title:"付款方式",body:"現金 / 轉帳 / Line Pay，第一次上課前完成付款即可。"},{icon:"🔄",title:"彈性補課",body:"提前告知即可協調補課，套票堂數不浪費。"}]};
-function loadCfg(){try{const r=localStorage.getItem("pilates_booking_cfg");if(!r)return BK_DEFAULT;const s=JSON.parse(r);return{teacherName:s.teacherName||BK_DEFAULT.teacherName,lineId:s.lineId||"",heroTitle:s.heroTitle||BK_DEFAULT.heroTitle,heroSub:s.heroSub||BK_DEFAULT.heroSub,footerText:s.footerText||BK_DEFAULT.footerText,classTypes:(s.classTypes&&s.classTypes.length)?s.classTypes:BK_DEFAULT.classTypes,infoBlocks:(s.infoBlocks&&s.infoBlocks.length)?s.infoBlocks:BK_DEFAULT.infoBlocks};}catch{return BK_DEFAULT;}}
+const BK_DEFAULT={teacherName:"嬋柔老師",lineId:"",classTypes:[{id:1,name:"一對一",icon:"🧘",desc:"專屬個人訓練",plans:[{id:1,sessions:10,name:"10堂套票",price:6000,validDays:180,makeup:true,flex:true},{id:2,sessions:5,name:"5堂體驗",price:3200,validDays:90,makeup:true,flex:true},{id:3,sessions:1,name:"單堂",price:700,validDays:30,makeup:false,flex:false}]},{id:2,name:"一對二",icon:"🤸",desc:"雙人共同練習",plans:[{id:1,sessions:10,name:"10堂套票",price:4500,validDays:180,makeup:true,flex:true},{id:2,sessions:1,name:"單堂",price:500,validDays:30,makeup:false,flex:false}]},{id:3,name:"團課",icon:"🌿",desc:"小班制，最多6人",plans:[{id:1,sessions:20,name:"20堂套票",price:5500,validDays:180,makeup:true,flex:false},{id:2,sessions:10,name:"10堂套票",price:3000,validDays:180,makeup:true,flex:false},{id:3,sessions:1,name:"單堂",price:400,validDays:30,makeup:false,flex:false}]}],formFields:[
+    {id:'name',   label:'你的姓名',                  type:'text',     required:true,  enabled:true},
+    {id:'phone',  label:'手機號碼',                  type:'tel',      required:true,  enabled:true},
+    {id:'social', label:'LINE 或 Instagram ID',      type:'text',     required:true,  enabled:true},
+    {id:'note',   label:'備註（身體狀況、時間偏好等）', type:'textarea', required:false, enabled:true},
+  ],infoBlocks:[{icon:"🌿",title:"什麼是墊上嬋柔？",body:"結合柔軟、呼吸與身心覺察的全身性運動，適合各年齡層，不需要任何基礎。"},{icon:"📍",title:"上課地點",body:"台南市，詳細地址於預約確認後提供。"},{icon:"💳",title:"付款方式",body:"現金 / 轉帳 / Line Pay，第一次上課前完成付款即可。"},{icon:"🔄",title:"彈性補課",body:"提前告知即可協調補課，套票堂數不浪費。"}]};
+function loadCfg(){try{const r=localStorage.getItem("pilates_booking_cfg");if(!r)return BK_DEFAULT;const s=JSON.parse(r);return{teacherName:s.teacherName||BK_DEFAULT.teacherName,lineId:s.lineId||"",heroTitle:s.heroTitle||BK_DEFAULT.heroTitle,heroSub:s.heroSub||BK_DEFAULT.heroSub,footerText:s.footerText||BK_DEFAULT.footerText,classTypes:(s.classTypes&&s.classTypes.length)?s.classTypes:BK_DEFAULT.classTypes,infoBlocks:(s.infoBlocks&&s.infoBlocks.length)?s.infoBlocks:BK_DEFAULT.infoBlocks,formFields:(s.formFields&&s.formFields.length)?s.formFields:BK_DEFAULT.formFields};}catch{return BK_DEFAULT;}}
 function loadSlots(){try{return JSON.parse(localStorage.getItem("pilates_slots")||"[]");}catch{return[];}}
 function loadPayments(){try{return JSON.parse(localStorage.getItem("pilates_payments")||"[]");}catch{return[];}}
 // savePayments and saveSlots defined below with Firebase sync
@@ -340,6 +342,25 @@ function renderPurchase(){
   if(hsEl) hsEl.textContent=cfg.heroSub||"選擇適合你的課程類型與方案";
   document.getElementById("infoBlocks").innerHTML=(cfg.infoBlocks||[]).map(b=>`<div class="info-row"><span class="info-icon">${b.icon||"•"}</span><span class="info-text"><strong>${b.title||""}</strong><br>${b.body||""}</span></div>`).join("");
   renderTypeCards();
+  renderFormFields(cfg);
+}
+
+function renderFormFields(cfg){
+  const fields=loadCfg().formFields||[  // always fresh from localStorage/Firebase
+    {id:'name',   label:'你的姓名',                  type:'text',     required:true,  enabled:true},
+    {id:'phone',  label:'手機號碼',                  type:'tel',      required:true,  enabled:true},
+    {id:'social', label:'LINE 或 Instagram ID',      type:'text',     required:true,  enabled:true},
+    {id:'note',   label:'備註（身體狀況、時間偏好等）', type:'textarea', required:false, enabled:true},
+  ];
+  const wrap=document.getElementById('dynFormFields');
+  if(!wrap) return;
+  const PLACEHOLDER={name:'請輸入姓名',phone:'0912-345-678',social:'LINE ID 或 @Instagram 帳號',note:'選填，有任何想告訴老師的都可以寫'};
+  wrap.innerHTML=fields.filter(f=>f.enabled!==false).map(f=>{
+    const req=f.required?`<span style="color:var(--warn)"> *</span>`:'';
+    if(f.type==='textarea')
+      return `<div class="field"><label>${f.label}${req}</label><textarea id="f-${f.id}" placeholder="${PLACEHOLDER[f.id]||''}"></textarea></div>`;
+    return `<div class="field"><label>${f.label}${req}</label><input type="${f.type||'text'}" id="f-${f.id}" placeholder="${PLACEHOLDER[f.id]||''}" ${f.required?'required':''}></div>`;
+  }).join('');
 }
 
 function renderTypeCards(){
@@ -412,16 +433,30 @@ function formatPhone(raw){
 }
 
 function submitPurchase(){
-  const name=(document.getElementById("fname")?.value||"").trim();
-  const phoneRaw=(document.getElementById("fphone")?.value||"").trim();
-  const social=(document.getElementById("fsocial")?.value||"").trim();
-  const note=(document.getElementById("fnote")?.value||"").trim();
+  const name=(document.getElementById("f-name")?.value||document.getElementById("fname")?.value||"").trim();
+  const phoneRaw=(document.getElementById("f-phone")?.value||document.getElementById("fphone")?.value||"").trim();
+  const social=(document.getElementById("f-social")?.value||document.getElementById("fsocial")?.value||"").trim();
+  const note=(document.getElementById("f-note")?.value||document.getElementById("fnote")?.value||"").trim();
   if(!name){alert("請填寫姓名");document.getElementById("fname")?.focus();return;}
   if(!phoneRaw){alert("請填寫手機號碼");document.getElementById("fphone")?.focus();return;}
   const phoneDigits=phoneRaw.replace(/\D/g,"");
   if(phoneDigits.length < 10){alert("手機號碼請填寫完整 10 碼");document.getElementById("fphone")?.focus();return;}
   if(!phoneDigits.startsWith("09")){alert("手機號碼需以 09 開頭（例如 0912345678）");document.getElementById("fphone")?.focus();return;}
-  if(!social){alert("請填寫 LINE 或 Instagram ID");document.getElementById("fsocial")?.focus();return;}
+  // Dynamic validation based on formFields config
+  const _fields = loadCfg().formFields || [];
+  const _socialField = _fields.find(f=>f.id==='social');
+  if(_socialField?.enabled!==false && _socialField?.required!==false && !social){
+    alert('請填寫 '+(_socialField?.label||'LINE 或 Instagram ID'));
+    (document.getElementById('f-social')||document.getElementById('fsocial'))?.focus(); return;
+  }
+  // Validate any custom required fields
+  for(const f of _fields){
+    if(f.id==='name'||f.id==='phone'||f.id==='social'||f.id==='note') continue;
+    if(f.enabled!==false && f.required){
+      const val=(document.getElementById('f-'+f.id)?.value||'').trim();
+      if(!val){ alert('請填寫 '+f.label); document.getElementById('f-'+f.id)?.focus(); return; }
+    }
+  }
   const phone=formatPhone(phoneRaw);
   const type=cfg.classTypes.find(t=>t.id===selTypeId);
   const plan=type?.plans.find(p=>p.id===selPlanId);
@@ -632,7 +667,8 @@ function getRemainingTickets(){
 }
 
 let schWeekOffset = 0;  // 0 = this week (days 0-6), 1 = next week, etc.
-let selectedSlots = new Set();  // batch selection
+let selectedSlots = new Set();
+let remaining = 0; // module-level so updateBatchBar can access it  // batch selection
 
 function getWeekRange(offset){
   const today = new Date(Date.now()+8*3600000);
@@ -650,7 +686,7 @@ function getWeekRange(offset){
 
 function renderSlotList(){
   const wrap = document.getElementById('schSlots');
-  const remaining = getRemainingTickets();
+  remaining = getRemainingTickets(); // update module-level var
   if(remaining === 0){
     wrap.innerHTML = '<div class="sch-empty"><div class="sch-empty-icon">🎟</div><p style="font-size:14px;font-weight:500;color:var(--ink)">目前沒有可預約的堂數</p><p style="font-size:12px;color:var(--ink-mid);margin-top:6px">請聯絡老師確認繳費或補課事宜</p></div>';
     document.getElementById('schBookBar').classList.remove('show');
@@ -713,13 +749,9 @@ function renderSlotList(){
     });
   });
 
-  // Batch / loop booking buttons
-  if(remaining > 1){
-    html += '<div style="margin-top:10px;padding:12px;background:var(--sage-light);border-radius:var(--radius-sm)">'
-      + '<div style="font-size:12px;color:var(--sage-deep);margin-bottom:8px;font-weight:500">🔄 循環預約</div>'
-      + '<p style="font-size:11px;color:var(--ink-mid);margin-bottom:8px">選擇一個時段後，系統會每週在同一時間為你預約，直到堂數扣完</p>'
-      + '<button onclick="loopBooking()" style="width:100%;background:var(--sage);color:#fff;border:none;border-radius:99px;padding:10px;font-size:13px;font-weight:500;font-family:inherit;cursor:pointer">以所選時段循環預約（剩 '+remaining+' 堂）</button>'
-      + '</div>';
+  // Loop booking hint (shows when no slot selected)
+  if(remaining > 1 && selectedSlots.size === 0){
+    html += '<div style="margin-top:10px;padding:10px 12px;background:var(--sand);border-radius:var(--radius-sm);font-size:12px;color:var(--ink-mid)">💡 選擇一個時段後，可選擇單次或循環預約</div>';
   }
 
   wrap.innerHTML = html;
@@ -734,13 +766,19 @@ function toggleSlot(slotId){
 
 function updateBatchBar(){
   const bar = document.getElementById('schBookBar');
-  const btn = bar?.querySelector('.sch-book-btn');
   if(!bar) return;
   if(selectedSlots.size > 0){
     bar.classList.add('show');
-    if(btn) btn.textContent = '確認預約 '+selectedSlots.size+' 個時段 →';
+    // Primary: confirm booking button
+    let barHtml = '<button class="sch-book-btn" onclick="openSlotConfirm()">確認預約 '+selectedSlots.size+' 個時段 →</button>';
+    // Secondary: loop booking (only show when exactly 1 slot selected and remaining > 1)
+    if(selectedSlots.size === 1 && remaining > 1){
+      barHtml += '<button onclick="loopBooking()" style="width:100%;background:transparent;color:var(--sage-deep);border:1.5px solid var(--sage);border-radius:99px;padding:10px;font-size:13px;font-weight:500;font-family:inherit;cursor:pointer;margin-top:6px">🔄 以所選時段循環預約（剩 '+remaining+' 堂）</button>';
+    }
+    bar.innerHTML = barHtml;
   } else {
     bar.classList.remove('show');
+    bar.innerHTML = '<button class="sch-book-btn" onclick="openSlotConfirm()">預約這個時段 →</button>';
   }
 }
 
@@ -970,7 +1008,7 @@ function closeSlotForm(){
 function submitSlotBooking(){
   // Single slot confirmation from sheet
   if(selectedSlots.size === 0){ closeSlotForm(); return; }
-  const remaining = getRemainingTickets();
+  remaining = getRemainingTickets(); // update module-level var
   if(remaining === 0){ closeSlotForm(); alert('您的堂數已用完'); renderSlotList(); return; }
   batchSubmitBooking();
   closeSlotForm();
@@ -1017,11 +1055,13 @@ function fbSubscribeAll() {
       localStorage.setItem('pilates_'+k, incoming);
       try {
         if (k==='slots' && typeof renderSlotList==='function') renderSlotList();
-        if (k==='booking_cfg') { cfg=loadCfg(); if(typeof renderPurchase==='function') renderPurchase(); }
+        if (k==='booking_cfg') { _cacheInvalidate('booking_cfg'); cfg=loadCfg(); if(typeof renderPurchase==='function') renderPurchase(); if(typeof renderFormFields==='function') renderFormFields(); }
       } catch(e) {}
     });
   });
 }
+
+function _cacheInvalidate(key){ /* index.html uses localStorage directly, no cache layer */ }
 
 function saveStudents(d){ fbSet('students',d); }
 function saveTickets(d){  fbSet('tickets',d); }
