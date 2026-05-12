@@ -1495,13 +1495,20 @@ function openStudentDetail(id){
   openSheet('sheet-stuDetail');
 }
 function openStudentAllHistory(studentId){
+  console.log('[DEBUG] openStudentAllHistory called, studentId=', studentId, 'type=', typeof studentId);
   const sid = String(studentId);
   const SCH_D=['日','一','二','三','四','五','六'];
-  const s=loadStudents().find(s=>String(s.id)===sid);
-  if(!s) return;
+  const allStudents = loadStudents();
+  console.log('[DEBUG] all students:', allStudents.map(s=>({id:s.id, type:typeof s.id, name:s.name})));
+  const s=allStudents.find(s=>String(s.id)===sid);
+  console.log('[DEBUG] found student:', s?.name, '| sid=', sid);
+  if(!s){ console.error('[DEBUG] student not found!'); return; }
   const today=todayStr();
-  const classes=loadClasses().filter(cl=>cl.members.some(m=>String(m.studentId)===sid)&&cl.date<=today)
+  const allClasses = loadClasses();
+  console.log('[DEBUG] total classes:', allClasses.length);
+  const classes=allClasses.filter(cl=>cl.members.some(m=>String(m.studentId)===sid)&&cl.date<=today)
     .sort((a,b)=>b.date.localeCompare(a.date));
+  console.log('[DEBUG] filtered classes for', s.name, ':', classes.length);
   const body=document.getElementById('sheet-stuDetail-body');
   const backBtn=`<button data-sid="${sid}" onclick="openStudentDetail(this.dataset.sid)" style="font-size:13px;color:var(--sage);background:none;border:none;cursor:pointer;font-family:inherit;padding:0 0 16px">← 返回</button>`;
   if(!classes.length){
