@@ -1436,13 +1436,14 @@ function openStudentDetail(id){
       : '';
     return '<div class="card" style="margin-bottom:6px;cursor:default;'+(exp?'opacity:.6':'')+'"><div style="flex:1"><div class="card-name" style="font-size:14px">'+(t.typeName||t.planName||t.total+'堂方案')+'</div><div class="card-meta">購買：'+t.boughtDate+' · NT$ '+(t.price||0).toLocaleString()+'</div>'+(t.total>1?'<div style="margin-top:6px"><div class="progress-track"><div class="progress-fill '+(low?'warn':'')+'" style="width:'+pct+'%"></div></div></div>':'')+'<div style="display:flex;align-items:center;justify-content:space-between;margin-top:6px"><span class="badge '+cls+'">'+statusTxt+'</span>'+ctrlBtns+'</div></div></div>';
   }).join('') || '<div style="font-size:13px;color:var(--ink-mid);padding:8px 0">無方案紀錄</div>';
-  const classes = loadClasses().filter(function(c){return c.saved&&c.members.some(function(m){return String(m.studentId)===sid;});});
+  const classes = loadClasses().filter(function(c){return c.members.some(function(m){return String(m.studentId)===sid||m.studentName===s.name;});});
   const attCounts={present:0,absent:0,leave:0,makeup:0};
-  classes.forEach(function(c){const m=c.members.find(function(m){return String(m.studentId)===sid;});if(m)attCounts[m.status]=(attCounts[m.status]||0)+1;});
+  classes.forEach(function(c){const m=c.members.find(function(m){return String(m.studentId)===sid||m.studentName===s.name;});if(m)attCounts[m.status]=(attCounts[m.status]||0)+1;});
   const attTotal=classes.length;
   const absentCount=(attCounts.absent||0)+(attCounts.leave||0); const attRate=attTotal?Math.round(attCounts.present/attTotal*100):0; const absRate=attTotal?Math.round(absentCount/attTotal*100):0;
   const today=todayStr();
-  const recentClasses=classes.filter(cl=>cl.date<=today).sort((a,b)=>b.date.localeCompare(a.date)).slice(0,3);
+  const allStudClasses=loadClasses().filter(function(c){return c.members.some(function(m){return String(m.studentId)===sid||m.studentName===s.name;});});
+  const recentClasses=allStudClasses.filter(cl=>cl.date<=today).sort((a,b)=>b.date.localeCompare(a.date)).slice(0,3);
   const SCH_D=['日','一','二','三','四','五','六'];
   document.getElementById('sheet-stuDetail-body').innerHTML=
     '<div class="avatar av72 '+s.color+'" style="display:flex">'+s.name.slice(0,1)+'</div>'+
@@ -1495,20 +1496,15 @@ function openStudentDetail(id){
   openSheet('sheet-stuDetail');
 }
 function openStudentAllHistory(studentId){
-  console.log('[DEBUG] openStudentAllHistory called, studentId=', studentId, 'type=', typeof studentId);
   const sid = String(studentId);
   const SCH_D=['日','一','二','三','四','五','六'];
+  const STATUS_LBL={present:'到課',absent:'缺席',leave:'請假',makeup:'補課',pending:'待確認'};
   const allStudents = loadStudents();
-  console.log('[DEBUG] all students:', allStudents.map(s=>({id:s.id, type:typeof s.id, name:s.name})));
   const s=allStudents.find(s=>String(s.id)===sid);
-  console.log('[DEBUG] found student:', s?.name, '| sid=', sid);
-  if(!s){ console.error('[DEBUG] student not found!'); return; }
   const today=todayStr();
   const allClasses = loadClasses();
-  console.log('[DEBUG] total classes:', allClasses.length);
   const classes=allClasses.filter(cl=>cl.members.some(m=>String(m.studentId)===sid)&&cl.date<=today)
     .sort((a,b)=>b.date.localeCompare(a.date));
-  console.log('[DEBUG] filtered classes for', s.name, ':', classes.length);
   const body=document.getElementById('sheet-stuDetail-body');
   const backBtn=`<button data-sid="${sid}" onclick="openStudentDetail(this.dataset.sid)" style="font-size:13px;color:var(--sage);background:none;border:none;cursor:pointer;font-family:inherit;padding:0 0 16px">← 返回</button>`;
   if(!classes.length){
@@ -1623,9 +1619,9 @@ function closeSubSheet(sheetId){
 
 function openClassNote(slotId, studentId, evt){
   if(evt) evt.stopPropagation();
-  const slot=loadSlots().find(s=>s.id===slotId);
-  const stu=loadStudents().find(s=>s.id===studentId);
-  if(!slot||!stu) return;
+  const slot=loadSlots().find(s=>String(s.id)===String(slotId));
+  const stu=loadStudents().find(s=>String(s.id)===String(studentId));
+  if(!slot||!stu){ console.warn('openClassNote: slot or student not found', slotId, studentId); return; }
 
   const cfg=bkLoadCfg();
   const type=cfg.classTypes?.find(t=>String(t.id)===String(slot.typeId));
@@ -1635,12 +1631,12 @@ function openClassNote(slotId, studentId, evt){
   const typeName=type?(type.icon||'')+' '+type.name:'課程';
 
   const classes=loadClasses();
-  const cls=classes.find(c=>c.slotId===slotId);
+  const cls=classes.find(c=>String(c.slotId)===String(slotId));
   const member=cls?.members?.find(m=>String(m.studentId)===String(studentId));
   const booking=slot.bookings?.find(b=>b.name===stu.name);
 
   // Find existing log for this slot + student
-  const existingLog=getStudentLogs(studentId).find(l=>l.slotId===slotId);
+  const existingLog=getStudentLogs(String(studentId)).find(l=>String(l.slotId)===String(slotId));
 
   document.getElementById('cn-slotId').value=slotId;
   document.getElementById('cn-studentId').value=studentId;
@@ -2084,13 +2080,13 @@ function renderStuAtt(){
   if(!students.length){wrap.innerHTML='<div class="empty"><p>沒有學員資料</p></div>';return}
   wrap.innerHTML=students.map(s=>{
     const ssid=String(s.id);
-    const my=classes.filter(c=>c.members.some(m=>String(m.studentId)===ssid)).sort((a,b)=>b.date.localeCompare(a.date));
+    const my=classes.filter(c=>c.members.some(m=>String(m.studentId)===ssid||m.studentName===s.name)).sort((a,b)=>b.date.localeCompare(a.date));
     const counts={present:0,absent:0,leave:0,makeup:0};
-    my.forEach(c=>{ const m=c.members.find(m=>String(m.studentId)===ssid); if(m) counts[m.status]=(counts[m.status]||0)+1; });
+    my.forEach(c=>{ const m=c.members.find(m=>String(m.studentId)===ssid||m.studentName===s.name); if(m) counts[m.status]=(counts[m.status]||0)+1; });
     const total=my.length, rate=total?Math.round(counts.present/total*100):0;
-    const dots=my.slice(0,12).map(c=>{ const m=c.members.find(m=>String(m.studentId)===ssid); return `<div class="dot ${m?m.status:'none'}"></div>`; }).join('');
+    const dots=my.slice(0,20).map(c=>{ const m=c.members.find(m=>String(m.studentId)===ssid||m.studentName===s.name); return `<div class="dot ${m?m.status:'none'}"></div>`; }).join('');
     const isOpen=openStuId===s.id;
-    const rows=my.slice(0,10).map(c=>{ const m=c.members.find(m=>String(m.studentId)===ssid); return `<div class="stu-log-row"><span style="color:var(--ink-mid);font-size:13px">${fmtDate(c.date)} ${c.name}</span><span class="hist-status ${m?.status||''}">${STATUS_LABEL[m?.status||'present']}</span></div>`; }).join('');
+    const rows=my.map(c=>{ const m=c.members.find(m=>String(m.studentId)===ssid||m.studentName===s.name); return `<div class="stu-log-row"><span style="color:var(--ink-mid);font-size:13px">${fmtDate(c.date)} ${c.name}</span><span class="hist-status ${m?.status||''}">${STATUS_LABEL[m?.status||'present']}</span></div>`; }).join('');
     return `<div class="stu-card"><div class="stu-header" onclick="openStuId=${isOpen?null:s.id};renderStuAtt()"><div class="avatar av42 ${s.color}">${s.name.slice(0,1)}</div><div class="stu-info"><div class="card-name">${s.name}</div><div class="card-meta">共 ${total} 堂・到課率 ${rate}%・缺席 ${(counts.absent||0)+(counts.leave||0)} 次（含請假）</div></div><div class="stu-dots">${dots}</div></div><div class="stu-expand ${isOpen?'open':''}">${rows||'<div style="font-size:13px;color:var(--ink-mid);padding:8px 0">還沒有上課紀錄</div>'}</div></div>`;
   }).join('');
 }
@@ -3108,10 +3104,13 @@ function syncSlotToAttendance(slot){
   // Build members — preserve existing status if already set
   const existingMembers=existingIdx>=0?classes[existingIdx].members:[];
   const members=slot.bookings.map(b=>{
-    const stu=students.find(s=>s.name.trim()===b.name.trim());
+    const bName=b.name.trim();
+    let stu=students.find(s=>s.name.trim()===bName);
+    if(!stu&&b.phone) stu=students.find(s=>(s.phone||'').replace(/\D/g,'')===b.phone.replace(/\D/g,''));
+    if(!stu&&b.line) stu=students.find(s=>(s.line||'').trim().toLowerCase()===(b.line||'').trim().toLowerCase());
     const prev=existingMembers.find(m=>m.studentName===b.name);
     return {
-      studentId:stu?stu.id:('ext-'+b.name.replace(/\s/g,'-')),
+      studentId:stu?stu.id:('ext-'+bName.replace(/\s/g,'-')),
       studentName:b.name,
       color:stu?stu.color||'c0':'c0',
       status:prev?prev.status:'pending'
@@ -3121,7 +3120,7 @@ function syncSlotToAttendance(slot){
     classes[existingIdx].members=members;
     classes[existingIdx].name=className;
     classes[existingIdx].time=slot.time;
-    classes[existingIdx].saved=classes[existingIdx].saved||false;
+    classes[existingIdx].saved=true;
   } else {
     classes.push({
       id:'slot-'+slot.id,
