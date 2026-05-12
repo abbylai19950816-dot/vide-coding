@@ -2285,8 +2285,14 @@ function bkRenderSettingsPage(){
   const c=bkLoadCfg();
   const nameEl=document.getElementById("bkcfg-name");
   const lineEl=document.getElementById("bkcfg-line");
+  const heroTitleEl=document.getElementById("bkcfg-hero-title");
+  const heroSubEl=document.getElementById("bkcfg-hero-sub");
+  const footerTextEl=document.getElementById("bkcfg-footer-text");
   if(nameEl) nameEl.value=c.teacherName||"";
   if(lineEl) lineEl.value=c.lineId||"";
+  if(heroTitleEl) heroTitleEl.value=c.heroTitle||"";
+  if(heroSubEl) heroSubEl.value=c.heroSub||"";
+  if(footerTextEl) footerTextEl.value=c.footerText||"";
   bkEditCtypes=(c.classTypes||BK_DEFAULT.classTypes).map(t=>({...t,plans:(t.plans||[]).map(p=>({...p}))}));
   bkEditInfoBlocks=(c.infoBlocks||BK_DEFAULT.infoBlocks).map(b=>({...b}));
   bkRenderCtypeEditor();
