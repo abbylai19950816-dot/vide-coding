@@ -545,9 +545,11 @@ body{font-family:'Noto Sans TC',sans-serif;background:var(--sand);color:var(--in
 <script type="module">
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
 import { getFirestore, doc, getDoc, setDoc, onSnapshot, writeBatch } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
+import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
 const firebaseConfig={apiKey:"AIzaSyDksa4iYf3aGqhKi9cp-WfDJrtOh_utX1U",authDomain:"gyrobooking-fbfd5.firebaseapp.com",projectId:"gyrobooking-fbfd5",storageBucket:"gyrobooking-fbfd5.firebasestorage.app",messagingSenderId:"46281828012",appId:"1:46281828012:web:abde543029136cce332109"};
 const app=initializeApp(firebaseConfig);
 const db=getFirestore(app);
+const auth=getAuth(app);
 const DB_KEYS=['students','tickets','classes','payments','slots','booking_cfg','course_logs'];
 
 const FLAGS_DEFAULT={maintenanceMode:false,allowBooking:true,appVersion:'1.0.0',syncInitDoneAt:null};
@@ -616,53 +618,59 @@ window._fb={
   async initFlags(){
     await this.getFlags();  // populates _flagsCache
     if(!_flagsCache.createdAt){
-      // First time — create the doc
       _flagsCache={..._flagsCache,createdAt:new Date().toISOString()};
       try{await setDoc(doc(db,'web_config','flags'),_flagsCache);}catch(e){}
     }
+  },
+  // Auth methods
+  async signIn(email, password){
+    const cred = await signInWithEmailAndPassword(auth, email, password);
+    return cred.user;
+  },
+  async signOut(){
+    await signOut(auth);
+  },
+  onAuthChange(cb){
+    return onAuthStateChanged(auth, cb);
+  },
+  currentUser(){
+    return auth.currentUser;
   }
 };
-window._fbReady=true;
-window._fb.initFlags().finally(()=>{
-  window.dispatchEvent(new Event('firebase-ready'));
+
+// Watch auth state — fires on load and whenever auth changes
+onAuthStateChanged(auth, (user) => {
+  window._fbCurrentUser = user;
+  if(!window._fbReady){
+    // First load: init flags then signal ready (regardless of auth state)
+    window._fbReady = true;
+    window._fb.initFlags().finally(()=>{
+      window.dispatchEvent(new Event('firebase-ready'));
+    });
+  }
+  // Notify main script of auth change
+  if(typeof window._handleAuthChange === 'function'){
+    window._handleAuthChange(user);
+  }
 });
 </script>
 </head>
 <body>
-<!-- Password Gate -->
-<div id="pw-gate" style="position:fixed;inset:0;background:#f5f1eb;z-index:9999;display:flex;align-items:center;justify-content:center;font-family:'Noto Sans TC',sans-serif">
+<!-- Firebase Auth Login Gate -->
+<div id="auth-gate" style="position:fixed;inset:0;background:#f5f1eb;z-index:9999;display:flex;align-items:center;justify-content:center;font-family:'Noto Sans TC',sans-serif">
   <div style="background:#fff;border-radius:24px;padding:36px 28px;width:min(90vw,360px);text-align:center;box-shadow:0 8px 40px rgba(0,0,0,.12)">
     <div style="font-size:32px;margin-bottom:12px">🌿</div>
     <div style="font-family:'Noto Serif TC',serif;font-size:20px;font-weight:500;margin-bottom:6px">嬋柔管理系統</div>
-    <div style="font-size:13px;color:#a09890;margin-bottom:24px">請輸入管理員密碼</div>
-    <input type="password" id="pw-input" placeholder="密碼" onkeydown="if(event.key==='Enter')checkPw()"
-      style="width:100%;border:1.5px solid #e8e2d8;border-radius:12px;padding:12px 16px;font-size:16px;font-family:inherit;outline:none;box-sizing:border-box;margin-bottom:12px;text-align:center">
-    <div id="pw-err" style="font-size:12px;color:#c0704a;height:16px;margin-bottom:8px"></div>
-    <button onclick="checkPw()" style="width:100%;background:linear-gradient(135deg,#4a6b50,#6b8f71);color:#fff;border:none;border-radius:99px;padding:14px;font-size:15px;font-weight:500;font-family:inherit;cursor:pointer">進入管理後台</button>
+    <div style="font-size:13px;color:#a09890;margin-bottom:24px">管理員登入</div>
+    <input type="email" id="auth-email" placeholder="電子郵件" autocomplete="email"
+      style="width:100%;border:1.5px solid #e8e2d8;border-radius:12px;padding:12px 16px;font-size:16px;font-family:inherit;outline:none;box-sizing:border-box;margin-bottom:10px;text-align:left">
+    <input type="password" id="auth-password" placeholder="密碼" autocomplete="current-password"
+      onkeydown="if(event.key==='Enter')adminSignIn()"
+      style="width:100%;border:1.5px solid #e8e2d8;border-radius:12px;padding:12px 16px;font-size:16px;font-family:inherit;outline:none;box-sizing:border-box;margin-bottom:12px;text-align:left">
+    <div id="auth-err" style="font-size:12px;color:#c0704a;min-height:18px;margin-bottom:8px"></div>
+    <button id="auth-btn" onclick="adminSignIn()" style="width:100%;background:linear-gradient(135deg,#4a6b50,#6b8f71);color:#fff;border:none;border-radius:99px;padding:14px;font-size:15px;font-weight:500;font-family:inherit;cursor:pointer">登入</button>
   </div>
 </div>
-<script>
-(function(){
-  // Change this password to whatever you want
-  var PW = 'admin';
-  var SESSION_KEY = 'admin_auth';
-  if(sessionStorage.getItem(SESSION_KEY)==='ok'){
-    document.getElementById('pw-gate').style.display='none';
-  }
-  window.checkPw=function(){
-    var v=document.getElementById('pw-input').value;
-    if(v===PW){
-      sessionStorage.setItem(SESSION_KEY,'ok');
-      document.getElementById('pw-gate').style.display='none';
-    } else {
-      document.getElementById('pw-err').textContent='密碼錯誤，請再試一次';
-      document.getElementById('pw-input').value='';
-      document.getElementById('pw-input').focus();
-    }
-  };
-  setTimeout(function(){ document.getElementById('pw-input')&&document.getElementById('pw-input').focus(); },100);
-})();
-</script>
 
 
 <!-- ══════════════ PAGE: STUDENTS ══════════════ -->
@@ -768,10 +776,13 @@ window._fb.initFlags().finally(()=>{
   <div class="topbar">
     <div class="topbar-row">
       <h1>設定</h1>
-      <button class="btn-add" onclick="bkSaveSettings()" style="background:var(--sage)">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>
-        儲存
-      </button>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button onclick="adminSignOut()" style="background:transparent;border:1.5px solid var(--sand-dark);border-radius:99px;padding:6px 14px;font-size:13px;font-family:inherit;cursor:pointer;color:var(--ink-mid)">登出</button>
+        <button class="btn-add" onclick="bkSaveSettings()" style="background:var(--sage)">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>
+          儲存
+        </button>
+      </div>
     </div>
   </div>
   <div class="page-scroll">
@@ -3139,6 +3150,59 @@ updateBadges();
 
 
 /* ═══════════════════════════════════════════════════
+   ADMIN AUTHENTICATION (Firebase Auth)
+═══════════════════════════════════════════════════ */
+async function adminSignIn(){
+  const email = document.getElementById('auth-email')?.value?.trim();
+  const password = document.getElementById('auth-password')?.value;
+  const errEl = document.getElementById('auth-err');
+  const btn = document.getElementById('auth-btn');
+  if(!email || !password){ if(errEl) errEl.textContent='請輸入電子郵件和密碼'; return; }
+  if(btn){ btn.textContent='登入中…'; btn.disabled=true; }
+  try {
+    await window._fb.signIn(email, password);
+    // onAuthStateChanged will handle hiding the gate and initializing sync
+  } catch(e) {
+    let msg = '登入失敗，請確認帳號密碼';
+    if(e.code === 'auth/invalid-credential' || e.code === 'auth/wrong-password') msg = '帳號或密碼錯誤';
+    else if(e.code === 'auth/invalid-email') msg = '電子郵件格式不正確';
+    else if(e.code === 'auth/too-many-requests') msg = '嘗試次數過多，請稍後再試';
+    if(errEl) errEl.textContent = msg;
+    if(btn){ btn.textContent='登入'; btn.disabled=false; }
+  }
+}
+
+async function adminSignOut(){
+  if(!confirm('確定要登出嗎？')) return;
+  _syncInitDone = false;  // allow re-init on next login
+  Object.keys(_fbUnsubscribers).forEach(k=>{ try{_fbUnsubscribers[k]();}catch(e){} delete _fbUnsubscribers[k]; });
+  await window._fb.signOut();
+  // Show login gate again
+  const gate = document.getElementById('auth-gate');
+  if(gate){ gate.style.display='flex'; }
+  const pw = document.getElementById('auth-password');
+  if(pw) pw.value='';
+  const err = document.getElementById('auth-err');
+  if(err) err.textContent='';
+  toast('已登出');
+}
+
+// Called by Firebase onAuthStateChanged (in module script)
+window._handleAuthChange = function(user){
+  window._fbCurrentUser = user;
+  const gate = document.getElementById('auth-gate');
+  if(user){
+    // Authenticated — hide gate and start app
+    if(gate) gate.style.display='none';
+    if(!_syncInitDone) initFirebaseSync();
+  } else {
+    // Not authenticated — show gate
+    if(gate) gate.style.display='flex';
+    setTimeout(()=>document.getElementById('auth-email')?.focus(), 100);
+  }
+};
+
+/* ═══════════════════════════════════════════════════
    FIREBASE REAL-TIME SYNC
    - Static import via <head> module script
    - initFirebaseSync runs ONCE
@@ -3231,6 +3295,11 @@ function bkSaveCfg(d){   fbSet('booking_cfg',d); }
 
 async function initFirebaseSync() {
   if (_syncInitDone) return;  // GUARD: only run once
+  // Must be authenticated
+  if (!window._fbCurrentUser) {
+    console.warn('initFirebaseSync: not authenticated');
+    return;
+  }
   _syncInitDone = true;
 
   // Pull all keys from Firestore into localStorage (7 reads, one-time on load)
@@ -3255,10 +3324,15 @@ async function initFirebaseSync() {
 }
 
 // Run once when Firebase module signals ready
+// Auth-driven init: _handleAuthChange calls initFirebaseSync when user is logged in
+// firebase-ready just triggers _handleAuthChange if auth is already resolved
 if (window._fbReady) {
-  initFirebaseSync();
+  if(window._fbCurrentUser) initFirebaseSync();
+  // else: waiting for user to log in (auth gate will be shown)
 } else {
-  window.addEventListener('firebase-ready', initFirebaseSync, { once: true });
+  window.addEventListener('firebase-ready', function(){
+    if(window._fbCurrentUser) initFirebaseSync();
+  }, { once: true });
 }
 
 </script>

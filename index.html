@@ -150,10 +150,12 @@ footer{text-align:center;padding:14px 20px 30px;font-size:12px;color:var(--ink-l
 <script type="module">
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
 import { getFirestore, doc, getDoc, setDoc, onSnapshot } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
+import { getAuth, signInAnonymously, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
 const firebaseConfig={apiKey:"AIzaSyDksa4iYf3aGqhKi9cp-WfDJrtOh_utX1U",authDomain:"gyrobooking-fbfd5.firebaseapp.com",projectId:"gyrobooking-fbfd5",storageBucket:"gyrobooking-fbfd5.firebasestorage.app",messagingSenderId:"46281828012",appId:"1:46281828012:web:abde543029136cce332109"};
 const app=initializeApp(firebaseConfig);
 const db=getFirestore(app);
-const DB_KEYS=['students','tickets','classes','payments','slots','booking_cfg'];
+const auth=getAuth(app);
+const DB_KEYS=['slots','booking_cfg'];  // student page only needs these two
 const FLAGS_DEFAULT={maintenanceMode:false,allowBooking:true,appVersion:'1.0.0'};
 let _flagsCache=null;
 window._fb={
@@ -183,8 +185,11 @@ window._fb={
     },e=>console.warn('flagsListener',e));
   }
 };
-window._fbReady=true;
-window.dispatchEvent(new Event('firebase-ready'));
+// Sign in anonymously so Firestore rules can verify request origin
+signInAnonymously(auth).catch(e=>console.warn('anon auth failed',e)).finally(()=>{
+  window._fbReady=true;
+  window.dispatchEvent(new Event('firebase-ready'));
+});
 </script>
 </head>
 <body>
@@ -980,7 +985,7 @@ renderPurchase();
    FIREBASE REAL-TIME SYNC (student page)
 ═══════════════════════════════════════════════════ */
 
-const DB_KEYS_SYNC = ['students','tickets','classes','payments','slots','booking_cfg'];
+const DB_KEYS_SYNC = ['slots','booking_cfg'];  // student page only needs these two
 const _fbUnsubscribers = {};
 let _syncInitDone = false;
 const _ownWrites = {};
