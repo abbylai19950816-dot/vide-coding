@@ -2780,11 +2780,15 @@ function renderLogL3(typeId, studentId){
   const byMonth={};
   logs.forEach(l=>{const m=l.date.slice(0,7);if(!byMonth[m])byMonth[m]=[];byMonth[m].push(l);});
 
+  const slots=loadSlots();
   wrap.innerHTML=Object.entries(byMonth).map(([month,mLogs])=>{
     const [y,mo]=month.split('-');
     const cards=mLogs.map(l=>{
       const d=new Date(l.date+'T00:00:00');
-      const dateLabel=(d.getMonth()+1)+'月'+d.getDate()+'日（'+DAYS[d.getDay()]+'）　'+l.time;
+      // Use current slot time if available (may have changed since log was created)
+      const currentSlot=l.slotId?slots.find(s=>String(s.id)===String(l.slotId)):null;
+      const displayTime=currentSlot?currentSlot.time:l.time;
+      const dateLabel=(d.getMonth()+1)+'月'+d.getDate()+'日（'+DAYS[d.getDay()]+'）　'+displayTime;
       const alertHtml=l.alerts?`<div class="log-card-alert">⚠️ ${l.alerts}</div>`:'';
       const noteHtml=l.note?`<div class="log-card-note">${l.note}</div>`:'';
       const allStu=(l.studentNames||[]).join('、');
@@ -2844,9 +2848,13 @@ function openLogEdit(logId){
   typeSel.value=log.classTypeId||'';
   _logSelectedSlotId=log.slotId||null;
   if(_logSelectedSlotId){
-    const slot=loadSlots().find(s=>s.id===_logSelectedSlotId);
-    if(slot) _showSlotSelected(slot);
-    else clearLogSlot();
+    const slot=loadSlots().find(s=>String(s.id)===String(_logSelectedSlotId));
+    if(slot){
+      _showSlotSelected(slot);
+      // Use current slot time (may have changed since log was created)
+      document.getElementById('log-date').value=slot.date;
+      document.getElementById('log-time').value=slot.time||'09:00';
+    } else clearLogSlot();
   } else clearLogSlot();
   renderLogStudentPicker(log.studentIds||[]);
   openSheet('sheet-logEdit');
