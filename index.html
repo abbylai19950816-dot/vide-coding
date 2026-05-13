@@ -9,7 +9,7 @@
 <script>
 // Auto-update: check if a newer version is available on GitHub Pages
 (function(){
-  var CURRENT_VERSION = '20260513-011';
+  var CURRENT_VERSION = '20260513-012';
   // Store version in sessionStorage to avoid re-checking in same session
   if(sessionStorage.getItem('app_version')===CURRENT_VERSION) return;
   sessionStorage.setItem('app_version', CURRENT_VERSION);
@@ -24,7 +24,7 @@
     localStorage.removeItem('pilates_payments');
     localStorage.setItem('app_version', CURRENT_VERSION);
     // Reload bypassing cache
-    window.location.replace(window.location.href.split('?')[0] + '?v=20260513-011');
+    window.location.replace(window.location.href.split('?')[0] + '?v=20260513-012');
     return;
   }
   localStorage.setItem('app_version', CURRENT_VERSION);
@@ -337,6 +337,26 @@ window._fb={
   if(typeof window._onFirebaseReady === 'function') window._onFirebaseReady();
 })();
 </script>
+
+<script>
+/* Compatibility helper for low-cost secure verify flow */
+window.lowCostShowMsg = window.lowCostShowMsg || function(message){
+  if(typeof window.showSchMsg === 'function') {
+    window.showSchMsg(message);
+    return;
+  }
+  const el=document.getElementById('sch-verify-msg');
+  if(el){
+    el.textContent=message;
+    el.style.display='block';
+    el.style.color='var(--warn, #c0704a)';
+  }else{
+    alert(message);
+  }
+};
+window.showVerifyError = window.showVerifyError || window.lowCostShowMsg;
+</script>
+
 </head>
 <body>
 <div class="page active" id="page-purchase">
@@ -1348,18 +1368,7 @@ setTimeout(function(){
 window._lowCostLookup = null;
 
 function lowCostShowMsg(message){
-  if(typeof showSchMsg === 'function') {
-    showSchMsg(message);
-    return;
-  }
-  const el=document.getElementById('sch-verify-msg');
-  if(el){
-    el.textContent=message;
-    el.style.display='block';
-    el.style.color='var(--warn)';
-  }else{
-    alert(message);
-  }
+  return window.lowCostShowMsg(message);
 }
 
 
