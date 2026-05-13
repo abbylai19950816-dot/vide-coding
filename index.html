@@ -507,30 +507,35 @@ function submitPurchase(){
   const newId=Date.now();
 
   // Find or create student — name + phone must both match to avoid same-name cross-linking
-  let resolvedStudentId = newId; // will be set to existing student's id if found
+  let resolvedStudentId = newId;
   try{
     const COLORS=["c0","c1","c2","c3","c4"];
     const stuList=loadStudents();
     const pDigits=phone.replace(/\D/g,"");
     const socLow=(social||"").trim().toLowerCase();
+    console.log('[PURCHASE] name=',name,'phone=',pDigits,'stuList count=',stuList.length);
+    console.log('[PURCHASE] existing students:', stuList.map(s=>({id:s.id,name:s.name,phone:(s.phone||'').replace(/\D/g,'')})));
     const stuIdx=stuList.findIndex(s=>{
       const nameMatch=s.name.trim()===name.trim();
       const sp=(s.phone||"").replace(/\D/g,"");
       const ss=(s.line||"").trim().toLowerCase();
       return nameMatch&&((pDigits&&sp===pDigits)||(socLow&&ss===socLow));
     });
+    console.log('[PURCHASE] stuIdx=',stuIdx, stuIdx>=0?'FOUND existing':'NEW student');
     if(stuIdx>=0){
-      resolvedStudentId=stuList[stuIdx].id; // use existing student's real id
+      resolvedStudentId=stuList[stuIdx].id;
+      console.log('[PURCHASE] resolvedStudentId=',resolvedStudentId,'(existing)');
       if(!stuList[stuIdx].phone&&phone) stuList[stuIdx].phone=phone;
       if(!stuList[stuIdx].line&&social) stuList[stuIdx].line=social;
     } else {
-      resolvedStudentId=newId; // new student
+      resolvedStudentId=newId;
+      console.log('[PURCHASE] resolvedStudentId=',resolvedStudentId,'(new, newId=',newId,')');
       stuList.push({id:newId,name:name,phone:phone,line:social||"",joined:today,
         ecName:"",ecRel:"",ecPhone:"",notes:note,
         color:COLORS[stuList.length%COLORS.length],fromBooking:true});
     }
     saveStudents(stuList);
-  }catch(e){}
+  }catch(e){console.error('[PURCHASE] student error',e);}
 
   // Create payment record — use resolvedStudentId from student creation above
   const payments=loadPayments();
