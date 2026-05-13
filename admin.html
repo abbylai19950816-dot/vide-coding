@@ -544,7 +544,7 @@ body{font-family:'Chiron GoRound TC',sans-serif;background:var(--sand);color:var
 <!-- Firebase SDK -->
 <script type="module">
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
-import { getFirestore, doc, getDoc, setDoc, onSnapshot, writeBatch, collection, getDocs } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
+import { getFirestore, doc, getDoc, setDoc, onSnapshot, writeBatch, collection, getDocs, deleteDoc } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
 const firebaseConfig={apiKey:"AIzaSyDksa4iYf3aGqhKi9cp-WfDJrtOh_utX1U",authDomain:"gyrobooking-fbfd5.firebaseapp.com",projectId:"gyrobooking-fbfd5",storageBucket:"gyrobooking-fbfd5.firebasestorage.app",messagingSenderId:"46281828012",appId:"1:46281828012:web:abde543029136cce332109"};
 const app=initializeApp(firebaseConfig);
@@ -3858,6 +3858,185 @@ window.resetAllTestData = async function(){
   console.log('[RESET] done', {deletedLookup, deletedRequests});
   alert('清空完成！student_lookup 刪除 '+deletedLookup+' 筆，purchase_requests 刪除 '+deletedRequests+' 筆。請重新整理管理員頁。');
 };
+</script>
+
+
+<script type="module">
+/*
+  PURCHASE REQUEST REVIEW TOOL
+  學員頁購課會寫入 purchase_requests，不會直接覆蓋 students/payments/tickets。
+  管理員可在 Console 執行：
+    loadPurchaseRequests()
+  然後使用：
+    approvePurchaseRequest('pr_xxx')
+    rejectPurchaseRequest('pr_xxx')
+*/
+import { initializeApp, getApps } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
+import { getFirestore, doc, getDoc, setDoc, collection, getDocs, deleteDoc } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
+
+const firebaseConfig={apiKey:"AIzaSyDksa4iYf3aGqhKi9cp-WfDJrtOh_utX1U",authDomain:"gyrobooking-fbfd5.firebaseapp.com",projectId:"gyrobooking-fbfd5",storageBucket:"gyrobooking-fbfd5.firebasestorage.app",messagingSenderId:"46281828012",appId:"1:46281828012:web:abde543029136cce332109"};
+const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
+const db = getFirestore(app);
+
+function fmtPhone(raw=''){
+  const d=String(raw||'').replace(/\D/g,'');
+  return d.length===10 ? d.replace(/(\d{4})(\d{3})(\d{3})/,'$1-$2-$3') : String(raw||'');
+}
+function phoneDigits(raw=''){ return String(raw||'').replace(/\D/g,''); }
+function todayTW(){ return new Date(Date.now()+8*3600000).toISOString().slice(0,10); }
+function readLocalArray(key){
+  try{return JSON.parse(localStorage.getItem(key)||'[]');}catch{return [];}
+}
+function writeLocalArray(key,val){
+  localStorage.setItem(key,JSON.stringify(val));
+}
+async function getDataValue(key, fallback=[]){
+  const snap=await getDoc(doc(db,'data',key));
+  if(snap.exists()){
+    const v=snap.data().value;
+    localStorage.setItem('pilates_'+key,JSON.stringify(v));
+    return v ?? fallback;
+  }
+  return readLocalArray('pilates_'+key) || fallback;
+}
+async function setDataValue(key,value){
+  writeLocalArray('pilates_'+key,value);
+  await setDoc(doc(db,'data',key),{value,updated:Date.now()},{merge:true});
+}
+async function syncPublicMirrorLight(reason='purchase-review'){
+  if(typeof window.lowCostSyncPublicMirror==='function'){
+    await window.lowCostSyncPublicMirror(reason);
+  }
+}
+
+window.loadPurchaseRequests = async function(){
+  const snap=await getDocs(collection(db,'purchase_requests'));
+  const rows=snap.docs.map(d=>({id:d.id,...d.data()}))
+    .sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
+  console.table(rows.map(r=>({
+    id:r.id,
+    status:r.status,
+    name:r.name,
+    phone:r.phone||r.phoneDigits,
+    type:r.typeName,
+    plan:r.planName,
+    sessions:r.sessions,
+    amount:r.amount,
+    date:r.date
+  })));
+  alert('已在 Console table 顯示 '+rows.length+' 筆購課申請。確認請用 approvePurchaseRequest("申請id")');
+  return rows;
+};
+
+window.approvePurchaseRequest = async function(requestId){
+  const ref=doc(db,'purchase_requests',String(requestId));
+  const snap=await getDoc(ref);
+  if(!snap.exists()){ alert('找不到購課申請：'+requestId); return; }
+  const r={id:snap.id,...snap.data()};
+  if(r.status==='approved'){ alert('這筆已經確認過'); return; }
+
+  const ok=confirm(`確認開通這筆購課？\n\n${r.name}\n${r.phone||r.phoneDigits}\n${r.typeName} / ${r.planName}\n堂數：${r.sessions||0}\n金額：${r.amount||0}`);
+  if(!ok) return;
+
+  const students=await getDataValue('students',[]);
+  const tickets=await getDataValue('tickets',[]);
+  const payments=await getDataValue('payments',[]);
+
+  const pDigits=phoneDigits(r.phone||r.phoneDigits);
+  const name=String(r.name||'').trim();
+  const COLORS=["c0","c1","c2","c3","c4"];
+
+  let stu=students.find(s=>String(s.name||'').trim()===name && phoneDigits(s.phone)===pDigits);
+  if(!stu){
+    stu={
+      id:Date.now(),
+      name,
+      phone:fmtPhone(r.phone||r.phoneDigits),
+      line:r.social||'',
+      joined:todayTW(),
+      ecName:'',
+      ecRel:'',
+      ecPhone:'',
+      notes:r.note||'',
+      color:COLORS[students.length%COLORS.length],
+      fromBooking:true
+    };
+    students.push(stu);
+  }else{
+    if(!stu.phone) stu.phone=fmtPhone(r.phone||r.phoneDigits);
+    if(!stu.line && r.social) stu.line=r.social;
+  }
+
+  const now=Date.now();
+  const sessions=Number(r.sessions||0);
+  const typeId=r.typeId || null;
+  const typeName=r.typeName || '';
+  const planName=r.planName || '';
+
+  payments.push({
+    id:now+1,
+    studentId:stu.id,
+    studentName:stu.name,
+    phone:stu.phone,
+    color:stu.color||'c0',
+    item:(typeName||'課程')+'・'+(planName||'方案'),
+    amount:Number(r.amount||0),
+    date:r.date||todayTW(),
+    method:'待確認',
+    status:'paid',
+    note:'由購課申請確認：'+(r.id||requestId)+(r.note?'；'+r.note:'')
+  });
+
+  if(sessions>0){
+    tickets.push({
+      id:now+2,
+      studentId:stu.id,
+      studentName:stu.name,
+      typeId:typeId,
+      typeName:typeName,
+      planName:planName,
+      total:sessions,
+      used:0,
+      left:sessions,
+      buyDate:r.date||todayTW(),
+      expireDate:r.expireDate||'',
+      note:'由購課申請開通'
+    });
+  }
+
+  await setDataValue('students',students);
+  await setDataValue('payments',payments);
+  await setDataValue('tickets',tickets);
+
+  await setDoc(ref,{...r,status:'approved',approvedAt:Date.now(),approvedStudentId:stu.id},{merge:true});
+
+  await syncPublicMirrorLight('approve-purchase-request');
+
+  alert('已確認購課並寫入學員/收費/票券。請重新整理管理員頁。');
+};
+
+window.rejectPurchaseRequest = async function(requestId){
+  const ref=doc(db,'purchase_requests',String(requestId));
+  const snap=await getDoc(ref);
+  if(!snap.exists()){ alert('找不到購課申請：'+requestId); return; }
+  const ok=confirm('確定拒絕/刪除這筆購課申請？');
+  if(!ok) return;
+  await setDoc(ref,{status:'rejected',rejectedAt:Date.now()},{merge:true});
+  alert('已標記 rejected');
+};
+</script>
+
+
+<script>
+window.addEventListener('load',()=>{
+  if(document.getElementById('purchaseReviewBtn')) return;
+  const btn=document.createElement('button');
+  btn.id='purchaseReviewBtn';
+  btn.textContent='待確認購課';
+  btn.style.cssText='position:fixed;right:16px;bottom:86px;z-index:9999;background:#4a6b50;color:#fff;border:none;border-radius:999px;padding:10px 14px;font-family:inherit;box-shadow:0 4px 12px rgba(0,0,0,.18);';
+  btn.onclick=()=>window.loadPurchaseRequests?window.loadPurchaseRequests():alert('購課審核工具尚未載入，請重新整理');
+  document.body.appendChild(btn);
+});
 </script>
 
 </body>
