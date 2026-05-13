@@ -9,7 +9,7 @@
 <script>
 // Auto-update: check if a newer version is available on GitHub Pages
 (function(){
-  var CURRENT_VERSION = '20260513-010';
+  var CURRENT_VERSION = '20260513-011';
   // Store version in sessionStorage to avoid re-checking in same session
   if(sessionStorage.getItem('app_version')===CURRENT_VERSION) return;
   sessionStorage.setItem('app_version', CURRENT_VERSION);
@@ -24,7 +24,7 @@
     localStorage.removeItem('pilates_payments');
     localStorage.setItem('app_version', CURRENT_VERSION);
     // Reload bypassing cache
-    window.location.replace(window.location.href.split('?')[0] + '?v=20260513-010');
+    window.location.replace(window.location.href.split('?')[0] + '?v=20260513-011');
     return;
   }
   localStorage.setItem('app_version', CURRENT_VERSION);
@@ -1347,19 +1347,38 @@ setTimeout(function(){
 ───────────────────────────────────────────── */
 window._lowCostLookup = null;
 
+function lowCostShowMsg(message){
+  if(typeof showSchMsg === 'function') {
+    showSchMsg(message);
+    return;
+  }
+  const el=document.getElementById('sch-verify-msg');
+  if(el){
+    el.textContent=message;
+    el.style.display='block';
+    el.style.color='var(--warn)';
+  }else{
+    alert(message);
+  }
+}
+
+
 async function verifyAndLoadSchedule(){
   const name=(document.getElementById("sch-name-input")?.value||"").trim();
   const phone=(document.getElementById("sch-phone-input")?.value||"").trim();
-  if(!name || !phone){ showVerifyError('請輸入姓名與手機號碼'); return; }
-  if(!window._fb || !window._fb.getStudentLookup){ showVerifyError('系統尚未載入完成，請稍後再試'); return; }
+  const btn=document.querySelector('#sch-verify-bar button');
+  const oldText=btn?btn.textContent:'';
+  if(!name || !phone){ lowCostShowMsg('請輸入姓名與手機號碼'); return; }
+  if(!window._fb || !window._fb.getStudentLookup){ lowCostShowMsg('系統尚未載入完成，請稍後再試'); return; }
 
   try{
+    if(btn){ btn.disabled=true; btn.textContent='查詢中…'; btn.style.opacity='.7'; }
     await window._fb.getPublicBookingState(); // 1 read, refresh slots/cfg
     const lookup=await window._fb.getStudentLookup(name,phone); // 1 read only
     if(!lookup){
       window._lowCostLookup=null;
       verifiedName=null; verifiedStudentId=null; verifiedTypeId=null;
-      showVerifyError('找不到此姓名與手機的可用方案，請確認資料或聯絡老師');
+      lowCostShowMsg('找不到此姓名與手機的可用方案，請確認資料或聯絡老師');
       return;
     }
 
@@ -1370,7 +1389,7 @@ async function verifyAndLoadSchedule(){
       verifiedName=lookup.name||name;
       verifiedStudentId=lookup.studentId||lookup.key;
       verifiedTypeId=null;
-      showVerifyError('目前沒有可預約的剩餘堂數，請聯絡老師確認方案');
+      lowCostShowMsg('目前沒有可預約的剩餘堂數，請聯絡老師確認方案');
       return;
     }
 
@@ -1386,7 +1405,9 @@ async function verifyAndLoadSchedule(){
     if(typeof renderSchedule==='function') renderSchedule();
   }catch(e){
     console.warn('low-cost verify failed',e);
-    showVerifyError(e.message||'查詢失敗，請稍後再試');
+    lowCostShowMsg(e.message||'查詢失敗，請稍後再試');
+  }finally{
+    if(btn){ btn.disabled=false; btn.textContent=oldText||'確認'; btn.style.opacity='1'; }
   }
 }
 
@@ -1446,6 +1467,9 @@ async function loopBooking(){
   if(typeof updateBatchBar==='function') updateBatchBar();
   if(typeof renderSlotList==='function') renderSlotList();
 }
+window.verifyAndLoadSchedule = verifyAndLoadSchedule;
+window.batchSubmitBooking = batchSubmitBooking;
+window.loopBooking = loopBooking;
 </script>
 
 </body>
