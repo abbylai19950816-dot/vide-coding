@@ -622,6 +622,16 @@ window._fb={
       try{await setDoc(doc(db,'web_config','flags'),_flagsCache);}catch(e){}
     }
   },
+
+  // Low-cost secure mirror helpers
+  async setDocPath(pathParts, data, options={merge:true}){
+    try{ await setDoc(doc(db, ...pathParts), data, options); return true; }
+    catch(e){ console.warn('setDocPath',pathParts,e); return false; }
+  },
+  async getDocPath(pathParts){
+    try{ const snap=await getDoc(doc(db, ...pathParts)); return snap.exists()?snap.data():null; }
+    catch(e){ console.warn('getDocPath',pathParts,e); return null; }
+  },
   // Auth methods
   async signIn(email, password){
     const cred = await signInWithEmailAndPassword(auth, email, password);
@@ -3523,5 +3533,115 @@ if (window._fbReady) {
 }
 
 </script>
+
+<script>
+/* ─────────────────────────────────────────────
+   LOW-COST SECURE MIRROR FOR STUDENT PAGE
+   Admin remains legacy-compatible, but mirrors quota-safe public docs:
+   - public_booking/state: booking_cfg + slots in ONE document
+   - student_lookup/{sha256(name|phone)}: only minimal remaining summary
+   Writes are diffed by hash to avoid unnecessary write quota usage.
+───────────────────────────────────────────── */
+(function(){
+  function normName(v){ return String(v||'').trim().replace(/\s+/g,''); }
+  function normPhone(v){ return String(v||'').replace(/\D/g,''); }
+  async function sha256(text){
+    const enc=new TextEncoder().encode(String(text));
+    const buf=await crypto.subtle.digest('SHA-256',enc);
+    return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+  }
+  function stable(obj){ return JSON.stringify(obj, Object.keys(obj).sort()); }
+
+  window.lowCostBuildLookupPayloads = async function(){
+    const students=loadStudents();
+    const tickets=loadTickets();
+    const today=new Date().toISOString().split('T')[0];
+    const out=[];
+    for(const s of students){
+      const phoneDigits=normPhone(s.phone);
+      const nameKey=normName(s.name);
+      if(!phoneDigits || !nameKey) continue;
+      const key=await sha256(nameKey+'|'+phoneDigits);
+      const remainingByType={};
+      tickets.forEach(t=>{
+        if(String(t.studentId)!==String(s.id)) return;
+        if(Number(t.left||0)<=0) return;
+        if(t.expireDate && t.expireDate<today) return;
+        const typeKey=String(t.typeId ?? t.typeName ?? 'default');
+        remainingByType[typeKey]=(remainingByType[typeKey]||0)+Number(t.left||0);
+      });
+      const totalRemaining=Object.values(remainingByType).reduce((a,b)=>a+Number(b||0),0);
+      out.push({
+        key,
+        data:{
+          studentId:String(s.id),
+          name:s.name||'',
+          phoneMasked: phoneDigits.replace(/(\d{4})\d{3}(\d{3})/,'$1***$2'),
+          remainingByType,
+          totalRemaining,
+          updatedAt:Date.now()
+        }
+      });
+    }
+    return out;
+  };
+
+  window.lowCostSyncPublicMirror = async function(reason='manual'){
+    if(!window._fb || !window._fb.setDocPath) {
+      toast && toast('Firebase 尚未完成初始化');
+      return;
+    }
+    const slots=loadSlots().map(s=>({
+      ...s,
+      bookings:(s.bookings||[]).map(b=>({
+        lookupKey:b.lookupKey||'',
+        studentId:String(b.studentId||''),
+        name:b.name||'',
+        typeId:b.typeId??null,
+        ts:b.ts||Date.now()
+      }))
+    }));
+    const booking_cfg=bkLoadCfg();
+    const state={slots,booking_cfg,updatedAt:Date.now(),reason};
+    const stateHash=JSON.stringify(state);
+    if(localStorage.getItem('low_cost_public_state_hash')!==stateHash){
+      await window._fb.setDocPath(['public_booking','state'],state,{merge:true});
+      localStorage.setItem('low_cost_public_state_hash',stateHash);
+    }
+
+    const payloads=await window.lowCostBuildLookupPayloads();
+    let writes=0;
+    for(const p of payloads){
+      const h=stable(p.data);
+      const k='low_cost_lookup_hash_'+p.key;
+      if(localStorage.getItem(k)===h) continue;
+      await window._fb.setDocPath(['student_lookup',p.key],p.data,{merge:true});
+      localStorage.setItem(k,h);
+      writes++;
+    }
+    if(typeof toast==='function') toast('低成本公開索引已同步：'+writes+' 筆更新');
+  };
+
+  let timer=null;
+  window.lowCostScheduleSync = function(reason){
+    clearTimeout(timer);
+    timer=setTimeout(()=>window.lowCostSyncPublicMirror(reason),2500);
+  };
+
+  const oldSaveStudents=window.saveStudents;
+  const oldSaveTickets=window.saveTickets;
+  const oldSaveSlots=window.saveSlots;
+  const oldBkSaveCfg=window.bkSaveCfg;
+
+  window.saveStudents=function(d){ oldSaveStudents(d); window.lowCostScheduleSync('students'); };
+  window.saveTickets=function(d){ oldSaveTickets(d); window.lowCostScheduleSync('tickets'); };
+  window.saveSlots=function(d){ oldSaveSlots(d); window.lowCostScheduleSync('slots'); };
+  window.bkSaveCfg=function(d){ oldBkSaveCfg(d); window.lowCostScheduleSync('booking_cfg'); };
+
+  // Expose manual sync button in console:
+  // lowCostSyncPublicMirror('manual')
+})();
+</script>
+
 </body>
 </html>

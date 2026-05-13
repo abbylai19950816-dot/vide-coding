@@ -9,19 +9,22 @@
 <script>
 // Auto-update: check if a newer version is available on GitHub Pages
 (function(){
-  var CURRENT_VERSION = '20260513-003';
+  var CURRENT_VERSION = '20260513-010';
   // Store version in sessionStorage to avoid re-checking in same session
   if(sessionStorage.getItem('app_version')===CURRENT_VERSION) return;
   sessionStorage.setItem('app_version', CURRENT_VERSION);
   // If localStorage has an old version, clear stale cache and reload fresh
   var storedVer = localStorage.getItem('app_version');
   if(storedVer && storedVer !== CURRENT_VERSION){
-    // Clear booking_cfg and slots cache so fresh data is fetched
+    // Clear all student-side caches so fresh data is fetched
     localStorage.removeItem('pilates_booking_cfg');
     localStorage.removeItem('pilates_slots');
+    localStorage.removeItem('pilates_students');
+    localStorage.removeItem('pilates_tickets');
+    localStorage.removeItem('pilates_payments');
     localStorage.setItem('app_version', CURRENT_VERSION);
     // Reload bypassing cache
-    window.location.replace(window.location.href.split('?')[0] + '?v=20260513-003');
+    window.location.replace(window.location.href.split('?')[0] + '?v=20260513-010');
     return;
   }
   localStorage.setItem('app_version', CURRENT_VERSION);
@@ -173,30 +176,59 @@ footer{text-align:center;padding:14px 20px 30px;font-size:12px;color:var(--ink-l
 <!-- Firebase SDK -->
 <script type="module">
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
-import { getFirestore, doc, getDoc, setDoc, onSnapshot } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
+import { getFirestore, doc, getDoc, setDoc, onSnapshot, runTransaction } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
 const firebaseConfig={apiKey:"AIzaSyDksa4iYf3aGqhKi9cp-WfDJrtOh_utX1U",authDomain:"gyrobooking-fbfd5.firebaseapp.com",projectId:"gyrobooking-fbfd5",storageBucket:"gyrobooking-fbfd5.firebasestorage.app",messagingSenderId:"46281828012",appId:"1:46281828012:web:abde543029136cce332109"};
 const app=initializeApp(firebaseConfig);
 const db=getFirestore(app);
 const auth=getAuth(app);
-const DB_KEYS=['slots','booking_cfg','students','payments','tickets'];  // student page needs these for verification and remaining sessions
+const DB_KEYS=['public_booking'];  // low-cost secure mode: student page reads public booking state only
 const FLAGS_DEFAULT={maintenanceMode:false,allowBooking:true,appVersion:'1.0.0'};
 let _flagsCache=null;
 window._fb={
+  // Legacy get/set kept only for fallback; student page should not use students/payments/tickets.
   async get(key){
     try{
+      if(key==='booking_cfg' || key==='slots'){
+        const snap=await getDoc(doc(db,'public_booking','state'));
+        if(snap.exists()){
+          const data=snap.data()||{};
+          const v=key==='booking_cfg'?(data.booking_cfg||{}):(data.slots||[]);
+          localStorage.setItem('pilates_'+key,JSON.stringify(v));
+          return v;
+        }
+      }
       const snap=await getDoc(doc(db,'data',key));
       if(snap.exists()){const v=snap.data().value;localStorage.setItem('pilates_'+key,JSON.stringify(v));return v;}
     }catch(e){console.warn('fbGet',key,e);}
     try{return JSON.parse(localStorage.getItem('pilates_'+key)||(key==='booking_cfg'?'{}':'[]'));}catch{return key==='booking_cfg'?{}:[];}
   },
   async set(key,value){
+    // Student page should not write legacy private docs. Keep slots fallback only for old admin compatibility.
     localStorage.setItem('pilates_'+key,JSON.stringify(value));
+    if(key==='slots'){
+      try{
+        const stateSnap=await getDoc(doc(db,'public_booking','state'));
+        const cur=stateSnap.exists()?stateSnap.data():{};
+        await setDoc(doc(db,'public_booking','state'),{...cur,slots:value,updatedAt:Date.now()},{merge:true});
+      }catch(e){console.warn('fbSet public slots',e);}
+      return;
+    }
     try{await setDoc(doc(db,'data',key),{value,updated:Date.now()});}catch(e){console.warn('fbSet',key,e);}
   },
-  subscribe(key,cb){return onSnapshot(doc(db,'data',key),snap=>{if(snap.exists())cb(key,snap.data().value);},e=>console.warn('listener',key,e));},
+  subscribe(key,cb){
+    if(key==='slots' || key==='booking_cfg' || key==='public_booking'){
+      return onSnapshot(doc(db,'public_booking','state'),snap=>{
+        if(!snap.exists()) return;
+        const data=snap.data()||{};
+        localStorage.setItem('pilates_slots',JSON.stringify(data.slots||[]));
+        localStorage.setItem('pilates_booking_cfg',JSON.stringify(data.booking_cfg||{}));
+        cb('public_booking',data);
+      },e=>console.warn('public booking listener',e));
+    }
+    return function(){};
+  },
   subscribeAll(cb){DB_KEYS.forEach(k=>this.subscribe(k,cb));},
-  // flags — cached in memory, single getDoc on first call only
   async getFlags(){
     if(_flagsCache) return {..._flagsCache};
     try{const snap=await getDoc(doc(db,'web_config','flags'));_flagsCache=snap.exists()?{...FLAGS_DEFAULT,...snap.data()}:{...FLAGS_DEFAULT};}
@@ -207,30 +239,99 @@ window._fb={
     return onSnapshot(doc(db,'web_config','flags'),snap=>{
       if(snap.exists()){_flagsCache={...FLAGS_DEFAULT,...snap.data()};cb({..._flagsCache});}
     },e=>console.warn('flagsListener',e));
+  },
+  async sha256(text){
+    const enc=new TextEncoder().encode(String(text));
+    const buf=await crypto.subtle.digest('SHA-256',enc);
+    return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+  },
+  normalizeName(v){ return String(v||'').trim().replace(/\s+/g,''); },
+  normalizePhone(v){ return String(v||'').replace(/\D/g,''); },
+  async lookupKey(name,phone){
+    return await this.sha256(this.normalizeName(name)+'|'+this.normalizePhone(phone));
+  },
+  async getStudentLookup(name,phone){
+    const key=await this.lookupKey(name,phone);
+    const snap=await getDoc(doc(db,'student_lookup',key));
+    if(!snap.exists()) return null;
+    return {key,...snap.data()};
+  },
+  async getPublicBookingState(){
+    const snap=await getDoc(doc(db,'public_booking','state'));
+    const data=snap.exists()?snap.data():{};
+    localStorage.setItem('pilates_slots',JSON.stringify(data.slots||[]));
+    localStorage.setItem('pilates_booking_cfg',JSON.stringify(data.booking_cfg||{}));
+    return data;
+  },
+  async runLowCostBooking({lookupKey,slotIds,typeId,bookingName}){
+    return await runTransaction(db, async (tx)=>{
+      const stateRef=doc(db,'public_booking','state');
+      const lookupRef=doc(db,'student_lookup',lookupKey);
+      const stateSnap=await tx.get(stateRef);
+      const lookupSnap=await tx.get(lookupRef);
+      if(!stateSnap.exists()||!lookupSnap.exists()) throw new Error('找不到可預約資料，請重新查詢');
+      const state=stateSnap.data()||{};
+      const lookup=lookupSnap.data()||{};
+      const slots=Array.isArray(state.slots)?state.slots:[];
+      const remainingByType=lookup.remainingByType||{};
+      const key=String(typeId??'default');
+      const currentLeft=Number(remainingByType[key]||0);
+      if(currentLeft<slotIds.length) throw new Error('剩餘堂數不足');
+
+      const now=Date.now();
+      const selectedSet=new Set(slotIds.map(String));
+      let updatedCount=0;
+      const updatedSlots=slots.map(s=>{
+        if(!selectedSet.has(String(s.id))) return s;
+        if(typeId!=null && String(s.typeId||'default')!==String(typeId)) throw new Error('所選時段與方案類型不符');
+        const bookings=Array.isArray(s.bookings)?s.bookings:[];
+        const cap=Number(s.capacity||1);
+        if(bookings.length>=cap) throw new Error('部分時段已額滿，請重新選擇');
+        if(bookings.some(b=>String(b.lookupKey)===String(lookupKey)||String(b.studentId)===String(lookup.studentId))) {
+          throw new Error('已有重複預約');
+        }
+        updatedCount++;
+        return {
+          ...s,
+          bookings:[...bookings,{
+            lookupKey,
+            studentId:lookup.studentId||'',
+            name:bookingName||lookup.name||'',
+            typeId:typeId??null,
+            ts:now
+          }]
+        };
+      });
+      if(updatedCount!==slotIds.length) throw new Error('部分時段不存在');
+
+      const nextRemainingByType={...remainingByType,[key]:currentLeft-slotIds.length};
+      tx.set(stateRef,{...state,slots:updatedSlots,updatedAt:now},{merge:true});
+      tx.set(lookupRef,{
+        ...lookup,
+        remainingByType:nextRemainingByType,
+        totalRemaining:Object.values(nextRemainingByType).reduce((s,v)=>s+Number(v||0),0),
+        updatedAt:now
+      },{merge:true});
+      return {ok:true,remaining:nextRemainingByType[key],booked:slotIds.length,slots:updatedSlots};
+    });
   }
-};
-// Pre-fetch public data immediately (no auth needed with updated Firestore rules)
-// Then sign in anonymously for write operations
+};// Low-cost secure mode:
+// 1 read for public booking state, 1 read for flags.
+// No student / ticket / payment bulk reads on student page.
 (async ()=>{
+  try{ await signInAnonymously(auth); }catch(e){ console.warn('anon auth failed:', e); }
   try{
-    const [cfgSnap, slotsSnap, studentsSnap, paymentsSnap, ticketsSnap, flagsSnap] = await Promise.all([
-      getDoc(doc(db,'data','booking_cfg')),
-      getDoc(doc(db,'data','slots')),
-      getDoc(doc(db,'data','students')),
-      getDoc(doc(db,'data','payments')),
-      getDoc(doc(db,'data','tickets')),
+    const [stateSnap, flagsSnap] = await Promise.all([
+      getDoc(doc(db,'public_booking','state')),
       getDoc(doc(db,'web_config','flags')),
     ]);
-    if(cfgSnap.exists()) localStorage.setItem('pilates_booking_cfg', JSON.stringify(cfgSnap.data().value));
-    if(slotsSnap.exists()) localStorage.setItem('pilates_slots', JSON.stringify(slotsSnap.data().value));
-    if(studentsSnap.exists()) localStorage.setItem('pilates_students', JSON.stringify(studentsSnap.data().value));
-    if(paymentsSnap.exists()) localStorage.setItem('pilates_payments', JSON.stringify(paymentsSnap.data().value));
-    if(ticketsSnap.exists()) localStorage.setItem('pilates_tickets', JSON.stringify(ticketsSnap.data().value));
+    if(stateSnap.exists()){
+      const state=stateSnap.data()||{};
+      localStorage.setItem('pilates_booking_cfg', JSON.stringify(state.booking_cfg||{}));
+      localStorage.setItem('pilates_slots', JSON.stringify(state.slots||[]));
+    }
     if(flagsSnap.exists()) _flagsCache={...FLAGS_DEFAULT,...flagsSnap.data()};
-  }catch(e){ console.warn('pre-fetch failed',e); }
-  // Sign in anonymously for write operations (booking submissions)
-  signInAnonymously(auth).catch(e=>console.warn('anon auth optional:',e));
-  // Signal ready regardless of auth state
+  }catch(e){ console.warn('public fetch failed:', e); }
   window._fbReady=true;
   window.dispatchEvent(new Event('firebase-ready'));
   if(typeof window._onFirebaseReady === 'function') window._onFirebaseReady();
@@ -1159,7 +1260,7 @@ async function fbSet(key, value) {
 function fbSubscribeAll() {
   if (!window._fb) return;
   // Subscribe to all keys needed by student-side verification and booking
-  ['slots','booking_cfg','students','payments','tickets'].forEach(function(key) {
+  ['public_booking'].forEach(function(key) {
     if (_fbUnsubscribers[key]) return;
     _fbUnsubscribers[key] = window._fb.subscribe(key, function(k, value) {
       const incoming = JSON.stringify(value);
@@ -1188,7 +1289,7 @@ function bkSaveCfg(d){   fbSet('booking_cfg',d); }
 async function fetchAndRender() {
   // Pre-fetch from Firebase (belt-and-suspenders, module already pre-fetched)
   if (window._fb) {
-    try { await Promise.all(['slots','booking_cfg','students','payments','tickets'].map(k => window._fb.get(k))); } catch(e) {}
+    try { await Promise.all(['slots','booking_cfg'].map(k => window._fb.get(k))); } catch(e) {}
   }
   cfg = loadCfg();
   try { if(typeof renderPurchase==='function') renderPurchase(); } catch(e) {}
@@ -1236,5 +1337,116 @@ setTimeout(function(){
 }, 5000);
 
 </script>
+
+<script>
+/* ─────────────────────────────────────────────
+   LOW-COST SECURE MODE OVERRIDES
+   - No bulk read: students/payments/tickets are not read by student page.
+   - Student lookup reads exactly one hashed lookup document.
+   - Booking uses one transaction: public_booking/state + student_lookup/{key}.
+───────────────────────────────────────────── */
+window._lowCostLookup = null;
+
+async function verifyAndLoadSchedule(){
+  const name=(document.getElementById("sch-name-input")?.value||"").trim();
+  const phone=(document.getElementById("sch-phone-input")?.value||"").trim();
+  if(!name || !phone){ showVerifyError('請輸入姓名與手機號碼'); return; }
+  if(!window._fb || !window._fb.getStudentLookup){ showVerifyError('系統尚未載入完成，請稍後再試'); return; }
+
+  try{
+    await window._fb.getPublicBookingState(); // 1 read, refresh slots/cfg
+    const lookup=await window._fb.getStudentLookup(name,phone); // 1 read only
+    if(!lookup){
+      window._lowCostLookup=null;
+      verifiedName=null; verifiedStudentId=null; verifiedTypeId=null;
+      showVerifyError('找不到此姓名與手機的可用方案，請確認資料或聯絡老師');
+      return;
+    }
+
+    const cfg=JSON.parse(localStorage.getItem('pilates_booking_cfg')||'{}');
+    const typeIds=Object.keys(lookup.remainingByType||{}).filter(k=>Number(lookup.remainingByType[k]||0)>0);
+    if(typeIds.length===0){
+      window._lowCostLookup=lookup;
+      verifiedName=lookup.name||name;
+      verifiedStudentId=lookup.studentId||lookup.key;
+      verifiedTypeId=null;
+      showVerifyError('目前沒有可預約的剩餘堂數，請聯絡老師確認方案');
+      return;
+    }
+
+    verifiedName=lookup.name||name;
+    verifiedStudentId=lookup.studentId||lookup.key;
+    verifiedTypeId=typeIds[0]==='default'?null:typeIds[0];
+    window._lowCostLookup=lookup;
+
+    const msg=document.getElementById("sch-verify-msg");
+    if(msg) msg.style.display="none";
+    const bar=document.getElementById("sch-verify-bar");
+    if(bar) bar.style.display="none";
+    if(typeof renderSchedule==='function') renderSchedule();
+  }catch(e){
+    console.warn('low-cost verify failed',e);
+    showVerifyError(e.message||'查詢失敗，請稍後再試');
+  }
+}
+
+function getRemainingTickets(){
+  const lookup=window._lowCostLookup;
+  if(!lookup) return 0;
+  const key=String(verifiedTypeId??'default');
+  return Number((lookup.remainingByType||{})[key]||0);
+}
+
+async function batchSubmitBooking(){
+  if(!window._lowCostLookup){ alert('請先輸入姓名與手機查詢方案'); return; }
+  if(selectedSlots.size===0){ alert('請先選擇時段'); return; }
+  const remaining=getRemainingTickets();
+  if(remaining<selectedSlots.size){ alert('堂數不足，無法預約所選全部時段'); return; }
+
+  try{
+    const res=await window._fb.runLowCostBooking({
+      lookupKey:window._lowCostLookup.key,
+      slotIds:[...selectedSlots],
+      typeId:verifiedTypeId,
+      bookingName:verifiedName
+    });
+    const key=String(verifiedTypeId??'default');
+    window._lowCostLookup.remainingByType=window._lowCostLookup.remainingByType||{};
+    window._lowCostLookup.remainingByType[key]=Number(res.remaining||0);
+    if(Array.isArray(res.slots)) localStorage.setItem('pilates_slots',JSON.stringify(res.slots));
+    selectedSlots.clear();
+    alert('預約成功！剩餘 '+res.remaining+' 堂');
+    if(typeof renderSlotList==='function') renderSlotList();
+  }catch(e){
+    console.warn('low-cost booking failed',e);
+    alert(e.message||'預約失敗，請重新整理後再試');
+  }
+}
+
+async function loopBooking(){
+  if(selectedSlots.size !== 1){ alert('請先選擇一個時段作為起始時段'); return; }
+  const remaining=getRemainingTickets();
+  if(remaining<=0){ alert('已無剩餘堂數'); return; }
+
+  const baseSlotId=[...selectedSlots][0];
+  const slots=JSON.parse(localStorage.getItem('pilates_slots')||'[]');
+  const base=slots.find(s=>String(s.id)===String(baseSlotId));
+  if(!base){ alert('找不到起始時段'); return; }
+
+  const candidates=slots
+    .filter(s=>String(s.typeId||'default')===String(base.typeId||'default'))
+    .filter(s=>s.date>=base.date)
+    .filter(s=>String(s.time)===String(base.time))
+    .filter(s=>(s.bookings||[]).length<Number(s.capacity||1))
+    .sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time))
+    .slice(0,remaining);
+
+  selectedSlots.clear();
+  candidates.forEach(s=>selectedSlots.add(s.id));
+  if(typeof updateBatchBar==='function') updateBatchBar();
+  if(typeof renderSlotList==='function') renderSlotList();
+}
+</script>
+
 </body>
 </html>
