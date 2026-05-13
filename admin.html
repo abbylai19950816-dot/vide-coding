@@ -3933,13 +3933,12 @@ window.approvePurchaseRequest = async function(requestId){
   const snap=await getDoc(ref);
   if(!snap.exists()){ alert('找不到購課申請：'+requestId); return; }
   const r={id:snap.id,...snap.data()};
-  if(r.status==='approved'){ alert('這筆已經確認過'); return; }
+  if(r.status==='approved'){ alert('這筆已經匯入過收費紀錄'); return; }
 
-  const ok=confirm(`確認開通這筆購課？\n\n${r.name}\n${r.phone||r.phoneDigits}\n${r.typeName} / ${r.planName}\n堂數：${r.sessions||0}\n金額：${r.amount||0}`);
+  const ok=confirm(`確認匯入這筆購課申請？\n\n${r.name}\n${r.phone||r.phoneDigits}\n${r.typeName} / ${r.planName}\n堂數：${r.sessions||0}\n金額：${r.amount||0}\n\n注意：這只會建立「未收費」紀錄與學員資料，不會直接開通票券。管理員改成已收費後才會開通方案。`);
   if(!ok) return;
 
   const students=await getDataValue('students',[]);
-  const tickets=await getDataValue('tickets',[]);
   const payments=await getDataValue('payments',[]);
 
   const pDigits=phoneDigits(r.phone||r.phoneDigits);
@@ -3968,11 +3967,12 @@ window.approvePurchaseRequest = async function(requestId){
   }
 
   const now=Date.now();
-  const sessions=Number(r.sessions||0);
-  const typeId=r.typeId || null;
   const typeName=r.typeName || '';
   const planName=r.planName || '';
 
+  // Original payment flow:
+  // Create a payment record as unpaid/pending. Admin later changes it to paid,
+  // and the existing admin payment-confirm flow creates the ticket.
   payments.push({
     id:now+1,
     studentId:stu.id,
@@ -3980,39 +3980,24 @@ window.approvePurchaseRequest = async function(requestId){
     phone:stu.phone,
     color:stu.color||'c0',
     item:(typeName||'課程')+'・'+(planName||'方案'),
+    typeId:r.typeId || null,
+    typeName:typeName,
+    planId:r.planId || null,
+    planName:planName,
+    sessions:Number(r.sessions||0),
     amount:Number(r.amount||0),
     date:r.date||todayTW(),
     method:'待確認',
-    status:'paid',
-    note:'由購課申請確認：'+(r.id||requestId)+(r.note?'；'+r.note:'')
+    status:'unpaid',
+    note:'由購課申請匯入：'+(r.id||requestId)+(r.note?'；'+r.note:'')
   });
-
-  if(sessions>0){
-    tickets.push({
-      id:now+2,
-      studentId:stu.id,
-      studentName:stu.name,
-      typeId:typeId,
-      typeName:typeName,
-      planName:planName,
-      total:sessions,
-      used:0,
-      left:sessions,
-      buyDate:r.date||todayTW(),
-      expireDate:r.expireDate||'',
-      note:'由購課申請開通'
-    });
-  }
 
   await setDataValue('students',students);
   await setDataValue('payments',payments);
-  await setDataValue('tickets',tickets);
 
-  await setDoc(ref,{...r,status:'approved',approvedAt:Date.now(),approvedStudentId:stu.id},{merge:true});
+  await setDoc(ref,{...r,status:'approved',importedAt:Date.now(),importedStudentId:stu.id,importedPaymentId:now+1},{merge:true});
 
-  await syncPublicMirrorLight('approve-purchase-request');
-
-  alert('已確認購課並寫入學員/收費/票券。請重新整理管理員頁。');
+  alert('已匯入學員資料與未收費紀錄。請到「收費」頁面確認付款；確認後才會開通可預約方案。');
 };
 
 window.rejectPurchaseRequest = async function(requestId){
@@ -4037,6 +4022,61 @@ window.addEventListener('load',()=>{
   btn.onclick=()=>window.loadPurchaseRequests?window.loadPurchaseRequests():alert('購課審核工具尚未載入，請重新整理');
   document.body.appendChild(btn);
 });
+</script>
+
+
+<script>
+/*
+  PAYMENT → TICKET RECONCILE TOOL
+  若你在收費頁已改為 paid/已收費，但學員頁仍查不到方案，
+  可在 Console 執行：
+    reconcilePaidPaymentsToTickets()
+*/
+window.reconcilePaidPaymentsToTickets = async function(){
+  function arr(key){ try{return JSON.parse(localStorage.getItem('pilates_'+key)||'[]');}catch{return [];} }
+  function save(key,val){ localStorage.setItem('pilates_'+key,JSON.stringify(val)); return window._fb?.set ? window._fb.set(key,val) : Promise.resolve(); }
+  const students=arr('students');
+  const payments=arr('payments');
+  const tickets=arr('tickets');
+  let created=0;
+
+  const paidWords=['paid','已收費','已付款','完成','success'];
+  for(const p of payments){
+    const status=String(p.status||'').trim();
+    if(!paidWords.includes(status)) continue;
+
+    const already=tickets.some(t=>String(t.paymentId||'')===String(p.id));
+    if(already) continue;
+
+    const stu=students.find(s=>String(s.id)===String(p.studentId));
+    if(!stu) continue;
+
+    const sessions=Number(p.sessions || p.count || p.total || 0);
+    if(!sessions) continue;
+
+    tickets.push({
+      id:Date.now()+Math.floor(Math.random()*100000),
+      paymentId:p.id,
+      studentId:stu.id,
+      studentName:stu.name,
+      typeId:p.typeId||null,
+      typeName:p.typeName||'',
+      planId:p.planId||null,
+      planName:p.planName||p.item||'',
+      total:sessions,
+      used:0,
+      left:sessions,
+      buyDate:p.date||new Date(Date.now()+8*3600000).toISOString().slice(0,10),
+      expireDate:p.expireDate||'',
+      note:'由已收費紀錄補開'
+    });
+    created++;
+  }
+
+  if(created>0) await save('tickets',tickets);
+  if(typeof window.lowCostSyncPublicMirror==='function') await window.lowCostSyncPublicMirror('reconcile-paid-payments');
+  alert('補開票券完成：'+created+' 筆。已同步學員查詢索引。');
+};
 </script>
 
 </body>
