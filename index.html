@@ -9,7 +9,7 @@
 <script>
 // Auto-update: check if a newer version is available on GitHub Pages
 (function(){
-  var CURRENT_VERSION = '20260513-012';
+  var CURRENT_VERSION = '20260513-013';
   // Store version in sessionStorage to avoid re-checking in same session
   if(sessionStorage.getItem('app_version')===CURRENT_VERSION) return;
   sessionStorage.setItem('app_version', CURRENT_VERSION);
@@ -24,7 +24,7 @@
     localStorage.removeItem('pilates_payments');
     localStorage.setItem('app_version', CURRENT_VERSION);
     // Reload bypassing cache
-    window.location.replace(window.location.href.split('?')[0] + '?v=20260513-012');
+    window.location.replace(window.location.href.split('?')[0] + '?v=20260513-013');
     return;
   }
   localStorage.setItem('app_version', CURRENT_VERSION);
@@ -340,7 +340,7 @@ window._fb={
 
 <script>
 /* Compatibility helper for low-cost secure verify flow */
-window.lowCostShowMsg = window.lowCostShowMsg || function(message){
+window.__lowCostDisplayMessage = function(message){
   if(typeof window.showSchMsg === 'function') {
     window.showSchMsg(message);
     return;
@@ -354,7 +354,8 @@ window.lowCostShowMsg = window.lowCostShowMsg || function(message){
     alert(message);
   }
 };
-window.showVerifyError = window.showVerifyError || window.lowCostShowMsg;
+window.lowCostShowMsg = window.__lowCostDisplayMessage;
+window.showVerifyError = window.__lowCostDisplayMessage;
 </script>
 
 </head>
@@ -1367,9 +1368,7 @@ setTimeout(function(){
 ───────────────────────────────────────────── */
 window._lowCostLookup = null;
 
-function lowCostShowMsg(message){
-  return window.lowCostShowMsg(message);
-}
+function lowCostShowMsg(message){ return window.__lowCostDisplayMessage(message); }
 
 
 async function verifyAndLoadSchedule(){
