@@ -3565,6 +3565,14 @@ if (window._fbReady) {
       return String(s.date||'')>=todayStr && bookings.length<cap;
     }
 
+    function normTypeText(v){
+      return String(v||'')
+        .toLowerCase()
+        .replace(/[\u{1F300}-\u{1FAFF}]/gu,'')   // emoji
+        .replace(/[^\p{L}\p{N}]+/gu,'')          // spaces, punctuation, symbols
+        .trim();
+    }
+
     const validSlotTypeIds=new Set(slots.map(s=>String(s.typeId||'default')));
     const futureOpenTypeIds=new Set(slots.filter(isFutureOpenSlot).map(s=>String(s.typeId||'default')));
 
@@ -3572,11 +3580,11 @@ if (window._fbReady) {
     const typeAliasToIds=new Map();
 
     function addAlias(alias, id){
-      const a=String(alias||'').trim();
+      const raw=String(alias||'').trim();
+      const norm=normTypeText(alias);
       const i=String(id||'').trim();
-      if(!a || !i) return;
-      const keys=[a,a.toLowerCase()];
-      keys.forEach(k=>{
+      if(!i) return;
+      [raw, raw.toLowerCase(), norm].filter(Boolean).forEach(k=>{
         if(!typeAliasToIds.has(k)) typeAliasToIds.set(k,[]);
         if(!typeAliasToIds.get(k).includes(i)) typeAliasToIds.get(k).push(i);
       });
@@ -3600,6 +3608,7 @@ if (window._fbReady) {
       addAlias(t.label,id);
       addAlias(t.title,id);
       addAlias(t.typeName,id);
+      addAlias(t.displayName,id);
     });
 
     slots.forEach(s=>{
@@ -3609,6 +3618,7 @@ if (window._fbReady) {
       addAlias(s.name,id);
       addAlias(s.courseName,id);
       addAlias(s.title,id);
+      addAlias(s.label,id);
     });
 
     function pickBestId(ids){
@@ -3620,14 +3630,32 @@ if (window._fbReady) {
 
     function lookupAlias(value){
       if(value==null) return null;
-      const key=String(value).trim();
-      return pickBestId(typeAliasToIds.get(key) || typeAliasToIds.get(key.toLowerCase()) || []);
+      const raw=String(value).trim();
+      const norm=normTypeText(value);
+      let ids=typeAliasToIds.get(raw) || typeAliasToIds.get(raw.toLowerCase()) || typeAliasToIds.get(norm) || [];
+      let picked=pickBestId(ids);
+      if(picked) return picked;
+
+      // Fuzzy normalized containment:
+      // e.g. ticket "墊上嬋柔一對二" vs slot "🧘墊上嬋柔一對二"
+      if(norm){
+        const candidates=[];
+        typeAliasToIds.forEach((ids2, aliasKey)=>{
+          const aliasNorm=normTypeText(aliasKey);
+          if(!aliasNorm) return;
+          if(aliasNorm.includes(norm) || norm.includes(aliasNorm)){
+            candidates.push(...ids2);
+          }
+        });
+        picked=pickBestId(candidates);
+        if(picked) return picked;
+      }
+      return null;
     }
 
     function resolveTicketTypeId(t){
       // Prefer human-readable aliases first when they map to a type with future open slots.
-      // This fixes old tickets whose raw typeId survived, but the current calendar uses a new typeId for the same class name.
-      const aliasCandidates=[t.typeName,t.courseType,t.courseName,t.planType,t.planName,t.name];
+      const aliasCandidates=[t.typeName,t.courseType,t.courseName,t.planType,t.planName,t.name,t.title,t.label];
       for(const c of aliasCandidates){
         const mapped=lookupAlias(c);
         if(mapped && futureOpenTypeIds.has(String(mapped))) return String(mapped);
@@ -3636,9 +3664,10 @@ if (window._fbReady) {
       const rawId = t.typeId ?? t.courseTypeId ?? t.typeKey ?? null;
       if(rawId!=null && String(rawId).trim()!=='') {
         const id=String(rawId);
-        if(validSlotTypeIds.has(id)) return id;
+        if(validSlotTypeIds.has(id) && futureOpenTypeIds.has(id)) return id;
         const mapped=lookupAlias(id);
         if(mapped) return String(mapped);
+        if(validSlotTypeIds.has(id)) return id;
       }
 
       for(const c of aliasCandidates){
@@ -3693,7 +3722,7 @@ if (window._fbReady) {
           totalRemaining,
           unresolvedTickets,
           strictTypeMode:true,
-          typeMappingMode:'strict-future-slots-v8',
+          typeMappingMode:'normalized-type-v9',
           updatedAt:Date.now()
         }
       });
