@@ -1090,16 +1090,10 @@ async function initFirebaseSync() {
       }
     });
   }
-  // Only pull from Firestore if localStorage is empty (first visit)
-  // onSnapshot subscription below will keep data fresh in real-time
+  // Always pull booking_cfg and slots from Firestore on load
+  // to ensure student sees latest course info and available slots (2 reads per visit)
   if (window._fb) {
-    const keysToFetch = ['slots','booking_cfg'].filter(k => {
-      const cached = localStorage.getItem('pilates_'+k);
-      return !cached || cached === '[]' || cached === '{}';
-    });
-    if (keysToFetch.length > 0) {
-      await Promise.all(keysToFetch.map(k => window._fb.get(k)));
-    }
+    await Promise.all(['slots','booking_cfg'].map(k => window._fb.get(k)));
   }
   try { cfg=loadCfg(); if(typeof renderPurchase==='function') renderPurchase(); } catch(e) {}
   fbSubscribeAll();
