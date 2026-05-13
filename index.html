@@ -9,7 +9,7 @@
 <script>
 // Auto-update: check if a newer version is available on GitHub Pages
 (function(){
-  var CURRENT_VERSION = '20260513-018';
+  var CURRENT_VERSION = '20260513-019';
   // Store version in sessionStorage to avoid re-checking in same session
   if(sessionStorage.getItem('app_version')===CURRENT_VERSION) return;
   sessionStorage.setItem('app_version', CURRENT_VERSION);
@@ -24,7 +24,7 @@
     localStorage.removeItem('pilates_payments');
     localStorage.setItem('app_version', CURRENT_VERSION);
     // Reload bypassing cache
-    window.location.replace(window.location.href.split('?')[0] + '?v=20260513-018');
+    window.location.replace(window.location.href.split('?')[0] + '?v=20260513-019');
     return;
   }
   localStorage.setItem('app_version', CURRENT_VERSION);
@@ -176,7 +176,7 @@ footer{text-align:center;padding:14px 20px 30px;font-size:12px;color:var(--ink-l
 <!-- Firebase SDK -->
 <script type="module">
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
-import { getFirestore, doc, getDoc, setDoc, onSnapshot, runTransaction } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
+import { getFirestore, doc, getDoc, setDoc, onSnapshot, runTransaction, collection } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
 const firebaseConfig={apiKey:"AIzaSyDksa4iYf3aGqhKi9cp-WfDJrtOh_utX1U",authDomain:"gyrobooking-fbfd5.firebaseapp.com",projectId:"gyrobooking-fbfd5",storageBucket:"gyrobooking-fbfd5.firebasestorage.app",messagingSenderId:"46281828012",appId:"1:46281828012:web:abde543029136cce332109"};
 const app=initializeApp(firebaseConfig);
@@ -262,6 +262,19 @@ window._fb={
     localStorage.setItem('pilates_slots',JSON.stringify(data.slots||[]));
     localStorage.setItem('pilates_booking_cfg',JSON.stringify(data.booking_cfg||{}));
     return data;
+  },
+
+  async createPurchaseRequest(payload){
+    const id='pr_'+Date.now()+'_'+Math.random().toString(36).slice(2,8);
+    const data={
+      ...payload,
+      id,
+      status:'pending',
+      createdAt:Date.now(),
+      source:'student_page_low_cost_v10'
+    };
+    await setDoc(doc(db,'purchase_requests',id),data);
+    return {ok:true,id};
   },
   async runLowCostBooking({lookupKey,slotIds,typeId,remainingKey,bookingName}){
     return await runTransaction(db, async (tx)=>{
@@ -607,19 +620,20 @@ function submitPurchase(){
   const phoneRaw=(document.getElementById("f-phone")?.value||document.getElementById("fphone")?.value||"").trim();
   const social=(document.getElementById("f-social")?.value||document.getElementById("fsocial")?.value||"").trim();
   const note=(document.getElementById("f-note")?.value||document.getElementById("fnote")?.value||"").trim();
+
   if(!name){alert("請填寫姓名");document.getElementById("fname")?.focus();return;}
   if(!phoneRaw){alert("請填寫手機號碼");document.getElementById("fphone")?.focus();return;}
   const phoneDigits=phoneRaw.replace(/\D/g,"");
   if(phoneDigits.length < 10){alert("手機號碼請填寫完整 10 碼");document.getElementById("fphone")?.focus();return;}
   if(!phoneDigits.startsWith("09")){alert("手機號碼需以 09 開頭（例如 0912345678）");document.getElementById("fphone")?.focus();return;}
-  // Dynamic validation based on formFields config
+
   const _fields = loadCfg().formFields || [];
   const _socialField = _fields.find(f=>f.id==='social');
   if(_socialField?.enabled!==false && _socialField?.required!==false && !social){
     alert('請填寫 '+(_socialField?.label||'LINE 或 Instagram ID'));
     (document.getElementById('f-social')||document.getElementById('fsocial'))?.focus(); return;
   }
-  // Validate any custom required fields
+
   for(const f of _fields){
     if(f.id==='name'||f.id==='phone'||f.id==='social'||f.id==='note') continue;
     if(f.enabled!==false && f.required){
@@ -627,57 +641,59 @@ function submitPurchase(){
       if(!val){ alert('請填寫 '+f.label); document.getElementById('f-'+f.id)?.focus(); return; }
     }
   }
+
   const phone=formatPhone(phoneRaw);
   const type=cfg.classTypes.find(t=>t.id===selTypeId);
   const plan=type?.plans.find(p=>p.id===selPlanId);
   if(!type||!plan){alert("請先選擇課程類型與方案");return;}
 
   const today=new Date(Date.now()+8*3600000).toISOString().split('T')[0];
-  const newId=Date.now();
+  const customFields={};
+  for(const f of _fields){
+    if(f.id==='name'||f.id==='phone'||f.id==='social'||f.id==='note') continue;
+    const el=document.getElementById('f-'+f.id);
+    if(el) customFields[f.id]=el.value||'';
+  }
 
-  // Find or create student — name + phone must both match to avoid same-name cross-linking
-  let resolvedStudentId = newId;
-  try{
-    const COLORS=["c0","c1","c2","c3","c4"];
-    const stuList=loadStudents();
-    const pDigits=phone.replace(/\D/g,"");
-    const socLow=(social||"").trim().toLowerCase();
-    console.log('[PURCHASE] name=',name,'phone=',pDigits,'stuList count=',stuList.length);
-    console.log('[PURCHASE] existing students:', stuList.map(s=>({id:s.id,name:s.name,phone:(s.phone||'').replace(/\D/g,'')})));
-    const stuIdx=stuList.findIndex(s=>{
-      const nameMatch=s.name.trim()===name.trim();
-      const sp=(s.phone||"").replace(/\D/g,"");
-      const ss=(s.line||"").trim().toLowerCase();
-      return nameMatch&&((pDigits&&sp===pDigits)||(socLow&&ss===socLow));
+  // SAFE PURCHASE MODE:
+  // Never write full students/payments/tickets arrays from the student page.
+  // This prevents a clean mobile browser or stale cache from overwriting admin data.
+  const payload={
+    name,
+    phone,
+    phoneDigits,
+    social,
+    note,
+    customFields,
+    typeId:type.id,
+    typeName:type.name,
+    planId:plan.id,
+    planName:plan.name,
+    sessions:Number(plan.sessions||plan.count||0),
+    amount:Number(plan.price||0),
+    date:today
+  };
+
+  const submitBtn=document.querySelector('.btn-submit');
+  const oldText=submitBtn?submitBtn.textContent:'';
+  if(submitBtn){submitBtn.disabled=true;submitBtn.textContent='送出中…';submitBtn.style.opacity='.7';}
+
+  Promise.resolve()
+    .then(()=>window._fb.createPurchaseRequest(payload))
+    .then((res)=>{
+      bookingData={name,phone,social,note,type,plan,purchaseRequestId:res?.id||''};
+      document.getElementById("successDetail").innerHTML=`<div class="sc-row"><span class="sc-label">姓名</span><span class="sc-val">${name}</span></div><div class="sc-row"><span class="sc-label">類型</span><span class="sc-val">${type.icon||""} ${type.name}</span></div><div class="sc-row"><span class="sc-label">方案</span><span class="sc-val">${plan.name}</span></div><div class="sc-row"><span class="sc-label">金額</span><span class="sc-val">NT$ ${plan.price.toLocaleString()}</span></div>${phone?`<div class="sc-row"><span class="sc-label">電話</span><span class="sc-val">${phone}</span></div>`:""}`;
+      document.getElementById("lineBtn").style.display=cfg.lineId?"flex":"none";
+      document.getElementById("successOverlay").classList.add("show");
+      window.scrollTo({top:0,behavior:"smooth"});
+    })
+    .catch((e)=>{
+      console.error('[SAFE_PURCHASE] create request failed',e);
+      alert('送出失敗，請稍後再試或直接聯絡老師');
+    })
+    .finally(()=>{
+      if(submitBtn){submitBtn.disabled=false;submitBtn.textContent=oldText||'送出報名';submitBtn.style.opacity='1';}
     });
-    console.log('[PURCHASE] stuIdx=',stuIdx, stuIdx>=0?'FOUND existing':'NEW student');
-    if(stuIdx>=0){
-      resolvedStudentId=stuList[stuIdx].id;
-      console.log('[PURCHASE] resolvedStudentId=',resolvedStudentId,'(existing)');
-      if(!stuList[stuIdx].phone&&phone) stuList[stuIdx].phone=phone;
-      if(!stuList[stuIdx].line&&social) stuList[stuIdx].line=social;
-    } else {
-      resolvedStudentId=newId;
-      console.log('[PURCHASE] resolvedStudentId=',resolvedStudentId,'(new, newId=',newId,')');
-      stuList.push({id:newId,name:name,phone:phone,line:social||"",joined:today,
-        ecName:"",ecRel:"",ecPhone:"",notes:note,
-        color:COLORS[stuList.length%COLORS.length],fromBooking:true});
-    }
-    saveStudents(stuList);
-  }catch(e){console.error('[PURCHASE] student error',e);}
-
-  // Create payment record — use resolvedStudentId from student creation above
-  const payments=loadPayments();
-  const linkedStudentId=resolvedStudentId;
-  const linkedStudent=loadStudents().find(s=>String(s.id)===String(linkedStudentId));
-  payments.push({id:newId+1,studentId:linkedStudentId,studentName:name,phone:phone,color:linkedStudent?.color||"c0",item:type.name+"・"+plan.name,amount:plan.price,date:today,method:"待確認",status:"unpaid",note:"LINE/Instagram："+(social||"—")+(note?" "+note:"")});
-  savePayments(payments);
-
-  bookingData={name,phone,social,note,type,plan,studentId:linkedStudentId};
-  document.getElementById("successDetail").innerHTML=`<div class="sc-row"><span class="sc-label">姓名</span><span class="sc-val">${name}</span></div><div class="sc-row"><span class="sc-label">類型</span><span class="sc-val">${type.icon||""} ${type.name}</span></div><div class="sc-row"><span class="sc-label">方案</span><span class="sc-val">${plan.name}</span></div><div class="sc-row"><span class="sc-label">金額</span><span class="sc-val">NT$ ${plan.price.toLocaleString()}</span></div>${phone?`<div class="sc-row"><span class="sc-label">電話</span><span class="sc-val">${phone}</span></div>`:""}`;
-  document.getElementById("lineBtn").style.display=cfg.lineId?"flex":"none";
-  document.getElementById("successOverlay").classList.add("show");
-  window.scrollTo({top:0,behavior:"smooth"});
 }
 
 function openLine(){
