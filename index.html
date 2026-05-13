@@ -209,15 +209,25 @@ window._fb={
     },e=>console.warn('flagsListener',e));
   }
 };
-// Sign in anonymously so Firestore rules can verify request origin
-signInAnonymously(auth).catch(e=>console.warn('anon auth failed',e)).finally(()=>{
-  window._fbReady=true;
-  window.dispatchEvent(new Event('firebase-ready'));
-  // Also directly call if main script already set up the listener
-  if(typeof window._onFirebaseReady === 'function'){
-    window._onFirebaseReady();
-  }
-});
+// Sign in anonymously, then pre-fetch critical data BEFORE signalling ready
+// This ensures localStorage has fresh data before main script renders
+signInAnonymously(auth)
+  .then(async ()=>{
+    try{
+      const [cfgSnap, slotsSnap] = await Promise.all([
+        getDoc(doc(db,'data','booking_cfg')),
+        getDoc(doc(db,'data','slots')),
+      ]);
+      if(cfgSnap.exists()) localStorage.setItem('pilates_booking_cfg', JSON.stringify(cfgSnap.data().value));
+      if(slotsSnap.exists()) localStorage.setItem('pilates_slots', JSON.stringify(slotsSnap.data().value));
+    }catch(e){ console.warn('pre-fetch failed',e); }
+  })
+  .catch(e=>console.warn('anon auth failed',e))
+  .finally(()=>{
+    window._fbReady=true;
+    window.dispatchEvent(new Event('firebase-ready'));
+    if(typeof window._onFirebaseReady === 'function') window._onFirebaseReady();
+  });
 </script>
 </head>
 <body>
@@ -1099,9 +1109,10 @@ function saveSlots(d){    fbSet('slots',d); }
 function bkSaveCfg(d){   fbSet('booking_cfg',d); }
 
 async function fetchAndRender() {
-  // Pull fresh data then re-render — safe to call multiple times
-  if (!window._fb) return;
-  await Promise.all(['slots','booking_cfg'].map(k => window._fb.get(k)));
+  // Pre-fetch from Firebase (belt-and-suspenders, module already pre-fetched)
+  if (window._fb) {
+    try { await Promise.all(['slots','booking_cfg'].map(k => window._fb.get(k))); } catch(e) {}
+  }
   cfg = loadCfg();
   try { if(typeof renderPurchase==='function') renderPurchase(); } catch(e) {}
   try { if(typeof renderSchedule==='function') renderSchedule(); } catch(e) {}
