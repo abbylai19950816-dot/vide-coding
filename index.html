@@ -9,7 +9,7 @@
 <script>
 // Auto-update: check if a newer version is available on GitHub Pages
 (function(){
-  var CURRENT_VERSION = '20260513-016';
+  var CURRENT_VERSION = '20260513-017';
   // Store version in sessionStorage to avoid re-checking in same session
   if(sessionStorage.getItem('app_version')===CURRENT_VERSION) return;
   sessionStorage.setItem('app_version', CURRENT_VERSION);
@@ -24,7 +24,7 @@
     localStorage.removeItem('pilates_payments');
     localStorage.setItem('app_version', CURRENT_VERSION);
     // Reload bypassing cache
-    window.location.replace(window.location.href.split('?')[0] + '?v=20260513-016');
+    window.location.replace(window.location.href.split('?')[0] + '?v=20260513-017');
     return;
   }
   localStorage.setItem('app_version', CURRENT_VERSION);
@@ -1398,7 +1398,21 @@ async function verifyAndLoadSchedule(){
 
     // STRICT TYPE MODE:
     // Only ticket typeId that matches slot.typeId can be used for booking.
-    const usableTypeIds=typeIds.filter(k=>slotTypeSet.has(String(k)));
+    // Prefer the matched type that actually has future open slots.
+    const todayStr=new Date().toISOString().split('T')[0];
+    const hasFutureOpenSlot=(typeId)=>{
+      return slots.some(s=>{
+        const cap=Number(s.capacity||1);
+        const bookings=Array.isArray(s.bookings)?s.bookings:[];
+        return String(s.typeId||'default')===String(typeId)
+          && String(s.date||'')>=todayStr
+          && bookings.length<cap;
+      });
+    };
+
+    let usableTypeIds=typeIds.filter(k=>slotTypeSet.has(String(k)));
+    const futureUsableTypeIds=usableTypeIds.filter(k=>hasFutureOpenSlot(k));
+    if(futureUsableTypeIds.length) usableTypeIds=futureUsableTypeIds;
 
     if(usableTypeIds.length===0){
       window._lowCostLookup=lookup;

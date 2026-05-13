@@ -3557,21 +3557,35 @@ if (window._fbReady) {
     const tickets=loadTickets();
     const slots=loadSlots();
 
+    const todayStr=new Date().toISOString().split('T')[0];
+
+    function isFutureOpenSlot(s){
+      const cap=Number(s.capacity||1);
+      const bookings=Array.isArray(s.bookings)?s.bookings:[];
+      return String(s.date||'')>=todayStr && bookings.length<cap;
+    }
+
     const validSlotTypeIds=new Set(slots.map(s=>String(s.typeId||'default')));
+    const futureOpenTypeIds=new Set(slots.filter(isFutureOpenSlot).map(s=>String(s.typeId||'default')));
+
     const cfg=bkLoadCfg ? bkLoadCfg() : {};
-    const typeAliasToId=new Map();
+    const typeAliasToIds=new Map();
 
     function addAlias(alias, id){
       const a=String(alias||'').trim();
       const i=String(id||'').trim();
       if(!a || !i) return;
-      typeAliasToId.set(a, i);
-      typeAliasToId.set(a.toLowerCase(), i);
+      const keys=[a,a.toLowerCase()];
+      keys.forEach(k=>{
+        if(!typeAliasToIds.has(k)) typeAliasToIds.set(k,[]);
+        if(!typeAliasToIds.get(k).includes(i)) typeAliasToIds.get(k).push(i);
+      });
     }
 
     const typeSources=[];
     if(Array.isArray(cfg.types)) typeSources.push(...cfg.types);
     if(Array.isArray(cfg.courseTypes)) typeSources.push(...cfg.courseTypes);
+    if(Array.isArray(cfg.classTypes)) typeSources.push(...cfg.classTypes);
     if(cfg.types && typeof cfg.types==='object' && !Array.isArray(cfg.types)) {
       Object.entries(cfg.types).forEach(([id,v])=>{
         if(v && typeof v==='object') typeSources.push({id, ...v});
@@ -3597,28 +3611,45 @@ if (window._fbReady) {
       addAlias(s.title,id);
     });
 
+    function pickBestId(ids){
+      const valid=(ids||[]).map(String).filter(id=>validSlotTypeIds.has(id));
+      if(!valid.length) return null;
+      const future=valid.find(id=>futureOpenTypeIds.has(id));
+      return future || valid[0];
+    }
+
+    function lookupAlias(value){
+      if(value==null) return null;
+      const key=String(value).trim();
+      return pickBestId(typeAliasToIds.get(key) || typeAliasToIds.get(key.toLowerCase()) || []);
+    }
+
     function resolveTicketTypeId(t){
+      // Prefer human-readable aliases first when they map to a type with future open slots.
+      // This fixes old tickets whose raw typeId survived, but the current calendar uses a new typeId for the same class name.
+      const aliasCandidates=[t.typeName,t.courseType,t.courseName,t.planType,t.planName,t.name];
+      for(const c of aliasCandidates){
+        const mapped=lookupAlias(c);
+        if(mapped && futureOpenTypeIds.has(String(mapped))) return String(mapped);
+      }
+
       const rawId = t.typeId ?? t.courseTypeId ?? t.typeKey ?? null;
       if(rawId!=null && String(rawId).trim()!=='') {
         const id=String(rawId);
         if(validSlotTypeIds.has(id)) return id;
-        const mapped=typeAliasToId.get(id) || typeAliasToId.get(id.toLowerCase());
-        if(mapped && validSlotTypeIds.has(String(mapped))) return String(mapped);
+        const mapped=lookupAlias(id);
+        if(mapped) return String(mapped);
       }
 
-      const candidates=[t.typeName,t.courseType,t.courseName,t.planType,t.planName,t.name];
-      for(const c of candidates){
-        if(c==null) continue;
-        const key=String(c).trim();
-        const mapped=typeAliasToId.get(key) || typeAliasToId.get(key.toLowerCase());
-        if(mapped && validSlotTypeIds.has(String(mapped))) return String(mapped);
+      for(const c of aliasCandidates){
+        const mapped=lookupAlias(c);
+        if(mapped) return String(mapped);
       }
 
       if(validSlotTypeIds.size===1) return [...validSlotTypeIds][0];
       return null;
     }
 
-    const today=new Date().toISOString().split('T')[0];
     const out=[];
 
     for(const s of students){
@@ -3633,7 +3664,7 @@ if (window._fbReady) {
       tickets.forEach(t=>{
         if(String(t.studentId)!==String(s.id)) return;
         if(Number(t.left||0)<=0) return;
-        if(t.expireDate && t.expireDate<today) return;
+        if(t.expireDate && t.expireDate<todayStr) return;
 
         const resolvedTypeId=resolveTicketTypeId(t);
         if(!resolvedTypeId){
@@ -3662,6 +3693,7 @@ if (window._fbReady) {
           totalRemaining,
           unresolvedTickets,
           strictTypeMode:true,
+          typeMappingMode:'strict-future-slots-v8',
           updatedAt:Date.now()
         }
       });
