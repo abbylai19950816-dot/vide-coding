@@ -3861,170 +3861,6 @@ window.resetAllTestData = async function(){
 </script>
 
 
-<script type="module">
-/*
-  PURCHASE REQUEST REVIEW TOOL
-  學員頁購課會寫入 purchase_requests，不會直接覆蓋 students/payments/tickets。
-  管理員可在 Console 執行：
-    loadPurchaseRequests()
-  然後使用：
-    approvePurchaseRequest('pr_xxx')
-    rejectPurchaseRequest('pr_xxx')
-*/
-import { initializeApp, getApps } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
-import { getFirestore, doc, getDoc, setDoc, collection, getDocs, deleteDoc } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
-
-const firebaseConfig={apiKey:"AIzaSyDksa4iYf3aGqhKi9cp-WfDJrtOh_utX1U",authDomain:"gyrobooking-fbfd5.firebaseapp.com",projectId:"gyrobooking-fbfd5",storageBucket:"gyrobooking-fbfd5.firebasestorage.app",messagingSenderId:"46281828012",appId:"1:46281828012:web:abde543029136cce332109"};
-const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
-const db = getFirestore(app);
-
-function fmtPhone(raw=''){
-  const d=String(raw||'').replace(/\D/g,'');
-  return d.length===10 ? d.replace(/(\d{4})(\d{3})(\d{3})/,'$1-$2-$3') : String(raw||'');
-}
-function phoneDigits(raw=''){ return String(raw||'').replace(/\D/g,''); }
-function todayTW(){ return new Date(Date.now()+8*3600000).toISOString().slice(0,10); }
-function readLocalArray(key){
-  try{return JSON.parse(localStorage.getItem(key)||'[]');}catch{return [];}
-}
-function writeLocalArray(key,val){
-  localStorage.setItem(key,JSON.stringify(val));
-}
-async function getDataValue(key, fallback=[]){
-  const snap=await getDoc(doc(db,'data',key));
-  if(snap.exists()){
-    const v=snap.data().value;
-    localStorage.setItem('pilates_'+key,JSON.stringify(v));
-    return v ?? fallback;
-  }
-  return readLocalArray('pilates_'+key) || fallback;
-}
-async function setDataValue(key,value){
-  writeLocalArray('pilates_'+key,value);
-  await setDoc(doc(db,'data',key),{value,updated:Date.now()},{merge:true});
-}
-async function syncPublicMirrorLight(reason='purchase-review'){
-  if(typeof window.lowCostSyncPublicMirror==='function'){
-    await window.lowCostSyncPublicMirror(reason);
-  }
-}
-
-window.loadPurchaseRequests = async function(){
-  const snap=await getDocs(collection(db,'purchase_requests'));
-  const rows=snap.docs.map(d=>({id:d.id,...d.data()}))
-    .sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
-  console.table(rows.map(r=>({
-    id:r.id,
-    status:r.status,
-    name:r.name,
-    phone:r.phone||r.phoneDigits,
-    type:r.typeName,
-    plan:r.planName,
-    sessions:r.sessions,
-    amount:r.amount,
-    date:r.date
-  })));
-  alert('已在 Console table 顯示 '+rows.length+' 筆購課申請。確認請用 approvePurchaseRequest("申請id")');
-  return rows;
-};
-
-window.approvePurchaseRequest = async function(requestId){
-  const ref=doc(db,'purchase_requests',String(requestId));
-  const snap=await getDoc(ref);
-  if(!snap.exists()){ alert('找不到購課申請：'+requestId); return; }
-  const r={id:snap.id,...snap.data()};
-  if(r.status==='approved'){ alert('這筆已經匯入過收費紀錄'); return; }
-
-  const ok=confirm(`確認匯入這筆購課申請？\n\n${r.name}\n${r.phone||r.phoneDigits}\n${r.typeName} / ${r.planName}\n堂數：${r.sessions||0}\n金額：${r.amount||0}\n\n注意：這只會建立「未收費」紀錄與學員資料，不會直接開通票券。管理員改成已收費後才會開通方案。`);
-  if(!ok) return;
-
-  const students=await getDataValue('students',[]);
-  const payments=await getDataValue('payments',[]);
-
-  const pDigits=phoneDigits(r.phone||r.phoneDigits);
-  const name=String(r.name||'').trim();
-  const COLORS=["c0","c1","c2","c3","c4"];
-
-  let stu=students.find(s=>String(s.name||'').trim()===name && phoneDigits(s.phone)===pDigits);
-  if(!stu){
-    stu={
-      id:Date.now(),
-      name,
-      phone:fmtPhone(r.phone||r.phoneDigits),
-      line:r.social||'',
-      joined:todayTW(),
-      ecName:'',
-      ecRel:'',
-      ecPhone:'',
-      notes:r.note||'',
-      color:COLORS[students.length%COLORS.length],
-      fromBooking:true
-    };
-    students.push(stu);
-  }else{
-    if(!stu.phone) stu.phone=fmtPhone(r.phone||r.phoneDigits);
-    if(!stu.line && r.social) stu.line=r.social;
-  }
-
-  const now=Date.now();
-  const typeName=r.typeName || '';
-  const planName=r.planName || '';
-
-  // Original payment flow:
-  // Create a payment record as unpaid/pending. Admin later changes it to paid,
-  // and the existing admin payment-confirm flow creates the ticket.
-  payments.push({
-    id:now+1,
-    studentId:stu.id,
-    studentName:stu.name,
-    phone:stu.phone,
-    color:stu.color||'c0',
-    item:(typeName||'課程')+'・'+(planName||'方案'),
-    typeId:r.typeId || null,
-    typeName:typeName,
-    planId:r.planId || null,
-    planName:planName,
-    sessions:Number(r.sessions||0),
-    amount:Number(r.amount||0),
-    date:r.date||todayTW(),
-    method:'待確認',
-    status:'unpaid',
-    note:'由購課申請匯入：'+(r.id||requestId)+(r.note?'；'+r.note:'')
-  });
-
-  await setDataValue('students',students);
-  await setDataValue('payments',payments);
-
-  await setDoc(ref,{...r,status:'approved',importedAt:Date.now(),importedStudentId:stu.id,importedPaymentId:now+1},{merge:true});
-
-  alert('已匯入學員資料與未收費紀錄。請到「收費」頁面確認付款；確認後才會開通可預約方案。');
-};
-
-window.rejectPurchaseRequest = async function(requestId){
-  const ref=doc(db,'purchase_requests',String(requestId));
-  const snap=await getDoc(ref);
-  if(!snap.exists()){ alert('找不到購課申請：'+requestId); return; }
-  const ok=confirm('確定拒絕/刪除這筆購課申請？');
-  if(!ok) return;
-  await setDoc(ref,{status:'rejected',rejectedAt:Date.now()},{merge:true});
-  alert('已標記 rejected');
-};
-</script>
-
-
-<script>
-window.addEventListener('load',()=>{
-  if(document.getElementById('purchaseReviewBtn')) return;
-  const btn=document.createElement('button');
-  btn.id='purchaseReviewBtn';
-  btn.textContent='待確認購課';
-  btn.style.cssText='position:fixed;right:16px;bottom:86px;z-index:9999;background:#4a6b50;color:#fff;border:none;border-radius:999px;padding:10px 14px;font-family:inherit;box-shadow:0 4px 12px rgba(0,0,0,.18);';
-  btn.onclick=()=>window.loadPurchaseRequests?window.loadPurchaseRequests():alert('購課審核工具尚未載入，請重新整理');
-  document.body.appendChild(btn);
-});
-</script>
-
-
 <script>
 /*
   PAYMENT → TICKET RECONCILE TOOL
@@ -4146,6 +3982,39 @@ window.repairBookingsToStudentRecords = async function(){
   await save('tickets',tickets);
   if(typeof window.lowCostSyncPublicMirror==='function') await window.lowCostSyncPublicMirror('repair-bookings');
   alert('修復完成：預約寫入學生資料 '+addedBookings+' 筆，補扣票券 '+deducted+' 堂。請重新整理管理員頁。');
+};
+</script>
+
+
+<script type="module">
+/*
+  CLEANUP OLD PURCHASE REQUESTS
+  Console:
+    deleteAllPurchaseRequests()
+*/
+import { initializeApp, getApps } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
+import { getFirestore, collection, getDocs, writeBatch } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
+
+const firebaseConfig={apiKey:"AIzaSyDksa4iYf3aGqhKi9cp-WfDJrtOh_utX1U",authDomain:"gyrobooking-fbfd5.firebaseapp.com",projectId:"gyrobooking-fbfd5",storageBucket:"gyrobooking-fbfd5.firebasestorage.app",messagingSenderId:"46281828012",appId:"1:46281828012:web:abde543029136cce332109"};
+const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
+const db = getFirestore(app);
+
+window.deleteAllPurchaseRequests = async function(){
+  const ok=confirm('確定要刪除所有 purchase_requests 舊購課申請嗎？');
+  if(!ok) return;
+  const snap=await getDocs(collection(db,'purchase_requests'));
+  let batch=writeBatch(db), n=0, total=0;
+  for(const d of snap.docs){
+    batch.delete(d.ref);
+    n++; total++;
+    if(n>=400){
+      await batch.commit();
+      batch=writeBatch(db);
+      n=0;
+    }
+  }
+  if(n>0) await batch.commit();
+  alert('已刪除 purchase_requests：'+total+' 筆');
 };
 </script>
 
