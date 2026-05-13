@@ -213,6 +213,10 @@ window._fb={
 signInAnonymously(auth).catch(e=>console.warn('anon auth failed',e)).finally(()=>{
   window._fbReady=true;
   window.dispatchEvent(new Event('firebase-ready'));
+  // Also directly call if main script already set up the listener
+  if(typeof window._onFirebaseReady === 'function'){
+    window._onFirebaseReady();
+  }
 });
 </script>
 </head>
@@ -1079,7 +1083,7 @@ function fbSubscribeAll() {
       localStorage.setItem('pilates_'+k, incoming);
       try {
         if (k==='slots' && typeof renderSlotList==='function') renderSlotList();
-        if (k==='booking_cfg') { _cacheInvalidate('booking_cfg'); cfg=loadCfg(); if(typeof renderPurchase==='function') renderPurchase(); if(typeof renderFormFields==='function') renderFormFields(); }
+        if (k==='booking_cfg') { _cacheInvalidate('booking_cfg'); if(typeof fetchAndRender==='function') fetchAndRender(); }
       } catch(e) {}
     });
   });
@@ -1094,18 +1098,27 @@ function savePayments(d){ fbSet('payments',d); }
 function saveSlots(d){    fbSet('slots',d); }
 function bkSaveCfg(d){   fbSet('booking_cfg',d); }
 
+async function fetchAndRender() {
+  // Pull fresh data then re-render — safe to call multiple times
+  if (!window._fb) return;
+  await Promise.all(['slots','booking_cfg'].map(k => window._fb.get(k)));
+  cfg = loadCfg();
+  try { if(typeof renderPurchase==='function') renderPurchase(); } catch(e) {}
+  try { if(typeof renderSchedule==='function') renderSchedule(); } catch(e) {}
+  try { if(typeof renderFormFields==='function') renderFormFields(); } catch(e) {}
+}
+
 async function initFirebaseSync() {
   if (_syncInitDone) return;
   _syncInitDone = true;
 
-  // Check flags before loading anything
   if (window._fb) {
+    // Check maintenance mode
     const flags = await window._fb.getFlags();
     if (flags.maintenanceMode) {
       document.body.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;font-family:Chiron GoRound TC,sans-serif;background:#f5f1eb;text-align:center;padding:40px"><div style="font-size:48px;margin-bottom:16px">🌿</div><div style="font-size:20px;font-weight:500;color:#2a2620;margin-bottom:8px">系統維護中</div><div style="font-size:14px;color:#6b6258;line-height:1.7">我們正在進行系統更新<br>請稍後再回來，感謝你的耐心等候</div></div>';
       return;
     }
-    // Subscribe to flag changes (e.g. admin turns on maintenance mode while student is on page)
     window._fb.subscribeFlags(function(flags) {
       if (flags.maintenanceMode) location.reload();
       if (!flags.allowBooking) {
@@ -1114,29 +1127,25 @@ async function initFirebaseSync() {
       }
     });
   }
-  // Always pull booking_cfg and slots from Firestore on load
-  // to ensure student sees latest course info and available slots (2 reads per visit)
-  if (window._fb) {
-    await Promise.all(['slots','booking_cfg'].map(k => window._fb.get(k)));
-  }
-  // Re-render with fresh data from Firebase
-  cfg = loadCfg();
-  try { if(typeof renderPurchase==='function') renderPurchase(); } catch(e) {}
-  try { if(typeof renderSchedule==='function') renderSchedule(); } catch(e) {}
-  try { if(typeof renderFormFields==='function') renderFormFields(); } catch(e) {}
+  // Fetch fresh data and render
+  await fetchAndRender();
+  // Then subscribe for real-time updates
   fbSubscribeAll();
 }
 
+window._onFirebaseReady = function(){
+  if(typeof initFirebaseSync === 'function') initFirebaseSync();
+};
 if (window._fbReady) {
   initFirebaseSync();
 } else {
   window.addEventListener('firebase-ready', initFirebaseSync, { once: true });
-  // Safety fallback: if firebase-ready fires late, re-render after 5s anyway
-  setTimeout(function(){
-    if(typeof renderPurchase==='function'){ cfg=loadCfg(); renderPurchase(); }
-    if(typeof renderFormFields==='function') renderFormFields();
-  }, 5000);
 }
+// Safety fallback: if Firebase takes >5s, force fetch from latest localStorage
+// (will show Firebase data once it arrives via onSnapshot)
+setTimeout(function(){
+  if(!_syncInitDone && typeof fetchAndRender==='function') fetchAndRender();
+}, 5000);
 
 </script>
 </body>
