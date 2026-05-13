@@ -544,7 +544,7 @@ body{font-family:'Chiron GoRound TC',sans-serif;background:var(--sand);color:var
 <!-- Firebase SDK -->
 <script type="module">
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
-import { getFirestore, doc, getDoc, setDoc, onSnapshot, writeBatch } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
+import { getFirestore, doc, getDoc, setDoc, onSnapshot, writeBatch, collection, getDocs } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
 const firebaseConfig={apiKey:"AIzaSyDksa4iYf3aGqhKi9cp-WfDJrtOh_utX1U",authDomain:"gyrobooking-fbfd5.firebaseapp.com",projectId:"gyrobooking-fbfd5",storageBucket:"gyrobooking-fbfd5.firebasestorage.app",messagingSenderId:"46281828012",appId:"1:46281828012:web:abde543029136cce332109"};
 const app=initializeApp(firebaseConfig);
@@ -3785,6 +3785,79 @@ if (window._fbReady) {
   // Expose manual sync button in console:
   // lowCostSyncPublicMirror('manual')
 })();
+</script>
+
+
+<script type="module">
+/*
+  RESET TEST DATA TOOL
+  Usage in admin.html Console:
+    resetAllTestData()
+*/
+import { initializeApp, getApps } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
+import { getFirestore, doc, setDoc, getDoc, collection, getDocs, writeBatch } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
+
+const firebaseConfig={apiKey:"AIzaSyDksa4iYf3aGqhKi9cp-WfDJrtOh_utX1U",authDomain:"gyrobooking-fbfd5.firebaseapp.com",projectId:"gyrobooking-fbfd5",storageBucket:"gyrobooking-fbfd5.firebasestorage.app",messagingSenderId:"46281828012",appId:"1:46281828012:web:abde543029136cce332109"};
+const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
+const db = getFirestore(app);
+
+async function deleteCollectionClient(colName, batchSize=400){
+  const snap = await getDocs(collection(db,colName));
+  const docs = snap.docs;
+  let deleted = 0;
+  for(let i=0;i<docs.length;i+=batchSize){
+    const batch = writeBatch(db);
+    docs.slice(i,i+batchSize).forEach(d=>batch.delete(d.ref));
+    await batch.commit();
+    deleted += docs.slice(i,i+batchSize).length;
+  }
+  return deleted;
+}
+
+window.resetAllTestData = async function(){
+  const ok = confirm(
+    '確定要清空所有測試資料嗎？\n\n會清除：學員資料、票券、收費、出缺勤、行事曆、日誌、student_lookup、purchase_requests。\n\n課程方案設定 booking_cfg 會保留。'
+  );
+  if(!ok) return;
+
+  console.log('[RESET] start');
+
+  const cfgSnap = await getDoc(doc(db,'data','booking_cfg'));
+  const bookingCfg = cfgSnap.exists() ? (cfgSnap.data().value || {}) : {};
+
+  // Legacy single-doc array data
+  await Promise.all([
+    setDoc(doc(db,'data','students'),{value:[],updated:Date.now()},{merge:true}),
+    setDoc(doc(db,'data','tickets'),{value:[],updated:Date.now()},{merge:true}),
+    setDoc(doc(db,'data','payments'),{value:[],updated:Date.now()},{merge:true}),
+    setDoc(doc(db,'data','classes'),{value:[],updated:Date.now()},{merge:true}),
+    setDoc(doc(db,'data','course_logs'),{value:[],updated:Date.now()},{merge:true}),
+    setDoc(doc(db,'data','slots'),{value:[],updated:Date.now()},{merge:true}),
+    setDoc(doc(db,'public_booking','state'),{slots:[],booking_cfg:bookingCfg,updatedAt:Date.now(),reason:'reset-test-data'},{merge:true}),
+  ]);
+
+  const deletedLookup = await deleteCollectionClient('student_lookup');
+  const deletedRequests = await deleteCollectionClient('purchase_requests');
+
+  // Clear localStorage cache
+  [
+    'pilates_students',
+    'pilates_tickets',
+    'pilates_payments',
+    'pilates_classes',
+    'pilates_course_logs',
+    'pilates_slots',
+    'pilates_public_booking',
+    'pilates_booking_cfg'
+  ].forEach(k=>localStorage.removeItem(k));
+
+  Object.keys(localStorage)
+    .filter(k=>k.startsWith('low_cost_lookup_hash_') || k==='low_cost_public_state_hash')
+    .forEach(k=>localStorage.removeItem(k));
+
+  console.log('[RESET] done', {deletedLookup, deletedRequests});
+  alert('清空完成！student_lookup 刪除 '+deletedLookup+' 筆，purchase_requests 刪除 '+deletedRequests+' 筆。請重新整理管理員頁。');
+};
 </script>
 
 </body>
