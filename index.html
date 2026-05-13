@@ -3,6 +3,30 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<script>
+// Auto-update: check if a newer version is available on GitHub Pages
+(function(){
+  var CURRENT_VERSION = '20260513-001';
+  // Store version in sessionStorage to avoid re-checking in same session
+  if(sessionStorage.getItem('app_version')===CURRENT_VERSION) return;
+  sessionStorage.setItem('app_version', CURRENT_VERSION);
+  // If localStorage has an old version, clear stale cache and reload fresh
+  var storedVer = localStorage.getItem('app_version');
+  if(storedVer && storedVer !== CURRENT_VERSION){
+    // Clear booking_cfg and slots cache so fresh data is fetched
+    localStorage.removeItem('pilates_booking_cfg');
+    localStorage.removeItem('pilates_slots');
+    localStorage.setItem('app_version', CURRENT_VERSION);
+    // Reload bypassing cache
+    window.location.replace(window.location.href.split('?')[0] + '?v=20260513-001');
+    return;
+  }
+  localStorage.setItem('app_version', CURRENT_VERSION);
+})();
+</script>
 <title>課程報名</title>
 <link href="https://fonts.googleapis.com/css2?family=LXGW+WenKai+TC&family=Chiron+GoRound+TC:wght@300;400;500&display=swap" rel="stylesheet">
 <style>
@@ -1095,7 +1119,11 @@ async function initFirebaseSync() {
   if (window._fb) {
     await Promise.all(['slots','booking_cfg'].map(k => window._fb.get(k)));
   }
-  try { cfg=loadCfg(); if(typeof renderPurchase==='function') renderPurchase(); } catch(e) {}
+  // Re-render with fresh data from Firebase
+  cfg = loadCfg();
+  try { if(typeof renderPurchase==='function') renderPurchase(); } catch(e) {}
+  try { if(typeof renderSchedule==='function') renderSchedule(); } catch(e) {}
+  try { if(typeof renderFormFields==='function') renderFormFields(); } catch(e) {}
   fbSubscribeAll();
 }
 
@@ -1103,6 +1131,11 @@ if (window._fbReady) {
   initFirebaseSync();
 } else {
   window.addEventListener('firebase-ready', initFirebaseSync, { once: true });
+  // Safety fallback: if firebase-ready fires late, re-render after 5s anyway
+  setTimeout(function(){
+    if(typeof renderPurchase==='function'){ cfg=loadCfg(); renderPurchase(); }
+    if(typeof renderFormFields==='function') renderFormFields();
+  }, 5000);
 }
 
 </script>
