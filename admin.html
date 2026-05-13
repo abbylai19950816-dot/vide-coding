@@ -3555,22 +3555,103 @@ if (window._fbReady) {
   window.lowCostBuildLookupPayloads = async function(){
     const students=loadStudents();
     const tickets=loadTickets();
+    const slots=loadSlots();
+
+    const validSlotTypeIds=new Set(slots.map(s=>String(s.typeId||'default')));
+    const cfg=bkLoadCfg ? bkLoadCfg() : {};
+    const typeAliasToId=new Map();
+
+    function addAlias(alias, id){
+      const a=String(alias||'').trim();
+      const i=String(id||'').trim();
+      if(!a || !i) return;
+      typeAliasToId.set(a, i);
+      typeAliasToId.set(a.toLowerCase(), i);
+    }
+
+    const typeSources=[];
+    if(Array.isArray(cfg.types)) typeSources.push(...cfg.types);
+    if(Array.isArray(cfg.courseTypes)) typeSources.push(...cfg.courseTypes);
+    if(cfg.types && typeof cfg.types==='object' && !Array.isArray(cfg.types)) {
+      Object.entries(cfg.types).forEach(([id,v])=>{
+        if(v && typeof v==='object') typeSources.push({id, ...v});
+        else typeSources.push({id, name:String(v||id)});
+      });
+    }
+
+    typeSources.forEach(t=>{
+      const id=t.id || t.typeId || t.key || t.value;
+      addAlias(id,id);
+      addAlias(t.name,id);
+      addAlias(t.label,id);
+      addAlias(t.title,id);
+      addAlias(t.typeName,id);
+    });
+
+    slots.forEach(s=>{
+      const id=String(s.typeId||'default');
+      addAlias(id,id);
+      addAlias(s.typeName,id);
+      addAlias(s.name,id);
+      addAlias(s.courseName,id);
+      addAlias(s.title,id);
+    });
+
+    function resolveTicketTypeId(t){
+      const rawId = t.typeId ?? t.courseTypeId ?? t.typeKey ?? null;
+      if(rawId!=null && String(rawId).trim()!=='') {
+        const id=String(rawId);
+        if(validSlotTypeIds.has(id)) return id;
+        const mapped=typeAliasToId.get(id) || typeAliasToId.get(id.toLowerCase());
+        if(mapped && validSlotTypeIds.has(String(mapped))) return String(mapped);
+      }
+
+      const candidates=[t.typeName,t.courseType,t.courseName,t.planType,t.planName,t.name];
+      for(const c of candidates){
+        if(c==null) continue;
+        const key=String(c).trim();
+        const mapped=typeAliasToId.get(key) || typeAliasToId.get(key.toLowerCase());
+        if(mapped && validSlotTypeIds.has(String(mapped))) return String(mapped);
+      }
+
+      if(validSlotTypeIds.size===1) return [...validSlotTypeIds][0];
+      return null;
+    }
+
     const today=new Date().toISOString().split('T')[0];
     const out=[];
+
     for(const s of students){
       const phoneDigits=normPhone(s.phone);
       const nameKey=normName(s.name);
       if(!phoneDigits || !nameKey) continue;
+
       const key=await sha256(nameKey+'|'+phoneDigits);
       const remainingByType={};
+      const unresolvedTickets=[];
+
       tickets.forEach(t=>{
         if(String(t.studentId)!==String(s.id)) return;
         if(Number(t.left||0)<=0) return;
         if(t.expireDate && t.expireDate<today) return;
-        const typeKey=String(t.typeId ?? t.typeName ?? 'default');
-        remainingByType[typeKey]=(remainingByType[typeKey]||0)+Number(t.left||0);
+
+        const resolvedTypeId=resolveTicketTypeId(t);
+        if(!resolvedTypeId){
+          unresolvedTickets.push({
+            ticketId:t.id||'',
+            typeId:t.typeId||'',
+            typeName:t.typeName||'',
+            planName:t.planName||'',
+            left:Number(t.left||0)
+          });
+          return;
+        }
+
+        remainingByType[resolvedTypeId]=(remainingByType[resolvedTypeId]||0)+Number(t.left||0);
       });
+
       const totalRemaining=Object.values(remainingByType).reduce((a,b)=>a+Number(b||0),0);
+
       out.push({
         key,
         data:{
@@ -3579,6 +3660,8 @@ if (window._fbReady) {
           phoneMasked: phoneDigits.replace(/(\d{4})\d{3}(\d{3})/,'$1***$2'),
           remainingByType,
           totalRemaining,
+          unresolvedTickets,
+          strictTypeMode:true,
           updatedAt:Date.now()
         }
       });

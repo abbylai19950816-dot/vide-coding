@@ -9,7 +9,7 @@
 <script>
 // Auto-update: check if a newer version is available on GitHub Pages
 (function(){
-  var CURRENT_VERSION = '20260513-013';
+  var CURRENT_VERSION = '20260513-016';
   // Store version in sessionStorage to avoid re-checking in same session
   if(sessionStorage.getItem('app_version')===CURRENT_VERSION) return;
   sessionStorage.setItem('app_version', CURRENT_VERSION);
@@ -24,7 +24,7 @@
     localStorage.removeItem('pilates_payments');
     localStorage.setItem('app_version', CURRENT_VERSION);
     // Reload bypassing cache
-    window.location.replace(window.location.href.split('?')[0] + '?v=20260513-013');
+    window.location.replace(window.location.href.split('?')[0] + '?v=20260513-016');
     return;
   }
   localStorage.setItem('app_version', CURRENT_VERSION);
@@ -263,7 +263,7 @@ window._fb={
     localStorage.setItem('pilates_booking_cfg',JSON.stringify(data.booking_cfg||{}));
     return data;
   },
-  async runLowCostBooking({lookupKey,slotIds,typeId,bookingName}){
+  async runLowCostBooking({lookupKey,slotIds,typeId,remainingKey,bookingName}){
     return await runTransaction(db, async (tx)=>{
       const stateRef=doc(db,'public_booking','state');
       const lookupRef=doc(db,'student_lookup',lookupKey);
@@ -274,7 +274,7 @@ window._fb={
       const lookup=lookupSnap.data()||{};
       const slots=Array.isArray(state.slots)?state.slots:[];
       const remainingByType=lookup.remainingByType||{};
-      const key=String(typeId??'default');
+      const key=String(remainingKey ?? typeId ?? 'default');
       const currentLeft=Number(remainingByType[key]||0);
       if(currentLeft<slotIds.length) throw new Error('剩餘堂數不足');
 
@@ -341,18 +341,19 @@ window._fb={
 <script>
 /* Compatibility helper for low-cost secure verify flow */
 window.__lowCostDisplayMessage = function(message){
-  if(typeof window.showSchMsg === 'function') {
-    window.showSchMsg(message);
-    return;
+  const text = String(message || '查詢失敗，請稍後再試');
+  let el = document.getElementById('sch-verify-msg');
+  if(!el){
+    el = document.createElement('div');
+    el.id = 'sch-verify-msg';
+    el.style.cssText = 'margin:10px 20px;padding:10px 12px;border-radius:12px;background:#fdf0ea;color:#c0704a;font-size:13px;line-height:1.6;';
+    const bar = document.getElementById('sch-verify-bar');
+    if(bar && bar.parentNode) bar.parentNode.insertBefore(el, bar.nextSibling);
+    else document.body.prepend(el);
   }
-  const el=document.getElementById('sch-verify-msg');
-  if(el){
-    el.textContent=message;
-    el.style.display='block';
-    el.style.color='var(--warn, #c0704a)';
-  }else{
-    alert(message);
-  }
+  el.textContent = text;
+  el.style.display = 'block';
+  el.style.color = 'var(--warn, #c0704a)';
 };
 window.lowCostShowMsg = window.__lowCostDisplayMessage;
 window.showVerifyError = window.__lowCostDisplayMessage;
@@ -1367,6 +1368,7 @@ setTimeout(function(){
    - Booking uses one transaction: public_booking/state + student_lookup/{key}.
 ───────────────────────────────────────────── */
 window._lowCostLookup = null;
+window._lowCostRemainingKey = 'default';
 
 function lowCostShowMsg(message){ return window.__lowCostDisplayMessage(message); }
 
@@ -1390,20 +1392,28 @@ async function verifyAndLoadSchedule(){
       return;
     }
 
-    const cfg=JSON.parse(localStorage.getItem('pilates_booking_cfg')||'{}');
+    const slots=JSON.parse(localStorage.getItem('pilates_slots')||'[]');
+    const slotTypeSet=new Set(slots.map(s=>String(s.typeId||'default')));
     const typeIds=Object.keys(lookup.remainingByType||{}).filter(k=>Number(lookup.remainingByType[k]||0)>0);
-    if(typeIds.length===0){
+
+    // STRICT TYPE MODE:
+    // Only ticket typeId that matches slot.typeId can be used for booking.
+    const usableTypeIds=typeIds.filter(k=>slotTypeSet.has(String(k)));
+
+    if(usableTypeIds.length===0){
       window._lowCostLookup=lookup;
+      window._lowCostRemainingKey='default';
       verifiedName=lookup.name||name;
       verifiedStudentId=lookup.studentId||lookup.key;
       verifiedTypeId=null;
-      lowCostShowMsg('目前沒有可預約的剩餘堂數，請聯絡老師確認方案');
+      lowCostShowMsg('目前沒有可預約的對應課程時段，請聯絡老師確認票券類型與課表類型是否一致');
       return;
     }
 
     verifiedName=lookup.name||name;
     verifiedStudentId=lookup.studentId||lookup.key;
-    verifiedTypeId=typeIds[0]==='default'?null:typeIds[0];
+    window._lowCostRemainingKey=String(usableTypeIds[0]);
+    verifiedTypeId=String(usableTypeIds[0])==='default'?null:String(usableTypeIds[0]);
     window._lowCostLookup=lookup;
 
     const msg=document.getElementById("sch-verify-msg");
@@ -1422,7 +1432,7 @@ async function verifyAndLoadSchedule(){
 function getRemainingTickets(){
   const lookup=window._lowCostLookup;
   if(!lookup) return 0;
-  const key=String(verifiedTypeId??'default');
+  const key=String(window._lowCostRemainingKey || verifiedTypeId || 'default');
   return Number((lookup.remainingByType||{})[key]||0);
 }
 
@@ -1437,9 +1447,10 @@ async function batchSubmitBooking(){
       lookupKey:window._lowCostLookup.key,
       slotIds:[...selectedSlots],
       typeId:verifiedTypeId,
+      remainingKey:window._lowCostRemainingKey,
       bookingName:verifiedName
     });
-    const key=String(verifiedTypeId??'default');
+    const key=String(window._lowCostRemainingKey || verifiedTypeId || 'default');
     window._lowCostLookup.remainingByType=window._lowCostLookup.remainingByType||{};
     window._lowCostLookup.remainingByType[key]=Number(res.remaining||0);
     if(Array.isArray(res.slots)) localStorage.setItem('pilates_slots',JSON.stringify(res.slots));
