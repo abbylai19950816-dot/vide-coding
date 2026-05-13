@@ -9,7 +9,7 @@
 <script>
 // Auto-update: check if a newer version is available on GitHub Pages
 (function(){
-  var CURRENT_VERSION = '20260513-023';
+  var CURRENT_VERSION = '20260513-024';
   // Store version in sessionStorage to avoid re-checking in same session
   if(sessionStorage.getItem('app_version')===CURRENT_VERSION) return;
   sessionStorage.setItem('app_version', CURRENT_VERSION);
@@ -24,7 +24,7 @@
     localStorage.removeItem('pilates_payments');
     localStorage.setItem('app_version', CURRENT_VERSION);
     // Reload bypassing cache
-    window.location.replace(window.location.href.split('?')[0] + '?v=20260513-023');
+    window.location.replace(window.location.href.split('?')[0] + '?v=20260513-024');
     return;
   }
   localStorage.setItem('app_version', CURRENT_VERSION);
@@ -355,53 +355,138 @@ window._fb={
       const stateRef=doc(db,'public_booking','state');
       const lookupRef=doc(db,'student_lookup',lookupKey);
       const legacySlotsRef=doc(db,'data','slots');
+      const legacyTicketsRef=doc(db,'data','tickets');
+      const legacyStudentsRef=doc(db,'data','students');
+
       const stateSnap=await tx.get(stateRef);
       const lookupSnap=await tx.get(lookupRef);
+      const ticketsSnap=await tx.get(legacyTicketsRef);
+      const studentsSnap=await tx.get(legacyStudentsRef);
+
       if(!stateSnap.exists()||!lookupSnap.exists()) throw new Error('找不到可預約資料，請重新查詢');
+
       const state=stateSnap.data()||{};
       const lookup=lookupSnap.data()||{};
       const slots=Array.isArray(state.slots)?state.slots:[];
+      const tickets=ticketsSnap.exists() && Array.isArray(ticketsSnap.data().value) ? [...ticketsSnap.data().value] : [];
+      const students=studentsSnap.exists() && Array.isArray(studentsSnap.data().value) ? [...studentsSnap.data().value] : [];
+
       const remainingByType=lookup.remainingByType||{};
       const key=String(remainingKey ?? typeId ?? 'default');
       const currentLeft=Number(remainingByType[key]||0);
       if(currentLeft<slotIds.length) throw new Error('剩餘堂數不足');
 
       const now=Date.now();
+      const today=new Date(Date.now()+8*3600000).toISOString().slice(0,10);
       const selectedSet=new Set(slotIds.map(String));
+      const bookingRecords=[];
       let updatedCount=0;
+
       const updatedSlots=slots.map(s=>{
         if(!selectedSet.has(String(s.id))) return s;
         if(typeId!=null && String(s.typeId||'default')!==String(typeId)) throw new Error('所選時段與方案類型不符');
+
         const bookings=Array.isArray(s.bookings)?s.bookings:[];
         const cap=Number(s.capacity||1);
         if(bookings.length>=cap) throw new Error('部分時段已額滿，請重新選擇');
         if(bookings.some(b=>String(b.lookupKey)===String(lookupKey)||String(b.studentId)===String(lookup.studentId))) {
           throw new Error('已有重複預約');
         }
+
         updatedCount++;
+        const rec={
+          lookupKey,
+          studentId:lookup.studentId||'',
+          name:bookingName||lookup.name||'',
+          typeId:typeId??null,
+          typeName:s.typeName||s.name||s.courseName||'',
+          date:s.date||'',
+          time:s.time||'',
+          slotId:s.id,
+          ts:now
+        };
+        bookingRecords.push(rec);
         return {
           ...s,
-          bookings:[...bookings,{
-            lookupKey,
-            studentId:lookup.studentId||'',
-            name:bookingName||lookup.name||'',
-            typeId:typeId??null,
-            ts:now
-          }]
+          bookings:[...bookings,rec]
         };
       });
+
       if(updatedCount!==slotIds.length) throw new Error('部分時段不存在');
 
+      // Deduct legacy tickets so admin student detail "方案紀錄" immediately updates.
+      let needDeduct=slotIds.length;
+      const studentId=String(lookup.studentId||'');
+      for(const t of tickets){
+        if(needDeduct<=0) break;
+        if(String(t.studentId)!==studentId) continue;
+        if(Number(t.left||0)<=0) continue;
+        if(t.expireDate && String(t.expireDate)<today) continue;
+
+        const ticketType=String(t.typeId ?? t.typeName ?? 'default');
+        const matchType = typeId==null ? true : (String(t.typeId||'default')===String(typeId) || String(ticketType)===String(key));
+        if(!matchType) continue;
+
+        const deduct=Math.min(Number(t.left||0), needDeduct);
+        t.left=Number(t.left||0)-deduct;
+        t.used=Number(t.used||0)+deduct;
+        t.logs=Array.isArray(t.logs)?t.logs:[];
+        t.logs.push({
+          action:'booking_deduct',
+          date:today,
+          slotIds:[...selectedSet].slice(0,deduct),
+          note:'線上預約扣堂',
+          ts:now
+        });
+        needDeduct-=deduct;
+      }
+      if(needDeduct>0) throw new Error('找不到可扣抵的後台票券，請聯絡老師確認方案');
+
+      // Add upcoming booking snapshot to student record so admin student detail can show it.
+      const stuIdx=students.findIndex(s=>String(s.id)===studentId);
+      if(stuIdx>=0){
+        const stu={...students[stuIdx]};
+        const existing=Array.isArray(stu.scheduledBookings)?stu.scheduledBookings:[];
+        const merged=[...existing];
+        bookingRecords.forEach(b=>{
+          if(!merged.some(x=>String(x.slotId)===String(b.slotId))){
+            merged.push({
+              slotId:b.slotId,
+              date:b.date,
+              time:b.time,
+              typeId:b.typeId,
+              typeName:b.typeName,
+              status:'booked',
+              ts:now
+            });
+          }
+        });
+        stu.scheduledBookings=merged;
+        stu.lastBookingAt=now;
+        students[stuIdx]=stu;
+      }
+
       const nextRemainingByType={...remainingByType,[key]:currentLeft-slotIds.length};
+
       tx.set(stateRef,{...state,slots:updatedSlots,updatedAt:now},{merge:true});
       tx.set(legacySlotsRef,{value:updatedSlots,updated:now},{merge:true});
+      tx.set(legacyTicketsRef,{value:tickets,updated:now},{merge:true});
+      tx.set(legacyStudentsRef,{value:students,updated:now},{merge:true});
       tx.set(lookupRef,{
         ...lookup,
         remainingByType:nextRemainingByType,
         totalRemaining:Object.values(nextRemainingByType).reduce((s,v)=>s+Number(v||0),0),
         updatedAt:now
       },{merge:true});
-      return {ok:true,remaining:nextRemainingByType[key],booked:slotIds.length,slots:updatedSlots};
+
+      return {
+        ok:true,
+        remaining:nextRemainingByType[key],
+        booked:slotIds.length,
+        slots:updatedSlots,
+        tickets,
+        students
+      };
     });
   }
 };// Low-cost secure mode:
@@ -1560,6 +1645,8 @@ async function batchSubmitBooking(){
     window._lowCostLookup.remainingByType=window._lowCostLookup.remainingByType||{};
     window._lowCostLookup.remainingByType[key]=Number(res.remaining||0);
     if(Array.isArray(res.slots)) localStorage.setItem('pilates_slots',JSON.stringify(res.slots));
+    if(Array.isArray(res.tickets)) localStorage.setItem('pilates_tickets',JSON.stringify(res.tickets));
+    if(Array.isArray(res.students)) localStorage.setItem('pilates_students',JSON.stringify(res.students));
     selectedSlots.clear();
     alert('預約成功！剩餘 '+res.remaining+' 堂');
     if(typeof renderSlotList==='function') renderSlotList();

@@ -4079,5 +4079,75 @@ window.reconcilePaidPaymentsToTickets = async function(){
 };
 </script>
 
+
+<script>
+/*
+  BOOKING SYNC REPAIR TOOL
+  若舊版已預約，但學生資料的「方案紀錄 / 預約課程時段」沒有連動，
+  在管理員 Console 執行：
+    repairBookingsToStudentRecords()
+*/
+window.repairBookingsToStudentRecords = async function(){
+  function arr(key){ try{return JSON.parse(localStorage.getItem('pilates_'+key)||'[]');}catch{return [];} }
+  function save(key,val){ localStorage.setItem('pilates_'+key,JSON.stringify(val)); return window._fb?.set ? window._fb.set(key,val) : Promise.resolve(); }
+
+  let students=arr('students');
+  let tickets=arr('tickets');
+  const slots=arr('slots');
+  const today=new Date(Date.now()+8*3600000).toISOString().slice(0,10);
+  let addedBookings=0, deducted=0;
+
+  for(const slot of slots){
+    const bookings=Array.isArray(slot.bookings)?slot.bookings:[];
+    for(const b of bookings){
+      const sid=String(b.studentId||'');
+      if(!sid) continue;
+      const stuIdx=students.findIndex(s=>String(s.id)===sid);
+      if(stuIdx<0) continue;
+
+      const stu={...students[stuIdx]};
+      const scheduled=Array.isArray(stu.scheduledBookings)?stu.scheduledBookings:[];
+      if(!scheduled.some(x=>String(x.slotId)===String(slot.id))){
+        scheduled.push({
+          slotId:slot.id,
+          date:slot.date||b.date||'',
+          time:slot.time||b.time||'',
+          typeId:slot.typeId||b.typeId||null,
+          typeName:slot.typeName||slot.name||b.typeName||'',
+          status:'booked',
+          ts:b.ts||Date.now()
+        });
+        addedBookings++;
+      }
+      stu.scheduledBookings=scheduled;
+      students[stuIdx]=stu;
+
+      const alreadyLog=tickets.some(t=>String(t.studentId)===sid && Array.isArray(t.logs) && t.logs.some(l=>Array.isArray(l.slotIds)&&l.slotIds.map(String).includes(String(slot.id))));
+      if(alreadyLog) continue;
+
+      const t=tickets.find(t=>{
+        if(String(t.studentId)!==sid) return false;
+        if(Number(t.left||0)<=0) return false;
+        if(t.expireDate && String(t.expireDate)<today) return false;
+        if(slot.typeId && t.typeId && String(t.typeId)!==String(slot.typeId)) return false;
+        return true;
+      });
+      if(t){
+        t.left=Number(t.left||0)-1;
+        t.used=Number(t.used||0)+1;
+        t.logs=Array.isArray(t.logs)?t.logs:[];
+        t.logs.push({action:'repair_booking_deduct',date:today,slotIds:[slot.id],note:'修復預約扣堂',ts:Date.now()});
+        deducted++;
+      }
+    }
+  }
+
+  await save('students',students);
+  await save('tickets',tickets);
+  if(typeof window.lowCostSyncPublicMirror==='function') await window.lowCostSyncPublicMirror('repair-bookings');
+  alert('修復完成：預約寫入學生資料 '+addedBookings+' 筆，補扣票券 '+deducted+' 堂。請重新整理管理員頁。');
+};
+</script>
+
 </body>
 </html>
