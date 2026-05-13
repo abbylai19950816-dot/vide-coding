@@ -506,7 +506,8 @@ function submitPurchase(){
   const today=new Date(Date.now()+8*3600000).toISOString().split('T')[0];
   const newId=Date.now();
 
-  // Find or create student — match by name + (phone OR social) to avoid cross-linking same-name students
+  // Find or create student — name + phone must both match to avoid same-name cross-linking
+  let resolvedStudentId = newId; // will be set to existing student's id if found
   try{
     const COLORS=["c0","c1","c2","c3","c4"];
     const stuList=loadStudents();
@@ -519,34 +520,21 @@ function submitPurchase(){
       return nameMatch&&((pDigits&&sp===pDigits)||(socLow&&ss===socLow));
     });
     if(stuIdx>=0){
+      resolvedStudentId=stuList[stuIdx].id; // use existing student's real id
       if(!stuList[stuIdx].phone&&phone) stuList[stuIdx].phone=phone;
       if(!stuList[stuIdx].line&&social) stuList[stuIdx].line=social;
     } else {
+      resolvedStudentId=newId; // new student
       stuList.push({id:newId,name:name,phone:phone,line:social||"",joined:today,
         ecName:"",ecRel:"",ecPhone:"",notes:note,
         color:COLORS[stuList.length%COLORS.length],fromBooking:true});
     }
-    saveStudents(stuList);  // triggers Firebase sync
+    saveStudents(stuList);
   }catch(e){}
 
-  // Create payment record
+  // Create payment record — use resolvedStudentId from student creation above
   const payments=loadPayments();
-  // Link payment to the student we just created/found (already resolved above)
-  // Use stuIdx result: if stuIdx>=0, use that student's id; else use newId
-  let linkedStudentId=newId;
-  try{
-    const stuList2=loadStudents();
-    const phoneDigits2=phone.replace(/\D/g,"");
-    const inSocial2=(social||"").trim().toLowerCase();
-    // Match by phone AND name, or social AND name — require name to match to avoid cross-linking
-    const found2=stuList2.find(s=>{
-      const nameMatch=s.name.trim()===name.trim();
-      const sPhone=(s.phone||"").replace(/\D/g,"");
-      const sSocial=(s.line||"").trim().toLowerCase();
-      return nameMatch&&((phoneDigits2&&sPhone===phoneDigits2)||(inSocial2&&sSocial&&sSocial===inSocial2));
-    });
-    if(found2) linkedStudentId=found2.id;
-  }catch(e){}
+  const linkedStudentId=resolvedStudentId;
   payments.push({id:newId+1,studentId:linkedStudentId,studentName:name,color:"c0",item:type.name+"・"+plan.name,amount:plan.price,date:today,method:"待確認",status:"unpaid",note:"LINE/Instagram："+(social||"—")+(note?" "+note:"")});
   savePayments(payments);
 
@@ -625,8 +613,12 @@ function verifyAndLoadSchedule(){
   let myPayments;
   if(matchedStudent){
     const sid = String(matchedStudent.id);
-    const byId = payments.filter(p=>String(p.studentId)===sid);
-    myPayments = byId.length > 0 ? byId : payments.filter(p=>p.studentName&&p.studentName.trim()===name);
+    // Strictly only this student's payments — no name fallback to avoid cross-contamination
+    myPayments = payments.filter(p=>String(p.studentId)===sid);
+    // If no payments by ID yet (old data), fall back to name only if no other student has same name
+    if(myPayments.length===0 && nameMatches.length===1){
+      myPayments = payments.filter(p=>p.studentName&&p.studentName.trim()===name);
+    }
   } else {
     myPayments = payments.filter(p=>p.studentName&&p.studentName.trim()===name);
   }
