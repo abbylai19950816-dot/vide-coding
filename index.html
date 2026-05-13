@@ -279,8 +279,9 @@ window._fb={
   <div id="sch-verify-bar" style="background:var(--sage-light);padding:12px 20px;border-bottom:1px solid var(--sage-mid)">
     <div style="font-size:12px;color:var(--sage-deep);margin-bottom:6px;font-weight:500">請輸入姓名以確認繳費資格</div>
     <div style="display:flex;gap:8px">
-      <input type="text" id="sch-name-input" placeholder="輸入你的姓名…" style="flex:1;background:var(--white);border:1.5px solid var(--sage-mid);border-radius:10px;padding:9px 12px;font-size:14px;font-family:inherit;outline:none;color:var(--ink)" onkeydown="if(event.key==='Enter')verifyAndLoadSchedule()">
-      <button onclick="verifyAndLoadSchedule()" style="background:var(--sage);color:#fff;border:none;border-radius:10px;padding:9px 16px;font-size:13px;font-weight:500;font-family:inherit;cursor:pointer">確認</button>
+      <input type="text" id="sch-name-input" placeholder="姓名…" style="flex:1;min-width:0;background:var(--white);border:1.5px solid var(--sage-mid);border-radius:10px;padding:9px 12px;font-size:14px;font-family:inherit;outline:none;color:var(--ink)" onkeydown="if(event.key==='Enter')verifyAndLoadSchedule()">
+      <input type="tel" id="sch-phone-input" placeholder="手機號碼…" style="flex:1;min-width:0;background:var(--white);border:1.5px solid var(--sage-mid);border-radius:10px;padding:9px 12px;font-size:14px;font-family:inherit;outline:none;color:var(--ink)" onkeydown="if(event.key==='Enter')verifyAndLoadSchedule()">
+      <button onclick="verifyAndLoadSchedule()" style="background:var(--sage);color:#fff;border:none;border-radius:10px;padding:9px 16px;font-size:13px;font-weight:500;font-family:inherit;cursor:pointer;flex-shrink:0">確認</button>
     </div>
     <div id="sch-verify-msg" style="font-size:12px;margin-top:5px;color:var(--warn);display:none"></div>
   </div>
@@ -351,6 +352,7 @@ const BK_DEFAULT={teacherName:"嬋柔老師",lineId:"",classTypes:[{id:1,name:"�
 function loadCfg(){try{const r=localStorage.getItem("pilates_booking_cfg");if(!r)return BK_DEFAULT;const s=JSON.parse(r);return{teacherName:s.teacherName||BK_DEFAULT.teacherName,lineId:s.lineId||"",heroTitle:s.heroTitle||BK_DEFAULT.heroTitle,heroSub:s.heroSub||BK_DEFAULT.heroSub,footerText:s.footerText||BK_DEFAULT.footerText,classTypes:(s.classTypes&&s.classTypes.length)?s.classTypes:BK_DEFAULT.classTypes,infoBlocks:(s.infoBlocks&&s.infoBlocks.length)?s.infoBlocks:BK_DEFAULT.infoBlocks,formFields:(s.formFields&&s.formFields.length)?s.formFields:BK_DEFAULT.formFields};}catch{return BK_DEFAULT;}}
 function loadSlots(){try{return JSON.parse(localStorage.getItem("pilates_slots")||"[]");}catch{return[];}}
 function loadPayments(){try{return JSON.parse(localStorage.getItem("pilates_payments")||"[]");}catch{return[];}}
+function loadStudents(){try{return JSON.parse(localStorage.getItem("pilates_students")||"[]");}catch{return[];}}
 // savePayments and saveSlots defined below with Firebase sync
 const DAYS=["日","一","二","三","四","五","六"];
 let cfg=loadCfg();
@@ -504,16 +506,17 @@ function submitPurchase(){
   const today=new Date(Date.now()+8*3600000).toISOString().split('T')[0];
   const newId=Date.now();
 
-  // Find or create student — match by phone digits OR LINE/Instagram ID
+  // Find or create student — match by name + (phone OR social) to avoid cross-linking same-name students
   try{
     const COLORS=["c0","c1","c2","c3","c4"];
-    const stuList=JSON.parse(localStorage.getItem("pilates_students")||"[]");
+    const stuList=loadStudents();
     const pDigits=phone.replace(/\D/g,"");
     const socLow=(social||"").trim().toLowerCase();
     const stuIdx=stuList.findIndex(s=>{
+      const nameMatch=s.name.trim()===name.trim();
       const sp=(s.phone||"").replace(/\D/g,"");
       const ss=(s.line||"").trim().toLowerCase();
-      return (pDigits&&sp===pDigits)||(socLow&&ss===socLow);
+      return nameMatch&&((pDigits&&sp===pDigits)||(socLow&&ss===socLow));
     });
     if(stuIdx>=0){
       if(!stuList[stuIdx].phone&&phone) stuList[stuIdx].phone=phone;
@@ -528,16 +531,19 @@ function submitPurchase(){
 
   // Create payment record
   const payments=loadPayments();
-  // Link payment to existing student if found by phone/social
+  // Link payment to the student we just created/found (already resolved above)
+  // Use stuIdx result: if stuIdx>=0, use that student's id; else use newId
   let linkedStudentId=newId;
   try{
-    const stuList2=JSON.parse(localStorage.getItem("pilates_students")||"[]");
+    const stuList2=loadStudents();
     const phoneDigits2=phone.replace(/\D/g,"");
     const inSocial2=(social||"").trim().toLowerCase();
+    // Match by phone AND name, or social AND name — require name to match to avoid cross-linking
     const found2=stuList2.find(s=>{
+      const nameMatch=s.name.trim()===name.trim();
       const sPhone=(s.phone||"").replace(/\D/g,"");
       const sSocial=(s.line||"").trim().toLowerCase();
-      return (phoneDigits2&&sPhone===phoneDigits2)||(inSocial2&&sSocial&&sSocial===inSocial2);
+      return nameMatch&&((phoneDigits2&&sPhone===phoneDigits2)||(inSocial2&&sSocial&&sSocial===inSocial2));
     });
     if(found2) linkedStudentId=found2.id;
   }catch(e){}
@@ -585,15 +591,46 @@ function resetPurchase(){
 }
 
 let verifiedName = null;
-let verifiedTypeId = null;   // the type ID from the paid payment
+let verifiedTypeId = null;
+let verifiedStudentId = null; // unique student ID to avoid same-name confusion   // the type ID from the paid payment
 
 function verifyAndLoadSchedule(){
   const name = (document.getElementById("sch-name-input")?.value||"").trim();
+  const phoneRaw = (document.getElementById("sch-phone-input")?.value||"").trim();
+  const phoneDigits = phoneRaw.replace(/\D/g,"");
   if(!name){ showSchMsg("請填寫姓名"); return; }
+
   const payments = loadPayments();
-  // Look for any payment (paid or unpaid) for this name to determine type
-  // Priority: paid > unpaid (most recent)
-  const myPayments = payments.filter(p=>p.studentName&&p.studentName.trim()===name);
+  const students = loadStudents();
+
+  // Find matching students by name (may be multiple with same name)
+  const nameMatches = students.filter(s=>s.name.trim()===name);
+
+  // If multiple students have same name, require phone to disambiguate
+  let matchedStudent = null;
+  if(nameMatches.length > 1){
+    if(!phoneDigits){ showSchMsg("有多位同名學員，請同時填寫手機號碼以確認身份"); return; }
+    matchedStudent = nameMatches.find(s=>(s.phone||"").replace(/\D/g,"")===phoneDigits);
+    if(!matchedStudent){ showSchMsg("找不到符合「"+name+"」且電話為「"+phoneRaw+"」的學員，請確認或聯絡老師"); return; }
+  } else if(nameMatches.length === 1){
+    matchedStudent = nameMatches[0];
+    // If phone provided, verify it matches
+    if(phoneDigits && (matchedStudent.phone||"").replace(/\D/g,"") !== phoneDigits){
+      showSchMsg("電話號碼與紀錄不符，請確認或聯絡老師"); return;
+    }
+  }
+  // else no student record yet — proceed by name (new student flow)
+
+  // Filter payments by studentId if we found the student, otherwise by name
+  let myPayments;
+  if(matchedStudent){
+    const sid = String(matchedStudent.id);
+    const byId = payments.filter(p=>String(p.studentId)===sid);
+    myPayments = byId.length > 0 ? byId : payments.filter(p=>p.studentName&&p.studentName.trim()===name);
+  } else {
+    myPayments = payments.filter(p=>p.studentName&&p.studentName.trim()===name);
+  }
+
   const paidPayments = myPayments.filter(p=>p.status==="paid");
   const hasAny = myPayments.length > 0;
   const hasPaid = paidPayments.length > 0;
@@ -605,6 +642,7 @@ function verifyAndLoadSchedule(){
     showSchMsg("「"+name+"」的費用尚未確認，請聯絡老師完成繳費後再預約");
     return;
   }
+  verifiedStudentId = matchedStudent ? matchedStudent.id : null;
   // Match type from most recent paid payment
   const cfg2 = loadCfg();
   let matchedTypeId = null;
@@ -631,7 +669,7 @@ function verifyAndLoadSchedule(){
 }
 
 function resetVerify(){
-  verifiedName=null; verifiedTypeId=null; selSlotId=null;
+  verifiedName=null; verifiedTypeId=null; verifiedStudentId=null; selSlotId=null;
   document.getElementById("sch-verify-bar").style.display="block";
   document.getElementById("sch-verified-content").style.display="none";
   document.getElementById("sch-verify-msg").style.display="none";
@@ -908,7 +946,7 @@ function loopBooking(){
   // Update student scheduledBookings
   try{
     const students=JSON.parse(localStorage.getItem('pilates_students')||'[]');
-    const si=students.findIndex(st=>st.name.trim()===verifiedName);
+    const si=verifiedStudentId!=null?students.findIndex(st=>String(st.id)===String(verifiedStudentId)):students.findIndex(st=>st.name.trim()===verifiedName);
     if(si>=0){
       students[si].scheduledBookings=students[si].scheduledBookings||[];
       for(const slot of future.slice(0,booked)){
@@ -1020,7 +1058,7 @@ function batchSubmitBooking(){
       else allClasses.push({id:'slot-'+slot.id,slotId:slot.id,date:slot.date,name:clsName,time:slot.time,location:slot.location||'',saved:true,members});
     }
     saveClasses(allClasses);  // triggers Firebase sync
-    const si=allStudents.findIndex(st=>st.name.trim()===verifiedName);
+    const si=verifiedStudentId!=null?allStudents.findIndex(st=>String(st.id)===String(verifiedStudentId)):allStudents.findIndex(st=>st.name.trim()===verifiedName);
     if(si>=0){
       allStudents[si].scheduledBookings=allStudents[si].scheduledBookings||[];
       for(const slot of bookedSlots) allStudents[si].scheduledBookings.push({slotId:slot.id,date:slot.date,time:slot.time,typeId:slot.typeId,typeName:slot.typeName||'',ts:Date.now()});

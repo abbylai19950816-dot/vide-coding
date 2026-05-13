@@ -1436,13 +1436,13 @@ function openStudentDetail(id){
       : '';
     return '<div class="card" style="margin-bottom:6px;cursor:default;'+(exp?'opacity:.6':'')+'"><div style="flex:1"><div class="card-name" style="font-size:14px">'+(t.typeName||t.planName||t.total+'堂方案')+'</div><div class="card-meta">購買：'+t.boughtDate+' · NT$ '+(t.price||0).toLocaleString()+'</div>'+(t.total>1?'<div style="margin-top:6px"><div class="progress-track"><div class="progress-fill '+(low?'warn':'')+'" style="width:'+pct+'%"></div></div></div>':'')+'<div style="display:flex;align-items:center;justify-content:space-between;margin-top:6px"><span class="badge '+cls+'">'+statusTxt+'</span>'+ctrlBtns+'</div></div></div>';
   }).join('') || '<div style="font-size:13px;color:var(--ink-mid);padding:8px 0">無方案紀錄</div>';
-  const classes = loadClasses().filter(function(c){return c.members.some(function(m){return String(m.studentId)===sid||m.studentName===s.name;});});
+  const classes = loadClasses().filter(function(c){return c.members.some(function(m){return String(m.studentId)===sid||(String(m.studentId).startsWith("ext-")&&m.studentName===s.name);});});
   const attCounts={present:0,absent:0,leave:0,makeup:0};
-  classes.forEach(function(c){const m=c.members.find(function(m){return String(m.studentId)===sid||m.studentName===s.name;});if(m)attCounts[m.status]=(attCounts[m.status]||0)+1;});
+  classes.forEach(function(c){const m=c.members.find(function(m){return String(m.studentId)===sid||(String(m.studentId).startsWith("ext-")&&m.studentName===s.name);});if(m)attCounts[m.status]=(attCounts[m.status]||0)+1;});
   const attTotal=classes.length;
   const absentCount=(attCounts.absent||0)+(attCounts.leave||0); const attRate=attTotal?Math.round(attCounts.present/attTotal*100):0; const absRate=attTotal?Math.round(absentCount/attTotal*100):0;
   const today=todayStr();
-  const allStudClasses=loadClasses().filter(function(c){return c.members.some(function(m){return String(m.studentId)===sid||m.studentName===s.name;});});
+  const allStudClasses=loadClasses().filter(function(c){return c.members.some(function(m){return String(m.studentId)===sid||(String(m.studentId).startsWith("ext-")&&m.studentName===s.name);});});
   const recentClasses=allStudClasses.filter(cl=>cl.date<=today).sort((a,b)=>b.date.localeCompare(a.date)).slice(0,3);
   const SCH_D=['日','一','二','三','四','五','六'];
   document.getElementById('sheet-stuDetail-body').innerHTML=
@@ -2085,13 +2085,13 @@ function renderStuAtt(){
   if(!students.length){wrap.innerHTML='<div class="empty"><p>沒有學員資料</p></div>';return}
   wrap.innerHTML=students.map(s=>{
     const ssid=String(s.id);
-    const my=classes.filter(c=>c.members.some(m=>String(m.studentId)===ssid||m.studentName===s.name)).sort((a,b)=>b.date.localeCompare(a.date));
+    const my=classes.filter(c=>c.members.some(m=>String(m.studentId)===ssid||(String(m.studentId).startsWith("ext-")&&m.studentName===s.name))).sort((a,b)=>b.date.localeCompare(a.date));
     const counts={present:0,absent:0,leave:0,makeup:0};
-    my.forEach(c=>{ const m=c.members.find(m=>String(m.studentId)===ssid||m.studentName===s.name); if(m) counts[m.status]=(counts[m.status]||0)+1; });
+    my.forEach(c=>{ const m=c.members.find(m=>String(m.studentId)===ssid||(String(m.studentId).startsWith("ext-")&&m.studentName===s.name)); if(m) counts[m.status]=(counts[m.status]||0)+1; });
     const total=my.length, rate=total?Math.round(counts.present/total*100):0;
-    const dots=my.slice(0,20).map(c=>{ const m=c.members.find(m=>String(m.studentId)===ssid||m.studentName===s.name); return `<div class="dot ${m?m.status:'none'}"></div>`; }).join('');
+    const dots=my.slice(0,20).map(c=>{ const m=c.members.find(m=>String(m.studentId)===ssid||(String(m.studentId).startsWith("ext-")&&m.studentName===s.name)); return `<div class="dot ${m?m.status:'none'}"></div>`; }).join('');
     const isOpen=openStuId===s.id;
-    const rows=my.map(c=>{ const m=c.members.find(m=>String(m.studentId)===ssid||m.studentName===s.name); return `<div class="stu-log-row"><span style="color:var(--ink-mid);font-size:13px">${fmtDate(c.date)} ${c.name}</span><span class="hist-status ${m?.status||''}">${STATUS_LABEL[m?.status||'present']}</span></div>`; }).join('');
+    const rows=my.map(c=>{ const m=c.members.find(m=>String(m.studentId)===ssid||(String(m.studentId).startsWith("ext-")&&m.studentName===s.name)); return `<div class="stu-log-row"><span style="color:var(--ink-mid);font-size:13px">${fmtDate(c.date)} ${c.name}</span><span class="hist-status ${m?.status||''}">${STATUS_LABEL[m?.status||'present']}</span></div>`; }).join('');
     return `<div class="stu-card"><div class="stu-header" onclick="openStuId=${isOpen?null:s.id};renderStuAtt()"><div class="avatar av42 ${s.color}">${s.name.slice(0,1)}</div><div class="stu-info"><div class="card-name">${s.name}</div><div class="card-meta">共 ${total} 堂・到課率 ${rate}%・缺席 ${(counts.absent||0)+(counts.leave||0)} 次（含請假）</div></div><div class="stu-dots">${dots}</div></div><div class="stu-expand ${isOpen?'open':''}">${rows||'<div style="font-size:13px;color:var(--ink-mid);padding:8px 0">還沒有上課紀錄</div>'}</div></div>`;
   }).join('');
 }
