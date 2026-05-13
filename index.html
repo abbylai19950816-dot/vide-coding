@@ -209,25 +209,26 @@ window._fb={
     },e=>console.warn('flagsListener',e));
   }
 };
-// Sign in anonymously, then pre-fetch critical data BEFORE signalling ready
-// This ensures localStorage has fresh data before main script renders
-signInAnonymously(auth)
-  .then(async ()=>{
-    try{
-      const [cfgSnap, slotsSnap] = await Promise.all([
-        getDoc(doc(db,'data','booking_cfg')),
-        getDoc(doc(db,'data','slots')),
-      ]);
-      if(cfgSnap.exists()) localStorage.setItem('pilates_booking_cfg', JSON.stringify(cfgSnap.data().value));
-      if(slotsSnap.exists()) localStorage.setItem('pilates_slots', JSON.stringify(slotsSnap.data().value));
-    }catch(e){ console.warn('pre-fetch failed',e); }
-  })
-  .catch(e=>console.warn('anon auth failed',e))
-  .finally(()=>{
-    window._fbReady=true;
-    window.dispatchEvent(new Event('firebase-ready'));
-    if(typeof window._onFirebaseReady === 'function') window._onFirebaseReady();
-  });
+// Pre-fetch public data immediately (no auth needed with updated Firestore rules)
+// Then sign in anonymously for write operations
+(async ()=>{
+  try{
+    const [cfgSnap, slotsSnap, flagsSnap] = await Promise.all([
+      getDoc(doc(db,'data','booking_cfg')),
+      getDoc(doc(db,'data','slots')),
+      getDoc(doc(db,'web_config','flags')),
+    ]);
+    if(cfgSnap.exists()) localStorage.setItem('pilates_booking_cfg', JSON.stringify(cfgSnap.data().value));
+    if(slotsSnap.exists()) localStorage.setItem('pilates_slots', JSON.stringify(slotsSnap.data().value));
+    if(flagsSnap.exists()) _flagsCache={...FLAGS_DEFAULT,...flagsSnap.data()};
+  }catch(e){ console.warn('pre-fetch failed',e); }
+  // Sign in anonymously for write operations (booking submissions)
+  signInAnonymously(auth).catch(e=>console.warn('anon auth optional:',e));
+  // Signal ready regardless of auth state
+  window._fbReady=true;
+  window.dispatchEvent(new Event('firebase-ready'));
+  if(typeof window._onFirebaseReady === 'function') window._onFirebaseReady();
+})();
 </script>
 </head>
 <body>
