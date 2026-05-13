@@ -9,7 +9,7 @@
 <script>
 // Auto-update: check if a newer version is available on GitHub Pages
 (function(){
-  var CURRENT_VERSION = '20260513-024';
+  var CURRENT_VERSION = '20260513-025';
   // Store version in sessionStorage to avoid re-checking in same session
   if(sessionStorage.getItem('app_version')===CURRENT_VERSION) return;
   sessionStorage.setItem('app_version', CURRENT_VERSION);
@@ -24,7 +24,7 @@
     localStorage.removeItem('pilates_payments');
     localStorage.setItem('app_version', CURRENT_VERSION);
     // Reload bypassing cache
-    window.location.replace(window.location.href.split('?')[0] + '?v=20260513-024');
+    window.location.replace(window.location.href.split('?')[0] + '?v=20260513-025');
     return;
   }
   localStorage.setItem('app_version', CURRENT_VERSION);
@@ -415,17 +415,67 @@ window._fb={
       if(updatedCount!==slotIds.length) throw new Error('部分時段不存在');
 
       // Deduct legacy tickets so admin student detail "方案紀錄" immediately updates.
+      // Robust matching: typeId first, then normalized course name.
       let needDeduct=slotIds.length;
       const studentId=String(lookup.studentId||'');
-      for(const t of tickets){
-        if(needDeduct<=0) break;
-        if(String(t.studentId)!==studentId) continue;
-        if(Number(t.left||0)<=0) continue;
-        if(t.expireDate && String(t.expireDate)<today) continue;
+      const selectedTypeNames=[...new Set(bookingRecords.map(b=>b.typeName).filter(Boolean))];
 
-        const ticketType=String(t.typeId ?? t.typeName ?? 'default');
-        const matchType = typeId==null ? true : (String(t.typeId||'default')===String(typeId) || String(ticketType)===String(key));
-        if(!matchType) continue;
+      function normCourseText(v){
+        return String(v||'')
+          .toLowerCase()
+          .replace(/[\u{1F300}-\u{1FAFF}]/gu,'')
+          .replace(/[^\p{L}\p{N}]+/gu,'')
+          .trim();
+      }
+
+      function ticketMatchesSelectedType(t){
+        if(typeId==null) return true;
+
+        const directTypeId=String(t.typeId||'');
+        if(directTypeId && directTypeId===String(typeId)) return true;
+
+        const ticketKeys=[
+          t.typeId,
+          t.typeName,
+          t.courseType,
+          t.courseName,
+          t.planType,
+          t.planName,
+          t.item,
+          t.name
+        ].map(normCourseText).filter(Boolean);
+
+        const selectedKeys=[
+          key,
+          typeId,
+          ...selectedTypeNames
+        ].map(normCourseText).filter(Boolean);
+
+        return ticketKeys.some(a=>selectedKeys.some(b=>a===b || a.includes(b) || b.includes(a)));
+      }
+
+      let candidateTickets=tickets.filter(t=>{
+        if(String(t.studentId)!==studentId) return false;
+        if(Number(t.left||0)<=0) return false;
+        if(t.expireDate && String(t.expireDate)<today) return false;
+        return ticketMatchesSelectedType(t);
+      });
+
+      // Last safe fallback:
+      // if this student has exactly one active ticket, use it.
+      // This avoids blocking booking when legacy paid-ticket records lack typeId.
+      if(candidateTickets.length===0){
+        const activeTickets=tickets.filter(t=>{
+          if(String(t.studentId)!==studentId) return false;
+          if(Number(t.left||0)<=0) return false;
+          if(t.expireDate && String(t.expireDate)<today) return false;
+          return true;
+        });
+        if(activeTickets.length===1) candidateTickets=activeTickets;
+      }
+
+      for(const t of candidateTickets){
+        if(needDeduct<=0) break;
 
         const deduct=Math.min(Number(t.left||0), needDeduct);
         t.left=Number(t.left||0)-deduct;
