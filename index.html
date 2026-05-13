@@ -9,7 +9,7 @@
 <script>
 // Auto-update: check if a newer version is available on GitHub Pages
 (function(){
-  var CURRENT_VERSION = '20260513-022';
+  var CURRENT_VERSION = '20260513-023';
   // Store version in sessionStorage to avoid re-checking in same session
   if(sessionStorage.getItem('app_version')===CURRENT_VERSION) return;
   sessionStorage.setItem('app_version', CURRENT_VERSION);
@@ -24,7 +24,7 @@
     localStorage.removeItem('pilates_payments');
     localStorage.setItem('app_version', CURRENT_VERSION);
     // Reload bypassing cache
-    window.location.replace(window.location.href.split('?')[0] + '?v=20260513-022');
+    window.location.replace(window.location.href.split('?')[0] + '?v=20260513-023');
     return;
   }
   localStorage.setItem('app_version', CURRENT_VERSION);
@@ -264,6 +264,80 @@ window._fb={
     return data;
   },
 
+
+  async createDirectPurchaseRecord(payload){
+    return await runTransaction(db, async (tx)=>{
+      const studentsRef=doc(db,'data','students');
+      const paymentsRef=doc(db,'data','payments');
+
+      const [studentsSnap,paymentsSnap]=await Promise.all([
+        tx.get(studentsRef),
+        tx.get(paymentsRef)
+      ]);
+
+      const students=studentsSnap.exists() && Array.isArray(studentsSnap.data().value) ? [...studentsSnap.data().value] : [];
+      const payments=paymentsSnap.exists() && Array.isArray(paymentsSnap.data().value) ? [...paymentsSnap.data().value] : [];
+
+      const now=Date.now();
+      const today=new Date(Date.now()+8*3600000).toISOString().slice(0,10);
+      const phoneDigits=String(payload.phoneDigits||payload.phone||'').replace(/\D/g,'');
+      const name=String(payload.name||'').trim();
+      const social=String(payload.social||'').trim();
+      const COLORS=["c0","c1","c2","c3","c4"];
+
+      let stu=students.find(s=>{
+        const n=String(s.name||'').trim();
+        const p=String(s.phone||'').replace(/\D/g,'');
+        return n===name && p===phoneDigits;
+      });
+
+      if(!stu){
+        stu={
+          id:now,
+          name,
+          phone:payload.phone||phoneDigits,
+          line:social||"",
+          joined:today,
+          ecName:"",
+          ecRel:"",
+          ecPhone:"",
+          notes:payload.note||"",
+          color:COLORS[students.length%COLORS.length],
+          fromBooking:true
+        };
+        students.push(stu);
+      }else{
+        if(!stu.phone && payload.phone) stu.phone=payload.phone;
+        if(!stu.line && social) stu.line=social;
+        if(payload.note && !stu.notes) stu.notes=payload.note;
+      }
+
+      const paymentId=now+1;
+      payments.push({
+        id:paymentId,
+        studentId:stu.id,
+        studentName:stu.name,
+        phone:stu.phone || payload.phone || phoneDigits,
+        color:stu.color||"c0",
+        item:(payload.typeName||"課程")+"・"+(payload.planName||"方案"),
+        typeId:payload.typeId||null,
+        typeName:payload.typeName||"",
+        planId:payload.planId||null,
+        planName:payload.planName||"",
+        sessions:Number(payload.sessions||0),
+        amount:Number(payload.amount||0),
+        date:payload.date||today,
+        method:"待確認",
+        status:"unpaid",
+        note:"LINE/Instagram："+(social||"—")+(payload.note?" "+payload.note:"")
+      });
+
+      tx.set(studentsRef,{value:students,updated:now},{merge:true});
+      tx.set(paymentsRef,{value:payments,updated:now},{merge:true});
+
+      return {ok:true,studentId:stu.id,paymentId,students,payments};
+    });
+  },
   async createPurchaseRequest(payload){
     const id='pr_'+Date.now()+'_'+Math.random().toString(36).slice(2,8);
     const data={
@@ -280,6 +354,7 @@ window._fb={
     return await runTransaction(db, async (tx)=>{
       const stateRef=doc(db,'public_booking','state');
       const lookupRef=doc(db,'student_lookup',lookupKey);
+      const legacySlotsRef=doc(db,'data','slots');
       const stateSnap=await tx.get(stateRef);
       const lookupSnap=await tx.get(lookupRef);
       if(!stateSnap.exists()||!lookupSnap.exists()) throw new Error('找不到可預約資料，請重新查詢');
@@ -319,6 +394,7 @@ window._fb={
 
       const nextRemainingByType={...remainingByType,[key]:currentLeft-slotIds.length};
       tx.set(stateRef,{...state,slots:updatedSlots,updatedAt:now},{merge:true});
+      tx.set(legacySlotsRef,{value:updatedSlots,updated:now},{merge:true});
       tx.set(lookupRef,{
         ...lookup,
         remainingByType:nextRemainingByType,
@@ -655,9 +731,6 @@ function submitPurchase(){
     if(el) customFields[f.id]=el.value||'';
   }
 
-  // SAFE PURCHASE MODE:
-  // Never write full students/payments/tickets arrays from the student page.
-  // This prevents a clean mobile browser or stale cache from overwriting admin data.
   const payload={
     name,
     phone,
@@ -679,16 +752,19 @@ function submitPurchase(){
   if(submitBtn){submitBtn.disabled=true;submitBtn.textContent='送出中…';submitBtn.style.opacity='.7';}
 
   Promise.resolve()
-    .then(()=>window._fb.createPurchaseRequest(payload))
+    .then(()=>window._fb.createDirectPurchaseRecord(payload))
     .then((res)=>{
-      bookingData={name,phone,social,note,type,plan,purchaseRequestId:res?.id||''};
+      if(res?.students) localStorage.setItem('pilates_students',JSON.stringify(res.students));
+      if(res?.payments) localStorage.setItem('pilates_payments',JSON.stringify(res.payments));
+
+      bookingData={name,phone,social,note,type,plan,studentId:res?.studentId||''};
       document.getElementById("successDetail").innerHTML=`<div class="sc-row"><span class="sc-label">姓名</span><span class="sc-val">${name}</span></div><div class="sc-row"><span class="sc-label">類型</span><span class="sc-val">${type.icon||""} ${type.name}</span></div><div class="sc-row"><span class="sc-label">方案</span><span class="sc-val">${plan.name}</span></div><div class="sc-row"><span class="sc-label">金額</span><span class="sc-val">NT$ ${plan.price.toLocaleString()}</span></div>${phone?`<div class="sc-row"><span class="sc-label">電話</span><span class="sc-val">${phone}</span></div>`:""}`;
       document.getElementById("lineBtn").style.display=cfg.lineId?"flex":"none";
       document.getElementById("successOverlay").classList.add("show");
       window.scrollTo({top:0,behavior:"smooth"});
     })
     .catch((e)=>{
-      console.error('[SAFE_PURCHASE] create request failed',e);
+      console.error('[DIRECT_PURCHASE] failed',e);
       alert('送出失敗，請稍後再試或直接聯絡老師');
     })
     .finally(()=>{
