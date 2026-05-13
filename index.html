@@ -9,7 +9,7 @@
 <script>
 // Auto-update: check if a newer version is available on GitHub Pages
 (function(){
-  var CURRENT_VERSION = '20260513-001';
+  var CURRENT_VERSION = '20260513-002';
   // Store version in sessionStorage to avoid re-checking in same session
   if(sessionStorage.getItem('app_version')===CURRENT_VERSION) return;
   sessionStorage.setItem('app_version', CURRENT_VERSION);
@@ -21,7 +21,7 @@
     localStorage.removeItem('pilates_slots');
     localStorage.setItem('app_version', CURRENT_VERSION);
     // Reload bypassing cache
-    window.location.replace(window.location.href.split('?')[0] + '?v=20260513-001');
+    window.location.replace(window.location.href.split('?')[0] + '?v=20260513-002');
     return;
   }
   localStorage.setItem('app_version', CURRENT_VERSION);
@@ -540,10 +540,11 @@ function submitPurchase(){
   // Create payment record — use resolvedStudentId from student creation above
   const payments=loadPayments();
   const linkedStudentId=resolvedStudentId;
-  payments.push({id:newId+1,studentId:linkedStudentId,studentName:name,color:"c0",item:type.name+"・"+plan.name,amount:plan.price,date:today,method:"待確認",status:"unpaid",note:"LINE/Instagram："+(social||"—")+(note?" "+note:"")});
+  const linkedStudent=loadStudents().find(s=>String(s.id)===String(linkedStudentId));
+  payments.push({id:newId+1,studentId:linkedStudentId,studentName:name,phone:phone,color:linkedStudent?.color||"c0",item:type.name+"・"+plan.name,amount:plan.price,date:today,method:"待確認",status:"unpaid",note:"LINE/Instagram："+(social||"—")+(note?" "+note:"")});
   savePayments(payments);
 
-  bookingData={name,phone,social,note,type,plan};
+  bookingData={name,phone,social,note,type,plan,studentId:linkedStudentId};
   document.getElementById("successDetail").innerHTML=`<div class="sc-row"><span class="sc-label">姓名</span><span class="sc-val">${name}</span></div><div class="sc-row"><span class="sc-label">類型</span><span class="sc-val">${type.icon||""} ${type.name}</span></div><div class="sc-row"><span class="sc-label">方案</span><span class="sc-val">${plan.name}</span></div><div class="sc-row"><span class="sc-label">金額</span><span class="sc-val">NT$ ${plan.price.toLocaleString()}</span></div>${phone?`<div class="sc-row"><span class="sc-label">電話</span><span class="sc-val">${phone}</span></div>`:""}`;
   document.getElementById("lineBtn").style.display=cfg.lineId?"flex":"none";
   document.getElementById("successOverlay").classList.add("show");
@@ -561,11 +562,13 @@ function openLine(){
 
 function goToSchedule(){
   document.getElementById("successOverlay").classList.remove("show");
-  // Auto-verify with the name and type from the purchase
+  // Auto-verify with the exact studentId from the purchase to avoid same-name confusion
   const name = bookingData?.name;
   const typeId = bookingData?.type?.id;
+  const studentId = bookingData?.studentId;
+  const phone = bookingData?.phone;
   switchTab("schedule");
-  if(name) autoVerifyAfterPurchase(name, typeId);
+  if(name) autoVerifyAfterPurchase(name, typeId, studentId, phone);
 }
 
 function resetPurchase(){
@@ -693,11 +696,14 @@ function renderSchedule(){
 }
 
 // Called from goToSchedule() after successful purchase — auto-fill name and verify
-function autoVerifyAfterPurchase(name, typeId){
+function autoVerifyAfterPurchase(name, typeId, studentId, phone){
   const nameEl = document.getElementById("sch-name-input");
   if(nameEl) nameEl.value = name;
+  const phoneEl = document.getElementById("sch-phone-input");
+  if(phoneEl&&phone) phoneEl.value = phone;
   verifiedName = name;
   verifiedTypeId = typeId;
+  verifiedStudentId = studentId ?? null;
   document.getElementById("sch-verify-bar").style.display="none";
   document.getElementById("sch-verified-content").style.display="block";
   document.getElementById("sch-verify-msg").style.display="none";
@@ -712,34 +718,61 @@ function autoVerifyAfterPurchase(name, typeId){
   renderSlotList();
 }
 
+
+function getVerifiedStudent(){
+  try{
+    const students=JSON.parse(localStorage.getItem('pilates_students')||'[]');
+    if(verifiedStudentId!=null){
+      const byId=students.find(s=>String(s.id)===String(verifiedStudentId));
+      if(byId) return byId;
+    }
+    const nameNorm=(verifiedName||'').trim();
+    const phoneDigits=(document.getElementById('sch-phone-input')?.value||'').replace(/\D/g,'');
+    if(nameNorm&&phoneDigits){
+      return students.find(s=>s.name.trim()===nameNorm&&(s.phone||'').replace(/\D/g,'')===phoneDigits)||null;
+    }
+  }catch(e){}
+  return null;
+}
+function getVerifiedPhone(){
+  const stu=getVerifiedStudent();
+  return stu?.phone || (document.getElementById('sch-phone-input')?.value||'');
+}
+function ticketBelongsToVerified(t){
+  if(!t) return false;
+  if(verifiedStudentId!=null) return String(t.studentId)===String(verifiedStudentId);
+  const stu=getVerifiedStudent();
+  if(stu) return String(t.studentId)===String(stu.id);
+  return (t.studentName||'').trim().toLowerCase()===(verifiedName||'').trim().toLowerCase(); // legacy only
+}
+function resolveBookingStudent(b, students){
+  const bName=(b.name||'').trim();
+  let stu=students.find(st=>String(st.id)===String(b.studentId));
+  if(!stu&&b.phone) stu=students.find(st=>st.name.trim()===bName&&(st.phone||'').replace(/\D/g,'')===String(b.phone).replace(/\D/g,''));
+  if(!stu&&!b.studentId&&!b.phone) stu=students.find(st=>st.name.trim()===bName); // legacy fallback only
+  return stu||null;
+}
+
 function getRemainingTickets(){
   if(!verifiedName) return -1;
   try{
     const now=new Date(Date.now()+8*3600000).toISOString().split('T')[0];
     const tickets=JSON.parse(localStorage.getItem('pilates_tickets')||'[]');
-    const students=JSON.parse(localStorage.getItem('pilates_students')||'[]');
-    const norm=s=>(s||'').trim().toLowerCase();
     const bkCfg=JSON.parse(localStorage.getItem('pilates_booking_cfg')||'{}');
+    const norm=s=>(s||'').trim().toLowerCase();
     const verifiedTypeName=verifiedTypeId!=null
       ? (bkCfg.classTypes?.find(t=>String(t.id)===String(verifiedTypeId))?.name||null)
       : null;
-    // Find student by name to get their ID (most reliable key)
-    const stuRecord=students.find(s=>norm(s.name)===norm(verifiedName));
-    const isActive=t=>t.left>0&&(!t.expireDate||t.expireDate>=now);
+    const isActive=t=>Number(t.left||0)>0&&(!t.expireDate||t.expireDate>=now);
     const typeMatch=t=>!verifiedTypeName||norm(t.typeName)===norm(verifiedTypeName);
-    // Try by studentId first
-    let matched=stuRecord
-      ? tickets.filter(t=>t.studentId===stuRecord.id&&typeMatch(t)&&isActive(t))
-      : [];
-    if(!matched.length) matched=tickets.filter(t=>norm(t.studentName)===norm(verifiedName)&&typeMatch(t)&&isActive(t));
-    if(matched.length) return matched.reduce((s,t)=>s+t.left,0);
-    // Fallback: any active ticket regardless of type
-    let any=stuRecord ? tickets.filter(t=>t.studentId===stuRecord.id&&isActive(t)) : [];
-    if(!any.length) any=tickets.filter(t=>norm(t.studentName)===norm(verifiedName)&&isActive(t));
-    return any.reduce((s,t)=>s+t.left,0);
+
+    // Important: do NOT fallback to other course types.
+    // Same-name users and mixed class types must never make this badge show a usable class
+    // unless the ticket belongs to the verified student AND the currently verified course type.
+    const matched=tickets.filter(t=>ticketBelongsToVerified(t)&&typeMatch(t)&&isActive(t));
+    return matched.reduce((s,t)=>s+Number(t.left||0),0);
   }catch(e){return -1;}
 }
-
 let schWeekOffset = 0;  // 0 = this week (days 0-6), 1 = next week, etc.
 let selectedSlots = new Set();
 let remaining = 0; // module-level so updateBatchBar can access it  // batch selection
@@ -761,13 +794,13 @@ function getWeekRange(offset){
 function renderSlotList(){
   const wrap = document.getElementById('schSlots');
   remaining = getRemainingTickets(); // update module-level var
+  const rb = document.getElementById('sch-remain-badge');
+  if(rb) rb.textContent = remaining>=0 ? '剩餘 '+remaining+' 堂可預約' : '';
   if(remaining === 0){
     wrap.innerHTML = '<div class="sch-empty"><div class="sch-empty-icon">🎟</div><p style="font-size:14px;font-weight:500;color:var(--ink)">目前沒有可預約的堂數</p><p style="font-size:12px;color:var(--ink-mid);margin-top:6px">請聯絡老師確認繳費或補課事宜</p></div>';
     document.getElementById('schBookBar').classList.remove('show');
     return;
   }
-  const rb = document.getElementById('sch-remain-badge');
-  if(rb) rb.textContent = (remaining>0&&remaining<99) ? '剩餘 '+remaining+' 堂可預約' : '';
 
   const {startDate, endDate} = getWeekRange(schWeekOffset);
   const allSlots = loadSlots();
@@ -891,10 +924,10 @@ function loopBooking(){
     if((slots[idx].bookings||[]).length >= (slots[idx].capacity||1)) continue;
     slots[idx].bookings = slots[idx].bookings||[];
     let phone='';
-    try{const stus=JSON.parse(localStorage.getItem('pilates_students')||'[]');phone=stus.find(s=>s.name===verifiedName)?.phone||'';}catch(e){}
+    try{phone=getVerifiedPhone();}catch(e){}
     const cfg2=loadCfg(), type=cfg2.classTypes?.find(t=>String(t.id)===String(slot.typeId));
     const tname=type?(type.icon||'')+' '+type.name:'課程';
-    slots[idx].bookings.push({name:verifiedName,phone,typeId:slot.typeId,typeName:tname,ts:Date.now()});
+    slots[idx].bookings.push({studentId:verifiedStudentId,name:verifiedName,phone,typeId:slot.typeId,typeName:tname,ts:Date.now()});
     booked++;
   }
   saveSlots(slots);
@@ -909,7 +942,7 @@ function loopBooking(){
     let left=booked;
     for(let ti=0;ti<tickets.length&&left>0;ti++){
       const t=tickets[ti];
-      if(norm(t.studentName)!==norm(verifiedName)) continue;
+      if(!ticketBelongsToVerified(t)) continue;
       if(verifiedTypeName&&norm(t.typeName)!==norm(verifiedTypeName)) continue;
       if(t.left<=0||t.expireDate<now) continue;
       const deduct=Math.min(t.left,left);
@@ -930,9 +963,10 @@ function loopBooking(){
       const clsName=(slotType?(slotType.icon||'')+' '+slotType.name:'課程');
       const existingIdx=allClasses.findIndex(c=>c.slotId===updatedSlot.id);
       const members=(updatedSlot.bookings||[]).map(b=>{
-        const stu=allStudents.find(st=>st.name.trim()===b.name.trim());
-        const prev=existingIdx>=0?allClasses[existingIdx].members?.find(m=>m.studentName===b.name):null;
-        return {studentId:stu?stu.id:'ext-'+b.name.replace(/\s/g,'-'),studentName:b.name,color:stu?stu.color||'c0':'c0',status:prev?prev.status:'pending'};
+        const stu=resolveBookingStudent(b, allStudents);
+        const resolvedId=stu?stu.id:(b.studentId||'ext-'+b.name.replace(/\s/g,'-'));
+        const prev=existingIdx>=0?(allClasses[existingIdx].members?.find(m=>String(m.studentId)===String(resolvedId))||allClasses[existingIdx].members?.find(m=>m.studentName===b.name&&String(m.studentId).startsWith('ext-'))):null;
+        return {studentId:resolvedId,studentName:stu?stu.name:b.name,color:stu?stu.color||'c0':'c0',status:prev?prev.status:'pending'};
       });
       if(existingIdx>=0){allClasses[existingIdx].members=members;allClasses[existingIdx].name=clsName;}
       else allClasses.push({id:'slot-'+updatedSlot.id,slotId:updatedSlot.id,date:updatedSlot.date,name:clsName,time:updatedSlot.time,location:updatedSlot.location||'',saved:true,members});
@@ -982,7 +1016,7 @@ function _doOpenSlotConfirm(){
     document.getElementById('slotPreviewMeta').textContent=(type?(type.icon||'')+' '+type.name:'課程')+' · '+(s.duration||60)+'分鐘'+(s.location?' · '+s.location:'');
     document.getElementById('confirm-name').textContent=verifiedName||'';
     let phone='';
-    try{const stus=JSON.parse(localStorage.getItem('pilates_students')||'[]');phone=stus.find(s=>s.name===verifiedName)?.phone||'';}catch(e){}
+    try{phone=getVerifiedPhone();}catch(e){}
     document.getElementById('confirm-phone').textContent=phone?'電話：'+phone:'';
     document.getElementById('slotOverlay').classList.add('open');
     document.getElementById('slotSheet').classList.add('open');
@@ -1005,7 +1039,7 @@ function batchSubmitBooking(){
   const slots = loadSlots();
   let booked = 0, failed = 0;
   let phone='';
-  try{const stus=JSON.parse(localStorage.getItem('pilates_students')||'[]');phone=stus.find(s=>s.name===verifiedName)?.phone||'';}catch(e){}
+  try{phone=getVerifiedPhone();}catch(e){}
   const cfg2=loadCfg();
   const bookedSlots = [];
   for(const slotId of selectedSlots){
@@ -1014,7 +1048,7 @@ function batchSubmitBooking(){
     if((slots[idx].bookings||[]).length>=(slots[idx].capacity||1)){failed++;continue;}
     const type=cfg2.classTypes?.find(t=>String(t.id)===String(slots[idx].typeId));
     slots[idx].bookings=slots[idx].bookings||[];
-    slots[idx].bookings.push({name:verifiedName,phone,typeId:slots[idx].typeId,typeName:type?(type.icon||'')+' '+type.name:'課程',ts:Date.now()});
+    slots[idx].bookings.push({studentId:verifiedStudentId,name:verifiedName,phone,typeId:slots[idx].typeId,typeName:type?(type.icon||'')+' '+type.name:'課程',ts:Date.now()});
     bookedSlots.push(slots[idx]);
     booked++;
   }
@@ -1030,14 +1064,14 @@ function batchSubmitBooking(){
     let left=booked;
     for(let ti=0;ti<tickets.length&&left>0;ti++){
       const t=tickets[ti];
-      if(norm(t.studentName)!==norm(verifiedName)) continue;
+      if(!ticketBelongsToVerified(t)) continue;
       if(verifiedTypeName&&norm(t.typeName)!==norm(verifiedTypeName)) continue;
       if(t.left<=0||t.expireDate<now) continue;
       const deduct=Math.min(t.left,left);
       tickets[ti].left-=deduct; left-=deduct;
     }
     saveTickets(tickets);  // triggers Firebase sync
-    const newRem=tickets.filter(t=>(t.studentName||'').trim().toLowerCase()===verifiedName.toLowerCase()&&t.left>0&&(!t.expireDate||t.expireDate>=now)).reduce((s,t)=>s+t.left,0);
+    const newRem=tickets.filter(t=>ticketBelongsToVerified(t)&&t.left>0&&(!t.expireDate||t.expireDate>=now)).reduce((s,t)=>s+t.left,0);
     const rb=document.getElementById('sch-remain-badge');
     if(rb) rb.textContent=newRem>0?'剩餘 '+newRem+' 堂可預約':'已無剩餘堂數';
   }catch(e){}
@@ -1050,7 +1084,7 @@ function batchSubmitBooking(){
       const slotType=cfg2.classTypes?.find(t=>String(t.id)===String(slot.typeId));
       const clsName=(slotType?(slotType.icon||'')+' '+slotType.name:'課程');
       const existingIdx=allClasses.findIndex(c=>c.slotId===slot.id);
-      const members=(slot.bookings||[]).map(b=>{const stu=allStudents.find(st=>st.name.trim()===b.name.trim());const prev=existingIdx>=0?allClasses[existingIdx].members?.find(m=>m.studentName===b.name):null;return{studentId:stu?stu.id:'ext-'+b.name.replace(/\s/g,'-'),studentName:b.name,color:stu?stu.color||'c0':'c0',status:prev?prev.status:'pending'};});
+      const members=(slot.bookings||[]).map(b=>{const stu=resolveBookingStudent(b,allStudents);const resolvedId=stu?stu.id:(b.studentId||'ext-'+b.name.replace(/\s/g,'-'));const prev=existingIdx>=0?(allClasses[existingIdx].members?.find(m=>String(m.studentId)===String(resolvedId))||allClasses[existingIdx].members?.find(m=>m.studentName===b.name&&String(m.studentId).startsWith('ext-'))):null;return{studentId:resolvedId,studentName:stu?stu.name:b.name,color:stu?stu.color||'c0':'c0',status:prev?prev.status:'pending'};});
       if(existingIdx>=0){allClasses[existingIdx].members=members;allClasses[existingIdx].name=clsName;}
       else allClasses.push({id:'slot-'+slot.id,slotId:slot.id,date:slot.date,name:clsName,time:slot.time,location:slot.location||'',saved:true,members});
     }

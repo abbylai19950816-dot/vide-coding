@@ -2205,7 +2205,7 @@ function renderUnpaid(){
 }
 function openPayAdd(){
   const students=loadStudents();
-  document.getElementById('fp-student').innerHTML=students.length?students.map(s=>`<option value="${s.id}|${s.name}|${s.color}">${s.name}</option>`).join(''):'<option>（請先新增學員）</option>';
+  document.getElementById('fp-student').innerHTML=students.length?students.map(s=>`<option value="${s.id}">${s.name}${s.phone?'（'+s.phone+'）':''}</option>`).join(''):'<option>（請先新增學員）</option>';
   document.getElementById('fp-item').value='10堂套票';
   document.getElementById('fp-amount').value='3000';
   document.getElementById('fp-date').value=todayStr();
@@ -2216,12 +2216,15 @@ function openPayAdd(){
 }
 function payAutoPrice(){ const p=DEFAULT_PRICES[document.getElementById('fp-item').value]; if(p!=='') document.getElementById('fp-amount').value=p; }
 function savePayment(){
-  const sv=document.getElementById('fp-student').value.split('|');
-  if(!sv[0]){toast('請選擇學員');return}
+  const sid=document.getElementById('fp-student').value;
+  if(!sid){toast('請選擇學員');return}
+  const students=loadStudents();
+  const stu=students.find(s=>String(s.id)===String(sid));
+  if(!stu){toast('找不到學員資料');return}
   const amount=parseInt(document.getElementById('fp-amount').value)||0;
   if(!amount){toast('請填寫金額');return}
   const payments=loadPayments();
-  payments.push({id:Date.now(),studentId:parseInt(sv[0]),studentName:sv[1],color:sv[2]||'c0',item:document.getElementById('fp-item').value,amount,date:document.getElementById('fp-date').value,method:document.getElementById('fp-method').value,status:document.getElementById('fp-status').value,note:document.getElementById('fp-note').value.trim()});
+  payments.push({id:Date.now(),studentId:stu.id,studentName:stu.name,phone:stu.phone||'',color:stu.color||'c0',item:document.getElementById('fp-item').value,amount,date:document.getElementById('fp-date').value,method:document.getElementById('fp-method').value,status:document.getElementById('fp-status').value,note:document.getElementById('fp-note').value.trim()});
   savePayments(payments);
   closeSheets(); renderFinance(); updateBadges();
   toast('✓ 已新增收費紀錄');
@@ -2251,24 +2254,28 @@ function createTicketFromPayment(p){
   const plan=type?.plans?.find(pl=>pl.name===planName);
   if(!type||!plan) return;
   const tickets=loadTickets();
-  // Dup check: same student (by name) + same plan + same date — prevent double-click duplicates only
+  const students=loadStudents();
+  const pPhone=(p.phone||'').replace(/\D/g,'');
+  // 重要：同名學員不可用姓名當主鍵。先用 studentId，再用「姓名+手機」做舊資料備援。
+  const stu=students.find(s=>String(s.id)===String(p.studentId)) ||
+    students.find(s=>s.name===p.studentName && pPhone && (s.phone||'').replace(/\D/g,'')===pPhone);
+  const studentId=stu?stu.id:(p.studentId||Date.now());
+  const studentName=stu?stu.name:p.studentName;
+  const studentColor=stu?stu.color||'c0':(p.color||'c0');
+  const studentPhone=stu?stu.phone||p.phone||'':(p.phone||'');
+  // Dup check: same studentId + same plan + same date — prevent double-click duplicates only
   const dup=tickets.find(t=>
-    t.studentName===p.studentName&&
+    String(t.studentId)===String(studentId)&&
     t.planName===planName&&
     t.boughtDate===p.date&&
     Math.abs(Date.now()-(t.id||0))<60000 // within 1 minute
   );
   if(dup) return;
-  // Resolve correct studentId from students list (payment may have stale studentId)
-  const students=loadStudents();
-  const stu=students.find(s=>s.name===p.studentName)||students.find(s=>s.id===p.studentId);
-  const studentId=stu?stu.id:(p.studentId||Date.now());
-  const studentColor=stu?stu.color||'c0':(p.color||'c0');
   const validDays=plan.validDays||180;
   const expDate=new Date(p.date+'T00:00:00');
   expDate.setDate(expDate.getDate()+validDays);
   tickets.push({
-    id:Date.now(),studentId,studentName:p.studentName,color:studentColor,
+    id:Date.now(),studentId,studentName,color:studentColor,phone:studentPhone,
     typeName,planName,
     type:plan.sessions,total:plan.sessions,left:plan.sessions,
     price:p.price||p.amount||0,boughtDate:p.date,
@@ -2295,7 +2302,7 @@ function markPaid(id){
   savePayments(payments);
   createTicketFromPayment(p);
   // Sync any existing slot bookings for this student to attendance
-  loadSlots().filter(s=>(s.bookings||[]).some(b=>b.name===p.studentName)).forEach(syncSlotToAttendance);
+  loadSlots().filter(s=>(s.bookings||[]).some(b=>String(b.studentId)===String(p.studentId)||(b.name===p.studentName&&(!p.phone||b.phone===p.phone)))).forEach(syncSlotToAttendance);
   renderFinance(); renderStudents(); updateBadges();
   toast(`✓ ${p.studentName} 已收款，方案已建立`);
 }
@@ -3117,14 +3124,16 @@ function syncSlotToAttendance(slot){
   // Build members — preserve existing status if already set
   const existingMembers=existingIdx>=0?classes[existingIdx].members:[];
   const members=slot.bookings.map(b=>{
-    const bName=b.name.trim();
-    let stu=students.find(s=>s.name.trim()===bName);
-    if(!stu&&b.phone) stu=students.find(s=>(s.phone||'').replace(/\D/g,'')===b.phone.replace(/\D/g,''));
+    const bName=(b.name||'').trim();
+    let stu=students.find(s=>String(s.id)===String(b.studentId));
+    if(!stu&&b.phone) stu=students.find(s=>s.name.trim()===bName&&(s.phone||'').replace(/\D/g,'')===b.phone.replace(/\D/g,''));
     if(!stu&&b.line) stu=students.find(s=>(s.line||'').trim().toLowerCase()===(b.line||'').trim().toLowerCase());
-    const prev=existingMembers.find(m=>m.studentName===b.name);
+    if(!stu) stu=students.find(s=>s.name.trim()===bName&&!(b.phone)); // legacy fallback only when no phone/studentId exists
+    const resolvedId=stu?stu.id:(b.studentId||('ext-'+bName.replace(/\s/g,'-')));
+    const prev=existingMembers.find(m=>String(m.studentId)===String(resolvedId)) || existingMembers.find(m=>m.studentName===b.name&&String(m.studentId).startsWith('ext-'));
     return {
-      studentId:stu?stu.id:('ext-'+bName.replace(/\s/g,'-')),
-      studentName:b.name,
+      studentId:resolvedId,
+      studentName:stu?stu.name:b.name,
       color:stu?stu.color||'c0':'c0',
       status:prev?prev.status:'pending'
     };
