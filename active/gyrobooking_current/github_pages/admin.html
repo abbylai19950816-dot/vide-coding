@@ -1238,6 +1238,26 @@ function localDateStr(d){
   return tw.toISOString().split('T')[0];
 }
 function todayStr(){ return localDateStr(); }
+function localDateTimeKey(d){
+  const t = d || new Date();
+  const tw = new Date(t.getTime() + 8*60*60*1000);
+  return tw.toISOString().slice(0,16);
+}
+function normalizeTimeKey(v){
+  const m = String(v||'00:00').match(/(\d{1,2}):(\d{2})/);
+  if(!m) return '00:00';
+  return m[1].padStart(2,'0')+':'+m[2];
+}
+function scheduledBookingDateTimeKey(booking, slots){
+  const slot = Array.isArray(slots) ? slots.find(s=>String(s.id)===String(booking.slotId)) : null;
+  const date = String((slot&&slot.date)||booking.date||'');
+  const time = normalizeTimeKey((slot&&slot.time)||booking.time);
+  return date ? (date+'T'+time) : '';
+}
+function isFutureScheduledBooking(booking, slots){
+  const key = scheduledBookingDateTimeKey(booking, slots);
+  return key && key > localDateTimeKey();
+}
 function fmtDate(str){
   if(!str) return '';
   const d = new Date(str+'T00:00:00');
@@ -1493,7 +1513,7 @@ function openStudentDetail(id){
     }).join(''):'<div style="font-size:12px;color:var(--ink-light);padding:4px 0 8px">還沒有上課紀錄</div>')+
     (function(){
       const _slots=loadSlots();
-      const futureBooked=(s.scheduledBookings||[]).filter(function(b){return b.date>=today;}).sort(function(a,b){return a.date.localeCompare(b.date)||a.time.localeCompare(b.time);});
+      const futureBooked=(s.scheduledBookings||[]).filter(function(b){return isFutureScheduledBooking(b,_slots);}).sort(function(a,b){return scheduledBookingDateTimeKey(a,_slots).localeCompare(scheduledBookingDateTimeKey(b,_slots));});
       if(!futureBooked.length) return '<div style="font-size:13px;font-weight:500;color:var(--ink-mid);margin:16px 0 8px">預約課程時段</div><div style="font-size:12px;color:var(--ink-light);padding:4px 0 8px">目前沒有未來的預約</div>';
       return '<div style="font-size:13px;font-weight:500;color:var(--ink-mid);margin:16px 0 8px">預約課程時段</div>'+
         futureBooked.map(function(b){
