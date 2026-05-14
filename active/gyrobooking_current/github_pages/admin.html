@@ -1511,6 +1511,14 @@ function openStudentAdd(){
   document.getElementById('fs-joined').value=todayStr();
   openSheet('sheet-stuAdd');
 }
+function findStudentByPhone(phone, exceptId){
+  const digits=String(phone||'').replace(/\D/g,'');
+  if(!digits) return null;
+  return loadStudents().find(s=>{
+    if(exceptId!=null && String(s.id)===String(exceptId)) return false;
+    return String(s.phone||'').replace(/\D/g,'')===digits;
+  })||null;
+}
 function saveStudent(){
   const name = document.getElementById('fs-name').value.trim();
   if(!name){toast('請填寫學員姓名');return;}
@@ -1519,6 +1527,8 @@ function saveStudent(){
     const digits=phone.replace(/\D/g,'');
     if(digits.length<10){toast('手機號碼請填寫 10 碼（共10個數字）');document.getElementById('fs-phone').focus();return;}
     if(!digits.startsWith('09')){toast('手機號碼需以 09 開頭');document.getElementById('fs-phone').focus();return;}
+    const duplicate=findStudentByPhone(phone);
+    if(duplicate){toast('此手機號碼已由 '+duplicate.name+' 使用，請改用其他手機號碼');document.getElementById('fs-phone').focus();return;}
   }
   const students = loadStudents();
   students.push({id:Date.now(),name:name,phone:document.getElementById('fs-phone').value.trim(),line:document.getElementById('fs-line').value.trim(),joined:document.getElementById('fs-joined').value,ecName:document.getElementById('fs-ecname').value.trim(),ecRel:document.getElementById('fs-ecrel').value.trim(),ecPhone:document.getElementById('fs-ecphone').value.trim(),notes:document.getElementById('fs-notes').value.trim(),color:COLORS[students.length%COLORS.length]});
@@ -1548,6 +1558,8 @@ function saveStudentEdit(){
     const digits=phone.replace(/\D/g,'');
     if(digits.length<10){toast('手機號碼請填寫 10 碼（共10個數字）');document.getElementById('fe-phone').focus();return;}
     if(!digits.startsWith('09')){toast('手機號碼需以 09 開頭');document.getElementById('fe-phone').focus();return;}
+    const duplicate=findStudentByPhone(phone,id);
+    if(duplicate){toast('此手機號碼已由 '+duplicate.name+' 使用，請改用其他手機號碼');document.getElementById('fe-phone').focus();return;}
   }
   const students = loadStudents();
   const idx = students.findIndex(function(s){return s.id===id;});
@@ -2010,6 +2022,11 @@ function saveTicket(){
   const plan=type?.plans?.find(function(p){return String(p.id)===String(planId);});
   const sessions=parseInt(document.getElementById('ft-sessions').value)||1;
   const price=parseInt(document.getElementById('ft-price').value)||0;
+  if(!type||!plan){toast('請完整選擇課程方案');return;}
+  if(plan.oncePerStudent){
+    const used=loadTickets().some(t=>String(t.studentId)===String(studentId) && (String(t.planId||'')===String(plan.id)||t.planName===plan.name));
+    if(used){toast('此方案每位學員限使用一次，這位學員已有紀錄');return;}
+  }
   const validDays=parseInt(document.getElementById('ft-validdays').value)||180;
   const boughtDate=document.getElementById('ft-bought').value;
   const method=document.getElementById('ft-method').value;
@@ -2019,10 +2036,10 @@ function saveTicket(){
   const expireDate=localDateStr(expDate);
   const tickets=loadTickets();
   const tktId=Date.now();
-  tickets.push({id:tktId,studentId:studentId,studentName:student.name,color:student.color||'c0',typeName:type?.name||'',planName:plan?.name||'',type:sessions,total:sessions,left:sessions,price:price,boughtDate:boughtDate,expireDate:expireDate,log:[{date:boughtDate,action:'buy'}]});
+  tickets.push({id:tktId,studentId:studentId,studentName:student.name,color:student.color||'c0',typeId:type?.id||null,typeName:type?.name||'',planId:plan?.id||null,planName:plan?.name||'',oncePerStudent:!!plan.oncePerStudent,allowRecurring:plan.allowRecurring!==false,type:sessions,total:sessions,left:sessions,price:price,boughtDate:boughtDate,expireDate:expireDate,log:[{date:boughtDate,action:'buy'}]});
   saveTickets(tickets);
   const payments=loadPayments();
-  payments.push({id:tktId+1,studentId:studentId,studentName:student.name,phone:student.phone||'',color:student.color||'c0',item:(type?.name||'')+(plan?'・'+plan.name:''),originalAmount:price,discountAmount:0,discountReason:'',amount:price,date:boughtDate,method:method,status:status,note:''});
+  payments.push({id:tktId+1,studentId:studentId,studentName:student.name,phone:student.phone||'',color:student.color||'c0',item:(type?.name||'')+(plan?'・'+plan.name:''),typeId:type?.id||null,typeName:type?.name||'',planId:plan?.id||null,planName:plan?.name||'',oncePerStudent:!!plan.oncePerStudent,allowRecurring:plan.allowRecurring!==false,originalAmount:price,discountAmount:0,discountReason:'',amount:price,date:boughtDate,method:method,status:status,note:''});
   savePayments(payments);
   renderStudents(); updateBadges();
   closeSubSheet('sheet-tktAdd');
@@ -2753,6 +2770,16 @@ createTicketFromPayment = function(p){
     (sourceId && String(t.sourcePaymentId||'')===sourceId)
   );
   if(dup) return;
+  if(plan.oncePerStudent || p.oncePerStudent){
+    const used=tickets.some(t=>
+      String(t.studentId)===String(studentId) &&
+      (String(t.planId||'')===String(plan.id)||t.planName===(plan.name||planName))
+    );
+    if(used){
+      toast('此方案每位學員限使用一次，已略過重複開票');
+      return;
+    }
+  }
   const sessions=Number(p.sessions||plan.sessions||plan.count||0);
   if(!sessions) return;
   const validDays=plan.validDays||180;
@@ -2771,6 +2798,8 @@ createTicketFromPayment = function(p){
     typeName:type.name||typeName,
     planId:plan.id||p.planId||null,
     planName:plan.name||planName,
+    oncePerStudent:!!plan.oncePerStudent || !!p.oncePerStudent,
+    allowRecurring:plan.allowRecurring!==false && p.allowRecurring!==false,
     type:sessions,
     total:sessions,
     used:0,
@@ -2937,6 +2966,8 @@ function bkRenderCtypeEditor(){
       setV(`bkct-pv-${ti}-${pi}`, p.validDays||180);
       const pm=document.getElementById(`bkct-pm-${ti}-${pi}`); if(pm) pm.checked=!!p.makeup;
       const pf=document.getElementById(`bkct-pf-${ti}-${pi}`); if(pf) pf.checked=!!p.flex;
+      const po=document.getElementById(`bkct-po-${ti}-${pi}`); if(po) po.checked=!!p.oncePerStudent;
+      const pr=document.getElementById(`bkct-prc-${ti}-${pi}`); if(pr) pr.checked=p.allowRecurring!==false;
     });
   });
 }
@@ -2951,6 +2982,8 @@ function bkPlanRowHTML(ti,pi){
       <div class="bk-validity-wrap">有效<input class="bk-validity-input" type="number" id="bkct-pv-${ti}-${pi}" min="1" max="730">天</div>
       <label class="bk-toggle-row"><span class="bk-toggle"><input type="checkbox" id="bkct-pm-${ti}-${pi}"><span class="bk-toggle-slider"></span></span>可補課</label>
       <label class="bk-toggle-row"><span class="bk-toggle"><input type="checkbox" id="bkct-pf-${ti}-${pi}"><span class="bk-toggle-slider"></span></span>彈性時段</label>
+      <label class="bk-toggle-row"><span class="bk-toggle"><input type="checkbox" id="bkct-po-${ti}-${pi}"><span class="bk-toggle-slider"></span></span>每位限一次</label>
+      <label class="bk-toggle-row"><span class="bk-toggle"><input type="checkbox" id="bkct-prc-${ti}-${pi}"><span class="bk-toggle-slider"></span></span>允許循環</label>
     </div>
   </div>`;
 }
@@ -2961,6 +2994,8 @@ function bkSyncCtypes(){
     while(document.getElementById(`bkct-ps-${ti}-${pi}`)){
       const pm=document.getElementById(`bkct-pm-${ti}-${pi}`);
       const pf=document.getElementById(`bkct-pf-${ti}-${pi}`);
+      const po=document.getElementById(`bkct-po-${ti}-${pi}`);
+      const pr=document.getElementById(`bkct-prc-${ti}-${pi}`);
       plans.push({
         id:t.plans?.[pi]?.id||(Date.now()+pi),
         sessions:parseInt(document.getElementById(`bkct-ps-${ti}-${pi}`)?.value)||1,
@@ -2969,6 +3004,8 @@ function bkSyncCtypes(){
         validDays:parseInt(document.getElementById(`bkct-pv-${ti}-${pi}`)?.value)||180,
         makeup:pm?pm.checked:false,
         flex:pf?pf.checked:false,
+        oncePerStudent:po?po.checked:false,
+        allowRecurring:pr?pr.checked:true,
       });
       pi++;
     }
@@ -4025,6 +4062,15 @@ async function importPurchaseRequests(){
     const phoneDigits=String(r.phoneDigits||r.phone||'').replace(/\D/g,'');
     const name=String(r.name||'').trim();
     if(!name || !phoneDigits) continue;
+    const samePhoneStudent=students.find(s=>String(s.phone||'').replace(/\D/g,'')===phoneDigits);
+    if(samePhoneStudent && String(samePhoneStudent.name||'').trim()!==name){
+      await window._fb.setDocPath(['purchase_requests',item.id],{
+        status:'rejected',
+        rejectReason:'duplicate_phone',
+        rejectedAt:Date.now()
+      },{merge:true});
+      continue;
+    }
     let stu=students.find(s=>String(s.name||'').trim()===name && String(s.phone||'').replace(/\D/g,'')===phoneDigits);
     if(!stu){
       stu={id:Date.now()+imported,name,phone:r.phone||phoneDigits,line:r.social||'',joined:r.date||todayStr(),ecName:'',ecRel:'',ecPhone:'',notes:r.note||'',color:COLORS[students.length%COLORS.length],fromBooking:true,sourceRequestId:r.id};
@@ -4034,7 +4080,7 @@ async function importPurchaseRequests(){
       if(!stu.line && r.social) stu.line=r.social;
       if(r.note && !stu.notes) stu.notes=r.note;
     }
-    payments.push({id:Date.now()+1000+imported,sourceRequestId:r.id,studentId:stu.id,studentName:stu.name,phone:stu.phone||r.phone||phoneDigits,color:stu.color||'c0',item:(r.typeName||'課程')+'・'+(r.planName||'方案'),typeId:r.typeId||null,typeName:r.typeName||'',planId:r.planId||null,planName:r.planName||'',sessions:Number(r.sessions||0),originalAmount:Number(r.amount||0),discountAmount:0,discountReason:'',amount:Number(r.amount||0),date:r.date||todayStr(),method:'待收款',status:'unpaid',note:'購課申請自動匯入'+(r.social?' LINE/Instagram：'+r.social:'')+(r.note?' '+r.note:'')});
+    payments.push({id:Date.now()+1000+imported,sourceRequestId:r.id,studentId:stu.id,studentName:stu.name,phone:stu.phone||r.phone||phoneDigits,color:stu.color||'c0',item:(r.typeName||'課程')+'・'+(r.planName||'方案'),typeId:r.typeId||null,typeName:r.typeName||'',planId:r.planId||null,planName:r.planName||'',sessions:Number(r.sessions||0),oncePerStudent:!!r.oncePerStudent,allowRecurring:r.allowRecurring!==false,originalAmount:Number(r.amount||0),discountAmount:0,discountReason:'',amount:Number(r.amount||0),date:r.date||todayStr(),method:'待收款',status:'unpaid',note:'購課申請自動匯入'+(r.social?' LINE/Instagram：'+r.social:'')+(r.note?' '+r.note:'')});
     await window._fb.deleteDocPath(['purchase_requests',item.id]);
     imported++;
   }
@@ -4188,6 +4234,7 @@ async function initFirebaseSync() {
   // Subscribe to real-time pushes (no polling, no interval)
   fbSubscribeAll();
   importPendingRequests();
+  setTimeout(()=>{ if(typeof window.lowCostScheduleSync==='function') window.lowCostScheduleSync('startup'); },1000);
   setInterval(importPendingRequests, 30000);
 }
 
@@ -4349,6 +4396,18 @@ if (window._fbReady) {
       return null;
     }
 
+    function resolveTicketPlan(t){
+      const type=(cfg.classTypes||[]).find(ct=>
+        String(ct.id)===String(t.typeId||'') ||
+        String(ct.name||'')===String(t.typeName||'')
+      );
+      const plan=type?.plans?.find(pl=>
+        String(pl.id)===String(t.planId||'') ||
+        String(pl.name||'')===String(t.planName||'')
+      );
+      return {type,plan};
+    }
+
     const out=[];
 
     for(const s of students){
@@ -4359,6 +4418,28 @@ if (window._fbReady) {
       const key=await sha256(nameKey+'|'+phoneDigits);
       const remainingByType={};
       const unresolvedTickets=[];
+      const usedOncePlanIds=[];
+      const usedOncePlanKeys=[];
+      const noRecurringTypeIds=[];
+
+      tickets.forEach(t=>{
+        if(String(t.studentId)!==String(s.id)) return;
+        const {type,plan}=resolveTicketPlan(t);
+        const typeId=String(type?.id||t.typeId||resolveTicketTypeId(t)||'');
+        const planId=String(plan?.id||t.planId||'');
+        const once=!!(t.oncePerStudent||plan?.oncePerStudent);
+        const noRecurring=(t.allowRecurring===false||plan?.allowRecurring===false);
+        if(once){
+          if(planId && !usedOncePlanIds.includes(planId)) usedOncePlanIds.push(planId);
+          if(typeId && planId){
+            const key2=typeId+'|'+planId;
+            if(!usedOncePlanKeys.includes(key2)) usedOncePlanKeys.push(key2);
+          }
+        }
+        if(noRecurring && Number(t.left||0)>0 && (!t.expireDate||t.expireDate>=today) && typeId && !noRecurringTypeIds.includes(typeId)){
+          noRecurringTypeIds.push(typeId);
+        }
+      });
 
       tickets.forEach(t=>{
         if(String(t.studentId)!==String(s.id)) return;
@@ -4390,9 +4471,33 @@ if (window._fbReady) {
           phoneMasked: phoneDigits.replace(/(\d{4})\d{3}(\d{3})/,'$1***$2'),
           remainingByType,
           totalRemaining,
+          usedOncePlanIds,
+          usedOncePlanKeys,
+          noRecurringTypeIds,
           unresolvedTickets,
           strictTypeMode:true,
           typeMappingMode:'normalized-type-v9',
+          updatedAt:Date.now()
+        }
+      });
+    }
+    return out;
+  };
+
+  window.lowCostBuildPhoneLookupPayloads = async function(){
+    const students=loadStudents();
+    const out=[];
+    const seen=new Set();
+    for(const s of students){
+      const phoneDigits=normPhone(s.phone);
+      if(!phoneDigits || seen.has(phoneDigits)) continue;
+      seen.add(phoneDigits);
+      const key=await sha256(phoneDigits);
+      out.push({
+        key,
+        data:{
+          exists:true,
+          phoneMasked: phoneDigits.replace(/(\d{4})\d{3}(\d{3})/,'$1***$2'),
           updatedAt:Date.now()
         }
       });
@@ -4432,6 +4537,15 @@ if (window._fbReady) {
       const k='low_cost_lookup_hash_'+p.key;
       if(localStorage.getItem(k)===h) continue;
       await window._fb.setDocPath(['student_lookup',p.key],p.data,{merge:true});
+      localStorage.setItem(k,h);
+      writes++;
+    }
+    const phonePayloads=await window.lowCostBuildPhoneLookupPayloads();
+    for(const p of phonePayloads){
+      const h=stable(p.data);
+      const k='low_cost_phone_lookup_hash_'+p.key;
+      if(localStorage.getItem(k)===h) continue;
+      await window._fb.setDocPath(['phone_lookup',p.key],p.data,{merge:true});
       localStorage.setItem(k,h);
       writes++;
     }
@@ -4489,7 +4603,7 @@ async function deleteCollectionClient(colName, batchSize=400){
 
 window.resetAllTestData = async function(){
   const ok = confirm(
-    '確定要清空所有測試資料嗎？\n\n會清除：學員資料、票券、收費、出缺勤、行事曆、日誌、student_lookup、purchase_requests。\n\n課程方案設定 booking_cfg 會保留。'
+    '確定要清空所有測試資料嗎？\n\n會清除：學員資料、票券、收費、出缺勤、行事曆、日誌、student_lookup、phone_lookup、purchase_requests。\n\n課程方案設定 booking_cfg 會保留。'
   );
   if(!ok) return;
 
@@ -4510,6 +4624,7 @@ window.resetAllTestData = async function(){
   ]);
 
   const deletedLookup = await deleteCollectionClient('student_lookup');
+  const deletedPhoneLookup = await deleteCollectionClient('phone_lookup');
   const deletedRequests = await deleteCollectionClient('purchase_requests');
   const deletedBookingRequests = await deleteCollectionClient('booking_requests');
 
@@ -4529,8 +4644,8 @@ window.resetAllTestData = async function(){
     .filter(k=>k.startsWith('low_cost_lookup_hash_') || k==='low_cost_public_state_hash')
     .forEach(k=>localStorage.removeItem(k));
 
-  console.log('[RESET] done', {deletedLookup, deletedRequests, deletedBookingRequests});
-  alert('清空完成！student_lookup 刪除 '+deletedLookup+' 筆，purchase_requests 刪除 '+deletedRequests+' 筆。請重新整理管理員頁。');
+  console.log('[RESET] done', {deletedLookup, deletedPhoneLookup, deletedRequests, deletedBookingRequests});
+  alert('清空完成！student_lookup 刪除 '+deletedLookup+' 筆，phone_lookup 刪除 '+deletedPhoneLookup+' 筆，purchase_requests 刪除 '+deletedRequests+' 筆。請重新整理管理員頁。');
 };
 </script>
 

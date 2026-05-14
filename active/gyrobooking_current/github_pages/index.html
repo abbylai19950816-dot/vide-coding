@@ -263,6 +263,14 @@ window._fb={
     if(!snap.exists()) return null;
     return {key,...snap.data()};
   },
+  async getPhoneLookup(phone){
+    const digits=this.normalizePhone(phone);
+    if(!digits) return null;
+    const key=await this.sha256(digits);
+    const snap=await getDoc(doc(db,'phone_lookup',key));
+    if(!snap.exists()) return null;
+    return {key,...snap.data()};
+  },
   async getPublicBookingState(){
     const snap=await getDoc(doc(db,'public_booking','state'));
     const data=snap.exists()?snap.data():{};
@@ -853,6 +861,8 @@ function renderPlanCards(type){
     if(p.sessions>1&&p.validDays)feats.push(p.validDays+"天效期");
     if(p.makeup)feats.push("可補課");
     if(p.flex)feats.push("彈性時段");
+    if(p.oncePerStudent)feats.push("每人限一次");
+    if(p.allowRecurring===false)feats.push("不可循環預約");
     return `<div class="plan-card ${rank===0&&p.sessions>1?"featured":""} ${sel?"selected":""}" onclick="selectPlan(${p.id})"><div class="plan-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg></div><div class="plan-top"><div class="plan-left">${rank<3&&p.sessions>1?`<span class="plan-tag ${tagMap[rank]}">${tagLabel[rank]}</span>`:""}<div class="plan-name">${p.name}</div><div class="plan-desc">${p.sessions} 堂課</div></div><div class="plan-right"><div class="plan-price">$${p.price.toLocaleString()}</div><div class="plan-price-sub">NT 元</div>${p.sessions>1?`<div class="plan-per">= $${per}/堂</div>`:""}</div></div>${feats.length?`<div class="plan-feats">${feats.map(f=>`<span class="plan-feat">${f}</span>`).join("")}</div>`:""}</div>`;
   }).join("");
 }
@@ -932,7 +942,9 @@ function submitPurchase(){
     planName:plan.name,
     sessions:Number(plan.sessions||plan.count||0),
     amount:Number(plan.price||0),
-    date:today
+    date:today,
+    oncePerStudent:!!plan.oncePerStudent,
+    allowRecurring:plan.allowRecurring!==false
   };
 
   const submitBtn=document.querySelector('.btn-submit');
@@ -940,6 +952,25 @@ function submitPurchase(){
   if(submitBtn){submitBtn.disabled=true;submitBtn.textContent='送出中…';submitBtn.style.opacity='.7';}
 
   Promise.resolve()
+    .then(async ()=>{
+      if(!window._fb?.getPhoneLookup || !window._fb?.getStudentLookup) return;
+      const phoneLookup=await window._fb.getPhoneLookup(phoneDigits);
+      let ownLookup=null;
+      if(phoneLookup || plan.oncePerStudent){
+        ownLookup=await window._fb.getStudentLookup(name,phoneDigits);
+      }
+      if(phoneLookup && !ownLookup){
+        throw new Error('此手機號碼已註冊在系統中，請改用其他手機號碼註冊，或聯絡老師協助確認。');
+      }
+      if(plan.oncePerStudent && ownLookup){
+        const usedIds=(ownLookup.usedOncePlanIds||[]).map(String);
+        const usedKeys=(ownLookup.usedOncePlanKeys||[]).map(String);
+        const planKey=String(type.id)+'|'+String(plan.id);
+        if(usedIds.includes(String(plan.id)) || usedKeys.includes(planKey)){
+          throw new Error('此體驗課每位學員限預約一次，系統已查到你使用過此方案。');
+        }
+      }
+    })
     .then(()=>window._fb.createPurchaseRequest(payload))
     .then((res)=>{
       bookingData={name,phone,social,note,type,plan,requestId:res?.id||''};
@@ -950,7 +981,7 @@ function submitPurchase(){
     })
     .catch((e)=>{
       console.error('[PURCHASE_REQUEST] failed',e);
-      alert('送出失敗，請稍後再試或直接聯絡老師');
+      alert(e.message||'送出失敗，請稍後再試或直接聯絡老師');
     })
     .finally(()=>{
       if(submitBtn){submitBtn.disabled=false;submitBtn.textContent=oldText||'送出報名';submitBtn.style.opacity='1';}
@@ -1255,7 +1286,7 @@ function renderSlotList(){
   });
 
   // Loop booking hint (shows when no slot selected)
-  if(remaining > 1 && selectedSlots.size === 0){
+  if(remaining > 1 && selectedSlots.size === 0 && !currentPlanDisallowsRecurring()){
     html += '<div style="margin-top:10px;padding:10px 12px;background:var(--sand);border-radius:var(--radius-sm);font-size:12px;color:var(--ink-mid)">💡 選擇一個時段後，可選擇單次或循環預約</div>';
   }
 
@@ -1277,7 +1308,7 @@ function updateBatchBar(){
     // Primary: confirm booking button
     let barHtml = '<button class="sch-book-btn" onclick="openSlotConfirm()">確認預約 '+selectedSlots.size+' 個時段 →</button>';
     // Secondary: loop booking (only show when exactly 1 slot selected and remaining > 1)
-    if(selectedSlots.size === 1 && remaining > 1){
+    if(selectedSlots.size === 1 && remaining > 1 && !currentPlanDisallowsRecurring()){
       barHtml += '<button onclick="loopBooking()" style="width:100%;background:transparent;color:var(--sage-deep);border:1.5px solid var(--sage);border-radius:99px;padding:10px;font-size:13px;font-weight:500;font-family:inherit;cursor:pointer;margin-top:6px">🔄 以所選時段循環預約（剩 '+remaining+' 堂）</button>';
     }
     bar.innerHTML = barHtml;
@@ -1540,6 +1571,13 @@ function getRemainingTickets(){
   return Number((lookup.remainingByType||{})[key]||0);
 }
 
+function currentPlanDisallowsRecurring(){
+  const lookup=window._lowCostLookup;
+  if(!lookup) return false;
+  const key=String(window._lowCostRemainingKey || verifiedTypeId || 'default');
+  return (lookup.noRecurringTypeIds||[]).map(String).includes(key);
+}
+
 async function batchSubmitBooking(){
   if(!window._lowCostLookup){ alert('請先輸入姓名與手機查詢方案'); return; }
   if(selectedSlots.size===0){ alert('請先選擇時段'); return; }
@@ -1567,6 +1605,7 @@ async function batchSubmitBooking(){
 }
 
 async function loopBooking(){
+  if(currentPlanDisallowsRecurring()){ alert('此方案不開放循環預約，請改用單次預約。'); return; }
   if(selectedSlots.size !== 1){ alert('請先選擇一個時段作為起始時段'); return; }
   const remaining=getRemainingTickets();
   if(remaining<=0){ alert('已無剩餘堂數'); return; }

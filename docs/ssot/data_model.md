@@ -26,6 +26,9 @@ Expected data:
 - `phoneMasked`
 - `remainingByType`
 - `totalRemaining`
+- `usedOncePlanIds`
+- `usedOncePlanKeys`
+- `noRecurringTypeIds`
 - `unresolvedTickets`
 - `updatedAt`
 
@@ -33,6 +36,23 @@ Rules:
 
 - Student page may get one document.
 - Student page must not list this collection.
+- Admin sync owns writes.
+
+### `phone_lookup/{hash}`
+
+Public single-document phone index keyed by normalized phone SHA-256.
+
+Expected data:
+
+- `exists: true`
+- `phoneMasked`
+- `updatedAt`
+
+Rules:
+
+- Student page may get one document before purchase submission to prevent duplicate phone registration.
+- Student page must not list this collection.
+- This document must not expose student name, full phone, payments, tickets, or private notes.
 - Admin sync owns writes.
 
 ### `/data/{key}`
@@ -91,6 +111,8 @@ Expected data:
 - `planName`
 - `sessions`
 - `amount`
+- `oncePerStudent`
+- `allowRecurring`
 - `date`
 - `status: pending`
 - `createdAt`

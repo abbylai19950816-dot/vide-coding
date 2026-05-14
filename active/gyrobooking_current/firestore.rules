@@ -16,7 +16,7 @@ service cloud.firestore {
       return request.resource.data.keys().hasOnly([
         'id', 'name', 'phone', 'phoneDigits', 'social', 'note', 'customFields',
         'typeId', 'typeName', 'planId', 'planName', 'sessions', 'amount',
-        'date', 'status', 'createdAt', 'source'
+        'date', 'status', 'createdAt', 'source', 'oncePerStudent', 'allowRecurring'
       ]);
     }
 
@@ -33,6 +33,12 @@ service cloud.firestore {
     }
 
     match /student_lookup/{lookupId} {
+      allow get: if true;
+      allow list: if isPasswordAdmin();
+      allow create, update, delete: if isPasswordAdmin();
+    }
+
+    match /phone_lookup/{lookupId} {
       allow get: if true;
       allow list: if isPasswordAdmin();
       allow create, update, delete: if isPasswordAdmin();
