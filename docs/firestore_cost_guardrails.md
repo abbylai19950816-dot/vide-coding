@@ -2,6 +2,8 @@
 
 ## 成本目標
 
+現階段以 Firebase 免費版 / Spark plan 可承受範圍為主。除非使用者明確同意升級成本，預設不引入 Cloud Functions、外部付費服務或高頻即時監聽。
+
 學生端每次正常流程的讀寫上限：
 
 - 首頁載入：最多 2 reads。
@@ -74,4 +76,3 @@
 - writes 超過 10,000/day：先檢查 lookup 是否整批重寫、admin 是否頻繁 save、公開鏡像是否無 hash diff。
 - `public_booking/state` 接近 700 KiB：開始拆月份文件。
 - 任一 `/data/*` 文件接近 700 KiB：開始拆 collection 或封存舊資料。
-
