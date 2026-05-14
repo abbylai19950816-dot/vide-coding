@@ -1,6 +1,6 @@
 tools/
+.tmp.driveupload/
 archive_versions/
 extracted_v*/
 current_release/
 *.zip
-
