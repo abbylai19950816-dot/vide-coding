@@ -498,8 +498,17 @@ body{font-family:'Chiron GoRound TC',sans-serif;background:var(--sand);color:var
 .bk-ier-body-input:focus{border-color:var(--sage)}
 /* ── Schedule page ── */
 .cal-nav{display:flex;align-items:center;gap:8px;padding:12px 20px 8px}
-.cal-nav button{background:var(--sand);border:none;border-radius:50%;width:32px;height:32px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--ink-mid)}
-.cal-month-label{flex:1;text-align:center;font-size:15px;font-weight:600}
+.cal-nav-btn{background:var(--sand);border:none;border-radius:50%;width:34px;height:34px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--ink-mid);flex-shrink:0}
+.cal-month-label{flex:1;text-align:center}
+.cal-month-trigger{width:100%;background:transparent;border:none;border-radius:99px;padding:8px 10px;font-size:16px;font-weight:700;font-family:inherit;color:var(--ink);cursor:pointer}
+.cal-month-trigger:active{background:var(--sand)}
+.month-picker-year{display:flex;align-items:center;justify-content:space-between;background:var(--sand);border-radius:99px;padding:6px;margin-bottom:16px}
+.month-picker-year button{background:var(--white);border:none;border-radius:50%;width:34px;height:34px;display:flex;align-items:center;justify-content:center;color:var(--ink-mid);cursor:pointer}
+.month-picker-year span{font-size:17px;font-weight:700;color:var(--ink)}
+.month-picker-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.month-picker-btn{background:var(--sand);border:1.5px solid transparent;border-radius:var(--radius-sm);padding:13px 0;font-size:14px;font-weight:600;font-family:inherit;color:var(--ink);cursor:pointer}
+.month-picker-btn.active{background:var(--sage);border-color:var(--sage);color:#fff}
+.month-picker-today{width:100%;background:var(--sage-light);border:none;border-radius:99px;color:var(--sage);padding:12px;font-size:14px;font-weight:600;font-family:inherit;margin-top:14px;cursor:pointer}
 .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;padding:0 12px 8px}
 .cal-day-label{font-size:10px;color:var(--ink-light);text-align:center;padding:4px 0;font-weight:500}
 .cal-day{min-height:46px;border-radius:10px;padding:5px;cursor:pointer;transition:background .15s;position:relative}
@@ -902,9 +911,9 @@ onAuthStateChanged(auth, (user) => {
     <!-- Calendar -->
     <div style="background:var(--white);border-bottom:1px solid var(--sand-dark);padding-bottom:8px">
       <div class="cal-nav">
-        <button onclick="schShiftMonth(-1)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg></button>
-        <div class="cal-month-label" id="sch-monthLabel"></div>
-        <button onclick="schShiftMonth(1)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg></button>
+        <button class="cal-nav-btn" onclick="schShiftMonth(-1)" aria-label="上一個月"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg></button>
+        <div class="cal-month-label"><button class="cal-month-trigger" id="sch-monthLabel" onclick="schOpenMonthPicker()"></button></div>
+        <button class="cal-nav-btn" onclick="schShiftMonth(1)" aria-label="下一個月"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg></button>
       </div>
       <div class="cal-grid" id="sch-calGrid"></div>
     </div>
@@ -1051,6 +1060,21 @@ onAuthStateChanged(auth, (user) => {
 </div>
 
 <div class="backdrop" id="backdrop" onclick="closeSheets()"></div>
+
+<!-- Schedule Month Picker -->
+<div class="sheet" id="sheet-schMonthPicker">
+  <div class="sheet-handle"></div>
+  <div class="sheet-header"><span class="sheet-title">選擇月份</span><button class="btn-close" onclick="closeSheets()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="3" y1="3" x2="21" y2="21"/><line x1="21" y1="3" x2="3" y2="21"/></svg></button></div>
+  <div class="sheet-body">
+    <div class="month-picker-year">
+      <button type="button" onclick="schPickerShiftYear(-1)" aria-label="上一年"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg></button>
+      <span id="sch-picker-year"></span>
+      <button type="button" onclick="schPickerShiftYear(1)" aria-label="下一年"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg></button>
+    </div>
+    <div class="month-picker-grid" id="sch-picker-months"></div>
+    <button type="button" class="month-picker-today" onclick="schGoCurrentMonth()">回到本月</button>
+  </div>
+</div>
 
 <!-- Student Add -->
 <div class="sheet" id="sheet-stuAdd">
@@ -1350,7 +1374,7 @@ function loadPayments(){ return _cacheGet('payments',[]); }
 
 
 /* Sheet helpers */
-const allSheets = ['sheet-stuAdd','sheet-stuDetail','sheet-stuEdit','sheet-tktAdd','sheet-tktDetail','sheet-classAdd','sheet-payAdd','sheet-payDetail','sheet-slotAdd','sheet-classNote','sheet-logEdit','sheet-logSlotPicker'];
+const allSheets = ['sheet-stuAdd','sheet-stuDetail','sheet-stuEdit','sheet-tktAdd','sheet-tktDetail','sheet-classAdd','sheet-payAdd','sheet-payDetail','sheet-slotAdd','sheet-schMonthPicker','sheet-classNote','sheet-logEdit','sheet-logSlotPicker'];
 function openSheet(id){ document.getElementById('backdrop').classList.add('open'); document.getElementById(id).classList.add('open'); }
 function closeSheets(){
   document.getElementById('backdrop').classList.remove('open');
@@ -3371,13 +3395,48 @@ function schShiftMonth(n){
   schRenderCalendar();
 }
 
+function schMonthText(){
+  return schYear+' 年 '+(schMonth+1)+' 月';
+}
+
+function schOpenMonthPicker(){
+  schRenderMonthPicker();
+  openSheet('sheet-schMonthPicker');
+}
+
+function schRenderMonthPicker(){
+  const yearEl=document.getElementById('sch-picker-year');
+  const monthsEl=document.getElementById('sch-picker-months');
+  if(yearEl) yearEl.textContent=schYear+' 年';
+  if(monthsEl){
+    monthsEl.innerHTML=Array.from({length:12},(_,i)=>
+      '<button type="button" class="month-picker-btn '+(i===schMonth?'active':'')+'" onclick="schPickMonth('+i+')">'+(i+1)+'月</button>'
+    ).join('');
+  }
+}
+
+function schPickerShiftYear(n){
+  schYear+=n;
+  schRenderMonthPicker();
+}
+
+function schPickMonth(monthIndex){
+  schMonth=monthIndex;
+  closeSheets();
+  schRenderCalendar();
+}
+
+function schGoCurrentMonth(){
+  const now=new Date();
+  schYear=now.getFullYear();
+  schMonth=now.getMonth();
+  schSelectedDate=localDateStr(now);
+  closeSheets();
+  schRenderCalendar();
+}
+
 function schRenderCalendar(){
-  // Build year/month selector
-  const yearOpts = Array.from({length:5},(_,i)=>{const y=new Date().getFullYear()-1+i; return `<option value="${y}" ${y===schYear?'selected':''}>${y}年</option>`;}).join('');
-  const monthOpts = Array.from({length:12},(_,i)=>`<option value="${i}" ${i===schMonth?'selected':''}>${i+1}月</option>`).join('');
-  document.getElementById("sch-monthLabel").innerHTML =
-    `<select onchange="schYear=parseInt(this.value);schRenderCalendar()" style="border:none;background:transparent;font-size:15px;font-weight:600;font-family:inherit;cursor:pointer;outline:none">${yearOpts}</select>` +
-    `<select onchange="schMonth=parseInt(this.value);schRenderCalendar()" style="border:none;background:transparent;font-size:15px;font-weight:600;font-family:inherit;cursor:pointer;outline:none;margin-left:2px">${monthOpts}</select>`;
+  document.getElementById("sch-monthLabel").textContent=schMonthText();
   const slots=loadSlots();
   const firstDay=new Date(schYear,schMonth,1).getDay();
   const daysInMonth=new Date(schYear,schMonth+1,0).getDate();
