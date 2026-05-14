@@ -215,16 +215,23 @@ body{font-family:'Chiron GoRound TC',sans-serif;background:var(--sand);color:var
 .date-display small{display:block;font-size:11px;color:var(--ink-mid);font-weight:400;margin-top:1px}
 .att-date-picker-nav{display:flex;align-items:center;justify-content:space-between;background:var(--sand);border-radius:99px;padding:6px;margin-bottom:14px}
 .att-date-picker-nav button{background:var(--white);border:none;border-radius:50%;width:34px;height:34px;display:flex;align-items:center;justify-content:center;color:var(--ink-mid);cursor:pointer}
-.att-date-picker-nav span{font-size:17px;font-weight:700;color:var(--ink)}
+.picker-title-btn{background:transparent!important;border:none!important;border-radius:99px!important;width:auto!important;min-width:0!important;height:auto!important;padding:7px 14px!important;font-size:17px!important;font-weight:700!important;font-family:inherit;color:var(--ink)!important}
 .att-date-weekdays,.att-date-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:3px}
 .att-date-weekdays div{font-size:11px;color:var(--ink-light);text-align:center;padding:4px 0;font-weight:600}
 .att-date-cell{height:42px;border:none;border-radius:12px;background:transparent;font-size:14px;font-weight:600;font-family:inherit;color:var(--ink);cursor:pointer}
 .att-date-cell:hover{background:var(--sage-light)}
 .att-date-cell.today{color:var(--sage)}
 .att-date-cell.selected{background:var(--sage);color:#fff}
-.att-date-cell.empty{pointer-events:none}
+.att-date-cell.other-month{color:var(--ink-light);font-weight:500}
 .att-picker-today{width:100%;background:var(--sage-light);border:none;border-radius:99px;color:var(--sage);padding:12px;font-size:14px;font-weight:600;font-family:inherit;margin-top:14px;cursor:pointer}
 .att-picker-today:active{opacity:.75}
+.picker-year-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.picker-year-btn{background:var(--sand);border:1.5px solid transparent;border-radius:var(--radius-sm);padding:13px 0;font-size:14px;font-weight:600;font-family:inherit;color:var(--ink);cursor:pointer}
+.picker-year-btn.active{background:var(--sage);border-color:var(--sage);color:#fff}
+.picker-year-actions{display:flex;gap:8px;margin-top:14px}
+.picker-year-actions button{flex:1;border:none;border-radius:99px;padding:12px;font-size:14px;font-weight:600;font-family:inherit;cursor:pointer}
+.picker-year-actions .muted{background:var(--sand);color:var(--ink-mid)}
+.picker-year-actions .primary{background:var(--sage-light);color:var(--sage)}
 
 
 /* ── Month nav ── */
@@ -516,7 +523,6 @@ body{font-family:'Chiron GoRound TC',sans-serif;background:var(--sand);color:var
 .cal-month-trigger:active{background:var(--sand)}
 .month-picker-year{display:flex;align-items:center;justify-content:space-between;background:var(--sand);border-radius:99px;padding:6px;margin-bottom:16px}
 .month-picker-year button{background:var(--white);border:none;border-radius:50%;width:34px;height:34px;display:flex;align-items:center;justify-content:center;color:var(--ink-mid);cursor:pointer}
-.month-picker-year span{font-size:17px;font-weight:700;color:var(--ink)}
 .month-picker-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
 .month-picker-btn{background:var(--sand);border:1.5px solid transparent;border-radius:var(--radius-sm);padding:13px 0;font-size:14px;font-weight:600;font-family:inherit;color:var(--ink);cursor:pointer}
 .month-picker-btn.active{background:var(--sage);border-color:var(--sage);color:#fff}
@@ -1080,12 +1086,15 @@ onAuthStateChanged(auth, (user) => {
   <div class="sheet-body">
     <div class="att-date-picker-nav">
       <button type="button" onclick="attPickerShiftMonth(-1)" aria-label="上一個月"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg></button>
-      <span id="att-picker-month"></span>
+      <button type="button" class="picker-title-btn" id="att-picker-month" onclick="attToggleYearPicker()"></button>
       <button type="button" onclick="attPickerShiftMonth(1)" aria-label="下一個月"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg></button>
     </div>
-    <div class="att-date-weekdays" id="att-picker-weekdays"></div>
-    <div class="att-date-grid" id="att-picker-grid"></div>
-    <button type="button" class="att-picker-today" onclick="goToday()">回到今天</button>
+    <div id="att-picker-calendar">
+      <div class="att-date-weekdays" id="att-picker-weekdays"></div>
+      <div class="att-date-grid" id="att-picker-grid"></div>
+      <button type="button" class="att-picker-today" onclick="goToday()">回到今天</button>
+    </div>
+    <div id="att-picker-years" style="display:none"></div>
   </div>
 </div>
 
@@ -1096,11 +1105,14 @@ onAuthStateChanged(auth, (user) => {
   <div class="sheet-body">
     <div class="month-picker-year">
       <button type="button" onclick="schPickerShiftYear(-1)" aria-label="上一年"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg></button>
-      <span id="sch-picker-year"></span>
+      <button type="button" class="picker-title-btn" id="sch-picker-year" onclick="schToggleYearPicker()"></button>
       <button type="button" onclick="schPickerShiftYear(1)" aria-label="下一年"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg></button>
     </div>
-    <div class="month-picker-grid" id="sch-picker-months"></div>
-    <button type="button" class="month-picker-today" onclick="schGoCurrentMonth()">回到本月</button>
+    <div id="sch-picker-month-panel">
+      <div class="month-picker-grid" id="sch-picker-months"></div>
+      <button type="button" class="month-picker-today" onclick="schGoCurrentMonth()">回到本月</button>
+    </div>
+    <div id="sch-picker-years" style="display:none"></div>
   </div>
 </div>
 
@@ -2021,12 +2033,14 @@ function deleteTicket(id){ if(!confirm('確定要刪除此方案嗎？')) return
 ══════════════════════════════════ */
 let attTab='roll', attDate=todayStr(), rollState={}, openStuId=null, rollFilter=null; // rollFilter: null=全部, 'present','leave','makeup','pending'
 let attPickerYear=new Date().getFullYear(), attPickerMonth=new Date().getMonth();
+let attYearPickerOpen=false;
 
 function setDate(val){ attDate=val; updateDateLabel(); renderAttendance(); }
 function openDatePicker(){
   const d=new Date(attDate+'T00:00:00');
   attPickerYear=d.getFullYear();
   attPickerMonth=d.getMonth();
+  attYearPickerOpen=false;
   renderAttDatePicker();
   openSheet('sheet-attDatePicker');
 }
@@ -2040,14 +2054,28 @@ function renderAttDatePicker(){
   const monthEl=document.getElementById('att-picker-month');
   const weekdaysEl=document.getElementById('att-picker-weekdays');
   const gridEl=document.getElementById('att-picker-grid');
+  const calendarEl=document.getElementById('att-picker-calendar');
+  const yearsEl=document.getElementById('att-picker-years');
   if(monthEl) monthEl.textContent=attPickerYear+' 年 '+(attPickerMonth+1)+' 月';
+  if(calendarEl) calendarEl.style.display=attYearPickerOpen?'none':'block';
+  if(yearsEl) yearsEl.style.display=attYearPickerOpen?'block':'none';
+  if(attYearPickerOpen){
+    renderAttYearPicker();
+    return;
+  }
   if(weekdaysEl) weekdaysEl.innerHTML=DAYS.map(d=>'<div>'+d+'</div>').join('');
   if(!gridEl) return;
   const firstDay=new Date(attPickerYear,attPickerMonth,1).getDay();
   const daysInMonth=new Date(attPickerYear,attPickerMonth+1,0).getDate();
+  const prevDaysInMonth=new Date(attPickerYear,attPickerMonth,0).getDate();
   const today=todayStr();
   let html='';
-  for(let i=0;i<firstDay;i++) html+='<button type="button" class="att-date-cell empty" tabindex="-1"></button>';
+  for(let i=0;i<firstDay;i++){
+    const day=prevDaysInMonth-firstDay+i+1;
+    const prevDate=new Date(attPickerYear,attPickerMonth-1,day);
+    const ds=localDateStr(prevDate);
+    html+='<button type="button" class="att-date-cell other-month" onclick="pickAttDate(\''+ds+'\')">'+day+'</button>';
+  }
   for(let day=1;day<=daysInMonth;day++){
     const ds=attPickerYear+'-'+String(attPickerMonth+1).padStart(2,'0')+'-'+String(day).padStart(2,'0');
     const cls=['att-date-cell'];
@@ -2055,7 +2083,37 @@ function renderAttDatePicker(){
     if(ds===attDate) cls.push('selected');
     html+='<button type="button" class="'+cls.join(' ')+'" onclick="pickAttDate(\''+ds+'\')">'+day+'</button>';
   }
+  const totalCells=firstDay+daysInMonth;
+  const trailing=(7-(totalCells%7))%7;
+  for(let i=1;i<=trailing;i++){
+    const nextDate=new Date(attPickerYear,attPickerMonth+1,i);
+    const ds=localDateStr(nextDate);
+    html+='<button type="button" class="att-date-cell other-month" onclick="pickAttDate(\''+ds+'\')">'+i+'</button>';
+  }
   gridEl.innerHTML=html;
+}
+function attToggleYearPicker(){
+  attYearPickerOpen=!attYearPickerOpen;
+  renderAttDatePicker();
+}
+function renderAttYearPicker(){
+  const yearsEl=document.getElementById('att-picker-years');
+  if(!yearsEl) return;
+  const start=attPickerYear-5;
+  const years=Array.from({length:12},(_,i)=>start+i);
+  yearsEl.innerHTML=
+    '<div class="picker-year-grid">'+years.map(y=>
+      '<button type="button" class="picker-year-btn '+(y===attPickerYear?'active':'')+'" onclick="attPickYear('+y+')">'+y+'</button>'
+    ).join('')+'</div>'+
+    '<div class="picker-year-actions">'+
+      '<button type="button" class="muted" onclick="attPickerYear-=12;renderAttYearPicker()">更早</button>'+
+      '<button type="button" class="primary" onclick="attPickerYear+=12;renderAttYearPicker()">更晚</button>'+
+    '</div>';
+}
+function attPickYear(year){
+  attPickerYear=year;
+  attYearPickerOpen=false;
+  renderAttDatePicker();
 }
 function pickAttDate(dateStr){
   setDate(dateStr);
@@ -3423,6 +3481,7 @@ const SCH_DAYS=["日","一","二","三","四","五","六"];
 let schYear=new Date().getFullYear();
 let schMonth=new Date().getMonth();
 let schSelectedDate=localDateStr();
+let schYearPickerOpen=false;
 
 function schInitCalendar(){
   const cfg=bkLoadCfg();
@@ -3444,6 +3503,7 @@ function schMonthText(){
 }
 
 function schOpenMonthPicker(){
+  schYearPickerOpen=false;
   schRenderMonthPicker();
   openSheet('sheet-schMonthPicker');
 }
@@ -3451,12 +3511,43 @@ function schOpenMonthPicker(){
 function schRenderMonthPicker(){
   const yearEl=document.getElementById('sch-picker-year');
   const monthsEl=document.getElementById('sch-picker-months');
+  const monthPanel=document.getElementById('sch-picker-month-panel');
+  const yearsEl=document.getElementById('sch-picker-years');
   if(yearEl) yearEl.textContent=schYear+' 年';
+  if(monthPanel) monthPanel.style.display=schYearPickerOpen?'none':'block';
+  if(yearsEl) yearsEl.style.display=schYearPickerOpen?'block':'none';
+  if(schYearPickerOpen){
+    schRenderYearPicker();
+    return;
+  }
   if(monthsEl){
     monthsEl.innerHTML=Array.from({length:12},(_,i)=>
       '<button type="button" class="month-picker-btn '+(i===schMonth?'active':'')+'" onclick="schPickMonth('+i+')">'+(i+1)+'月</button>'
     ).join('');
   }
+}
+function schToggleYearPicker(){
+  schYearPickerOpen=!schYearPickerOpen;
+  schRenderMonthPicker();
+}
+function schRenderYearPicker(){
+  const yearsEl=document.getElementById('sch-picker-years');
+  if(!yearsEl) return;
+  const start=schYear-5;
+  const years=Array.from({length:12},(_,i)=>start+i);
+  yearsEl.innerHTML=
+    '<div class="picker-year-grid">'+years.map(y=>
+      '<button type="button" class="picker-year-btn '+(y===schYear?'active':'')+'" onclick="schPickYear('+y+')">'+y+'</button>'
+    ).join('')+'</div>'+
+    '<div class="picker-year-actions">'+
+      '<button type="button" class="muted" onclick="schYear-=12;schRenderYearPicker()">更早</button>'+
+      '<button type="button" class="primary" onclick="schYear+=12;schRenderYearPicker()">更晚</button>'+
+    '</div>';
+}
+function schPickYear(year){
+  schYear=year;
+  schYearPickerOpen=false;
+  schRenderMonthPicker();
 }
 
 function schPickerShiftYear(n){
