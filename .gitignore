@@ -1,0 +1,6 @@
+tools/
+archive_versions/
+extracted_v*/
+current_release/
+*.zip
+
