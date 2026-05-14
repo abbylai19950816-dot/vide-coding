@@ -191,7 +191,7 @@ body{font-family:'Chiron GoRound TC',sans-serif;background:var(--sand);color:var
 .pay-card.unpaid{border-color:#f0b8ba}
 .pay-info{flex:1;min-width:0}
 .pay-name-row{display:flex;align-items:baseline;gap:8px;min-width:0;flex-wrap:wrap}
-.pay-name{font-size:15px;font-weight:700;color:var(--ink)}
+.pay-name{font-size:15px;font-weight:500}
 .pay-phone{font-size:12px;color:var(--ink-mid);font-weight:400}
 .pay-meta{font-size:12px;color:var(--ink-mid);margin-top:2px}
 .pay-right{text-align:right;flex-shrink:0}
@@ -2401,7 +2401,7 @@ function renderPayRecords(){
   mp.forEach(p=>{ if(!byDate[p.date]) byDate[p.date]=[]; byDate[p.date].push(p); });
   wrap.innerHTML=Object.entries(byDate).map(([date,pays])=>{
     const dayTotal=pays.filter(p=>p.status==='paid').reduce((s,p)=>s+p.amount,0);
-    return `<div class="section-label">${fmtDateShort(date)}${dayTotal?' 已收 NT$ '+dayTotal.toLocaleString():''}</div>`+pays.map(p=>`<div class="pay-card ${p.status==='unpaid'?'unpaid':''}" onclick="openPayDetail(${p.id})"><div class="avatar av42 ${p.color}">${p.studentName.slice(0,1)}</div><div class="pay-info"><div class="pay-name-row"><span class="pay-name">${p.studentName}</span><span class="pay-phone">${formatAdminPhone(paymentPhone(p,phoneByStudentId))}</span></div><div class="pay-meta">${p.item}</div></div><div class="pay-right"><div class="pay-amount">NT$ ${p.amount.toLocaleString()}</div></div></div>`).join('');
+    return `<div class="section-label">${fmtDateShort(date)}${dayTotal?' 已收 NT$ '+dayTotal.toLocaleString():''}</div>`+pays.map(p=>`<div class="pay-card ${p.status==='unpaid'?'unpaid':''}" onclick="openPayDetail(${p.id})"><div class="avatar av42 ${p.color}">${p.studentName.slice(0,1)}</div><div class="pay-info"><div class="pay-name-row"><span class="pay-name">${p.studentName}</span><span class="pay-phone">${formatAdminPhone(paymentPhone(p,phoneByStudentId))}</span></div><div class="pay-meta">${p.item}</div></div><div class="pay-right"><div class="pay-amount">NT$ ${p.amount.toLocaleString()}</div><div class="pay-badge ${p.status==='paid'?'pb-paid':'pb-unpaid'}">${p.status==='paid'?'已收款':'待收款'}</div></div></div>`).join('');
   }).join('');
 }
 function renderReport(){
@@ -2436,7 +2436,7 @@ function renderUnpaid(){
   const wrap=document.getElementById('fin-list');
   if(!all.length){wrap.innerHTML=`<div class="empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg><p>太好了！<br>目前沒有待收款</p></div>`;return}
   const phoneByStudentId=createStudentPhoneLookup(loadStudents());
-  wrap.innerHTML=all.map(p=>`<div class="unpaid-card" onclick="openPayDetail(${p.id})"><div class="unpaid-top"><div class="avatar av42 ${p.color}">${p.studentName.slice(0,1)}</div><div class="unpaid-info"><div class="pay-name-row"><span class="pay-name">${p.studentName}</span><span class="pay-phone">${formatAdminPhone(paymentPhone(p,phoneByStudentId))}</span></div><div class="unpaid-desc">${p.item}</div></div><div><div class="unpaid-amount">NT$ ${p.amount.toLocaleString()}</div></div></div><button class="btn-mark-paid" onclick="event.stopPropagation();markPaid(${p.id})">標記為已收款</button></div>`).join('');
+  wrap.innerHTML=all.map(p=>`<div class="unpaid-card" onclick="openPayDetail(${p.id})"><div class="unpaid-top"><div class="avatar av42 ${p.color}">${p.studentName.slice(0,1)}</div><div class="unpaid-info"><div class="pay-name-row"><span class="pay-name">${p.studentName}</span><span class="pay-phone">${formatAdminPhone(paymentPhone(p,phoneByStudentId))}</span></div><div class="unpaid-desc">${p.item}</div></div><div class="pay-right"><div class="unpaid-amount">NT$ ${p.amount.toLocaleString()}</div><div class="pay-badge pb-unpaid">待收款</div></div></div><button class="btn-mark-paid" onclick="event.stopPropagation();markPaid(${p.id})">標記為已收款</button></div>`).join('');
 }
 function openPayAdd(){
   const students=loadStudents();
