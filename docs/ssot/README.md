@@ -9,7 +9,7 @@ This folder is the single source of truth for product, data, deployment, and ope
 - Archived historical packages: `archive_versions`
 - Student-facing entry: `github_pages/index.html`
 - Admin entry: `github_pages/admin.html`
-- Firestore rules: `firestore.rules`
+- Firestore rules: `active/gyrobooking_current/firestore.rules`
 
 ## Required SSOT Files
 
@@ -19,4 +19,3 @@ This folder is the single source of truth for product, data, deployment, and ope
 - `decision_log.md`: important architecture decisions and why they were made.
 
 When a file change modifies behavior, data shape, deployment, security, or cost, update the matching SSOT file in the same work session.
-

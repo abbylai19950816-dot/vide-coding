@@ -19,4 +19,4 @@ Gyrobooking is a low-cost Pilates booking system for:
 - Keep private data off the public student read path.
 - Keep booking correctness inside Firestore transaction boundaries.
 - Use docs as SSOT when code behavior changes.
-
+- 日期與時間判斷以使用者裝置當地時間為準；不要在前端硬加固定 UTC+8。

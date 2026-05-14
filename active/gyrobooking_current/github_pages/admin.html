@@ -1919,7 +1919,7 @@ function saveTicket(){
   const status=document.getElementById('ft-status').value;
   const expDate=new Date(boughtDate+'T00:00:00');
   expDate.setDate(expDate.getDate()+validDays);
-  const expireDate=expDate.toISOString().split('T')[0];
+  const expireDate=localDateStr(expDate);
   const tickets=loadTickets();
   const tktId=Date.now();
   tickets.push({id:tktId,studentId:studentId,studentName:student.name,color:student.color||'c0',typeName:type?.name||'',planName:plan?.name||'',type:sessions,total:sessions,left:sessions,price:price,boughtDate:boughtDate,expireDate:expireDate,log:[{date:boughtDate,action:'buy'}]});
@@ -1981,8 +1981,8 @@ function shiftDate(n){
 }
 function updateDateLabel(){
   const t=todayStr();
-  const yd=new Date(t+'T00:00:00'); yd.setDate(yd.getDate()-1); const yesterday=yd.toISOString().split('T')[0];
-  const tom=new Date(t+'T00:00:00'); tom.setDate(tom.getDate()+1); const tomorrow=tom.toISOString().split('T')[0];
+  const yd=new Date(t+'T00:00:00'); yd.setDate(yd.getDate()-1); const yesterday=localDateStr(yd);
+  const tom=new Date(t+'T00:00:00'); tom.setDate(tom.getDate()+1); const tomorrow=localDateStr(tom);
   const d=new Date(attDate+'T00:00:00');
   document.getElementById('att-dateLabel').textContent=attDate===t?'今天':`${d.getMonth()+1}月${d.getDate()}日`;
   document.getElementById('att-dateSub').textContent=`${d.getFullYear()}/${d.getMonth()+1}/${d.getDate()}（${DAYS[d.getDay()]}）`;
@@ -2178,7 +2178,7 @@ function createClass(){
 /* ══════════════════════════════════
    FINANCE
 ══════════════════════════════════ */
-let finTab='records', finYear=new Date(Date.now()+8*3600000).getFullYear(), finMonth=new Date(Date.now()+8*3600000).getMonth();
+let finTab='records', finYear=new Date().getFullYear(), finMonth=new Date().getMonth();
 function updateMonthLabel(){ document.getElementById('fin-monthLabel').textContent=`${finYear} 年 ${finMonth+1} 月`; }
 function shiftMonth(n){ finMonth+=n; if(finMonth>11){finMonth=0;finYear++;} if(finMonth<0){finMonth=11;finYear--;} updateMonthLabel(); renderFinance(); }
 function monthPayments(){ return loadPayments().filter(p=>{ const d=new Date(p.date+'T00:00:00'); return d.getFullYear()===finYear&&d.getMonth()===finMonth; }); }
@@ -2330,7 +2330,7 @@ function createTicketFromPayment(p){
     typeName,planName,
     type:plan.sessions,total:plan.sessions,left:plan.sessions,
     price:p.price||p.amount||0,boughtDate:p.date,
-    expireDate:expDate.toISOString().split('T')[0],
+    expireDate:localDateStr(expDate),
     log:[{date:p.date,action:'buy'}]
   });
   saveTickets(tickets);
@@ -3114,8 +3114,8 @@ function loadSlots(){ return _cacheGet("slots",[]); }
 // saveSlots defined below with Firebase sync
 
 const SCH_DAYS=["日","一","二","三","四","五","六"];
-let schYear=new Date(Date.now()+8*3600000).getFullYear();
-let schMonth=new Date(Date.now()+8*3600000).getMonth();
+let schYear=new Date().getFullYear();
+let schMonth=new Date().getMonth();
 let schSelectedDate=localDateStr();
 
 function schInitCalendar(){
@@ -3135,7 +3135,7 @@ function schShiftMonth(n){
 
 function schRenderCalendar(){
   // Build year/month selector
-  const yearOpts = Array.from({length:5},(_,i)=>{const y=new Date(Date.now()+8*3600000).getFullYear()-1+i; return `<option value="${y}" ${y===schYear?'selected':''}>${y}年</option>`;}).join('');
+  const yearOpts = Array.from({length:5},(_,i)=>{const y=new Date().getFullYear()-1+i; return `<option value="${y}" ${y===schYear?'selected':''}>${y}年</option>`;}).join('');
   const monthOpts = Array.from({length:12},(_,i)=>`<option value="${i}" ${i===schMonth?'selected':''}>${i+1}月</option>`).join('');
   document.getElementById("sch-monthLabel").innerHTML =
     `<select onchange="schYear=parseInt(this.value);schRenderCalendar()" style="border:none;background:transparent;font-size:15px;font-weight:600;font-family:inherit;cursor:pointer;outline:none">${yearOpts}</select>` +
@@ -3942,7 +3942,7 @@ window.reconcilePaidPaymentsToTickets = async function(){
       total:sessions,
       used:0,
       left:sessions,
-      buyDate:p.date||new Date(Date.now()+8*3600000).toISOString().slice(0,10),
+      buyDate:p.date||todayStr(),
       expireDate:p.expireDate||'',
       note:'由已收費紀錄補開'
     });
@@ -3970,7 +3970,7 @@ window.repairBookingsToStudentRecords = async function(){
   let students=arr('students');
   let tickets=arr('tickets');
   const slots=arr('slots');
-  const today=new Date(Date.now()+8*3600000).toISOString().slice(0,10);
+  const today=todayStr();
   let addedBookings=0, deducted=0;
 
   for(const slot of slots){

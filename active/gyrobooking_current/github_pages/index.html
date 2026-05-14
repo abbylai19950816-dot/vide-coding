@@ -185,6 +185,13 @@ const auth=getAuth(app);
 const DB_KEYS=['public_booking'];  // low-cost secure mode: student page reads public booking state only
 const FLAGS_DEFAULT={maintenanceMode:false,allowBooking:true,appVersion:'1.0.0'};
 let _flagsCache=null;
+function moduleLocalDateStr(d){
+  const t=d||new Date();
+  const y=t.getFullYear();
+  const m=String(t.getMonth()+1).padStart(2,'0');
+  const dd=String(t.getDate()).padStart(2,'0');
+  return y+'-'+m+'-'+dd;
+}
 window._fb={
   // Legacy get/set kept only for fallback; student page should not use students/payments/tickets.
   async get(key){
@@ -279,7 +286,7 @@ window._fb={
       const payments=paymentsSnap.exists() && Array.isArray(paymentsSnap.data().value) ? [...paymentsSnap.data().value] : [];
 
       const now=Date.now();
-      const today=new Date(Date.now()+8*3600000).toISOString().slice(0,10);
+      const today=moduleLocalDateStr();
       const phoneDigits=String(payload.phoneDigits||payload.phone||'').replace(/\D/g,'');
       const name=String(payload.name||'').trim();
       const social=String(payload.social||'').trim();
@@ -377,7 +384,7 @@ window._fb={
       if(currentLeft<slotIds.length) throw new Error('剩餘堂數不足');
 
       const now=Date.now();
-      const today=new Date(Date.now()+8*3600000).toISOString().slice(0,10);
+      const today=moduleLocalDateStr();
       const selectedSet=new Set(slotIds.map(String));
       const bookingRecords=[];
       let updatedCount=0;
@@ -890,7 +897,7 @@ function submitPurchase(){
   const plan=type?.plans.find(p=>p.id===selPlanId);
   if(!type||!plan){alert("請先選擇課程類型與方案");return;}
 
-  const today=new Date(Date.now()+8*3600000).toISOString().split('T')[0];
+  const today=localDateStr();
   const customFields={};
   for(const f of _fields){
     if(f.id==='name'||f.id==='phone'||f.id==='social'||f.id==='note') continue;
@@ -1144,7 +1151,7 @@ function resolveBookingStudent(b, students){
 function getRemainingTickets(){
   if(!verifiedName) return -1;
   try{
-    const now=new Date(Date.now()+8*3600000).toISOString().split('T')[0];
+    const now=localDateStr();
     const tickets=JSON.parse(localStorage.getItem('pilates_tickets')||'[]');
     const bkCfg=JSON.parse(localStorage.getItem('pilates_booking_cfg')||'{}');
     const norm=s=>(s||'').trim().toLowerCase();
