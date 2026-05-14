@@ -325,6 +325,7 @@ body{font-family:'Chiron GoRound TC',sans-serif;background:var(--sand);color:var
 .detail-hero-pay.paid{background:var(--paid-bg)}
 .detail-hero-pay.unpaid{background:var(--unpaid-bg)}
 .dhp-name{font-size:18px;font-weight:700;margin-bottom:4px}
+.dhp-phone{font-size:12px;color:var(--ink-mid);font-weight:500}
 .dhp-amount{font-size:48px;font-weight:700;line-height:1;margin:8px 0}
 .dhp-amount.paid{color:var(--paid)}
 .dhp-amount.unpaid{color:var(--unpaid)}
@@ -2019,7 +2020,7 @@ function saveTicket(){
   tickets.push({id:tktId,studentId:studentId,studentName:student.name,color:student.color||'c0',typeName:type?.name||'',planName:plan?.name||'',type:sessions,total:sessions,left:sessions,price:price,boughtDate:boughtDate,expireDate:expireDate,log:[{date:boughtDate,action:'buy'}]});
   saveTickets(tickets);
   const payments=loadPayments();
-  payments.push({id:tktId+1,studentId:studentId,studentName:student.name,color:student.color||'c0',item:(type?.name||'')+(plan?'・'+plan.name:''),originalAmount:price,discountAmount:0,discountReason:'',amount:price,date:boughtDate,method:method,status:status,note:''});
+  payments.push({id:tktId+1,studentId:studentId,studentName:student.name,phone:student.phone||'',color:student.color||'c0',item:(type?.name||'')+(plan?'・'+plan.name:''),originalAmount:price,discountAmount:0,discountReason:'',amount:price,date:boughtDate,method:method,status:status,note:''});
   savePayments(payments);
   renderStudents(); updateBadges();
   closeSubSheet('sheet-tktAdd');
@@ -2393,11 +2394,12 @@ function renderPayRecords(){
   const mp=monthPayments().sort((a,b)=>b.date.localeCompare(a.date));
   const wrap=document.getElementById('fin-list');
   if(!mp.length){wrap.innerHTML=`<div class="empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="3"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="3" x2="9" y2="21"/></svg><p>${finMonth+1} 月還沒有收費紀錄<br><span style="color:var(--sage);cursor:pointer" onclick="openPayAdd()">＋ 新增收費</span></p></div>`;return}
+  const phoneByStudentId=createStudentPhoneLookup(loadStudents());
   const byDate={};
   mp.forEach(p=>{ if(!byDate[p.date]) byDate[p.date]=[]; byDate[p.date].push(p); });
   wrap.innerHTML=Object.entries(byDate).map(([date,pays])=>{
     const dayTotal=pays.filter(p=>p.status==='paid').reduce((s,p)=>s+p.amount,0);
-    return `<div class="section-label">${fmtDateShort(date)}${dayTotal?' 已收 NT$ '+dayTotal.toLocaleString():''}</div>`+pays.map(p=>`<div class="pay-card ${p.status==='unpaid'?'unpaid':''}" onclick="openPayDetail(${p.id})"><div class="avatar av42 ${p.color}">${p.studentName.slice(0,1)}</div><div class="pay-info"><div class="pay-name">${p.studentName}</div><div class="pay-meta">${p.item}・${p.method}</div></div><div class="pay-right"><div class="pay-amount">NT$ ${p.amount.toLocaleString()}</div><div class="pay-badge ${p.status==='paid'?'pb-paid':'pb-unpaid'}">${p.status==='paid'?'已收':'待收'}</div></div></div>`).join('');
+    return `<div class="section-label">${fmtDateShort(date)}${dayTotal?' 已收 NT$ '+dayTotal.toLocaleString():''}</div>`+pays.map(p=>`<div class="pay-card ${p.status==='unpaid'?'unpaid':''}" onclick="openPayDetail(${p.id})"><div class="avatar av42 ${p.color}">${p.studentName.slice(0,1)}</div><div class="pay-info"><div class="pay-name">${p.studentName}</div><div class="pay-meta">${formatAdminPhone(paymentPhone(p,phoneByStudentId))}・${p.item}・${p.method}</div></div><div class="pay-right"><div class="pay-amount">NT$ ${p.amount.toLocaleString()}</div><div class="pay-badge ${p.status==='paid'?'pb-paid':'pb-unpaid'}">${p.status==='paid'?'已收':'待收'}</div></div></div>`).join('');
   }).join('');
 }
 function renderReport(){
@@ -2415,8 +2417,9 @@ function renderReport(){
   mp.forEach(p=>{ items[p.item]=(items[p.item]||0)+p.amount; });
   const itemRows=Object.entries(items).sort((a,b)=>b[1]-a[1]).map(([n,v])=>`<div class="info-row"><span class="info-label">${n}</span><span class="info-val" style="text-align:right;font-weight:500">NT$ ${v.toLocaleString()}</span></div>`).join('');
   const stuMap={};
-  mp.forEach(p=>{ if(!stuMap[p.studentId]) stuMap[p.studentId]={name:p.studentName,color:p.color,total:0,count:0}; stuMap[p.studentId].total+=p.amount; stuMap[p.studentId].count++; });
-  const stuRows=Object.values(stuMap).sort((a,b)=>b.total-a.total).map(s=>`<div class="pay-card" style="margin-bottom:6px"><div class="avatar av42 ${s.color}">${s.name.slice(0,1)}</div><div class="pay-info"><div class="pay-name">${s.name}</div><div class="pay-meta">${s.count} 筆收費</div></div><div class="pay-right"><div class="pay-amount">NT$ ${s.total.toLocaleString()}</div></div></div>`).join('');
+  const phoneByStudentId=createStudentPhoneLookup(loadStudents());
+  mp.forEach(p=>{ const key=String(p.studentId||p.studentName); if(!stuMap[key]) stuMap[key]={name:p.studentName,phone:paymentPhone(p,phoneByStudentId),color:p.color,total:0,count:0}; stuMap[key].total+=p.amount; stuMap[key].count++; });
+  const stuRows=Object.values(stuMap).sort((a,b)=>b.total-a.total).map(s=>`<div class="pay-card" style="margin-bottom:6px"><div class="avatar av42 ${s.color}">${s.name.slice(0,1)}</div><div class="pay-info"><div class="pay-name">${s.name}</div><div class="pay-meta">${formatAdminPhone(s.phone)}・${s.count} 筆收費</div></div><div class="pay-right"><div class="pay-amount">NT$ ${s.total.toLocaleString()}</div></div></div>`).join('');
   document.getElementById('fin-list').innerHTML=`
     <div class="chart-wrap"><div class="chart-title">近六個月收入</div><div class="bar-rows">${monthlyData.map(m=>`<div class="bar-row"><span class="bar-label">${m.label}</span><div class="bar-track"><div class="bar-fill" style="width:${Math.round(m.total/maxVal*100)}%"></div></div><span class="bar-val">${m.total?'$'+(m.total/1000).toFixed(1)+'k':'—'}</span></div>`).join('')}</div></div>
     <div class="chart-wrap"><div class="chart-title">收款方式分布（累計）</div><div class="method-rows">${methodRows||'<div style="font-size:13px;color:var(--ink-mid)">還沒有資料</div>'}</div></div>
@@ -2430,12 +2433,13 @@ function renderUnpaid(){
   const all=loadPayments().filter(p=>p.status==='unpaid').sort((a,b)=>a.date.localeCompare(b.date));
   const wrap=document.getElementById('fin-list');
   if(!all.length){wrap.innerHTML=`<div class="empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg><p>太好了！<br>目前沒有待收款</p></div>`;return}
+  const phoneByStudentId=createStudentPhoneLookup(loadStudents());
   const t=todayStr();
-  wrap.innerHTML=all.map(p=>{ const diff=Math.floor((new Date(t)-new Date(p.date+'T00:00:00'))/(86400000)); return `<div class="unpaid-card" onclick="openPayDetail(${p.id})"><div class="unpaid-top"><div class="avatar av42 ${p.color}">${p.studentName.slice(0,1)}</div><div class="unpaid-info"><div class="unpaid-name">${p.studentName}</div><div class="unpaid-desc">${p.item}・${p.method}${p.note?'・'+p.note:''}</div></div><div><div class="unpaid-amount">NT$ ${p.amount.toLocaleString()}</div><div class="unpaid-days">${diff>0?diff+'天前':'今天'}</div></div></div><button class="btn-mark-paid" onclick="event.stopPropagation();markPaid(${p.id})">標記為已收款</button></div>`; }).join('');
+  wrap.innerHTML=all.map(p=>{ const diff=Math.floor((new Date(t)-new Date(p.date+'T00:00:00'))/(86400000)); return `<div class="unpaid-card" onclick="openPayDetail(${p.id})"><div class="unpaid-top"><div class="avatar av42 ${p.color}">${p.studentName.slice(0,1)}</div><div class="unpaid-info"><div class="unpaid-name">${p.studentName}</div><div class="unpaid-desc">${formatAdminPhone(paymentPhone(p,phoneByStudentId))}・${p.item}・${p.method}${p.note?'・'+p.note:''}</div></div><div><div class="unpaid-amount">NT$ ${p.amount.toLocaleString()}</div><div class="unpaid-days">${diff>0?diff+'天前':'今天'}</div></div></div><button class="btn-mark-paid" onclick="event.stopPropagation();markPaid(${p.id})">標記為已收款</button></div>`; }).join('');
 }
 function openPayAdd(){
   const students=loadStudents();
-  document.getElementById('fp-student').innerHTML=students.length?students.map(s=>`<option value="${s.id}">${s.name}${s.phone?'（'+s.phone+'）':''}</option>`).join(''):'<option>（請先新增學員）</option>';
+  document.getElementById('fp-student').innerHTML=students.length?students.map(s=>`<option value="${s.id}">${s.name}（${formatAdminPhone(s.phone)}）</option>`).join(''):'<option>（請先新增學員）</option>';
   document.getElementById('fp-item').value='10堂套票';
   document.getElementById('fp-amount').value='3000';
   document.getElementById('fp-date').value=todayStr();
@@ -2453,6 +2457,25 @@ function paymentDiscountAmount(p){
 }
 function paymentNetAmount(p){
   return Math.max(0,paymentOriginalAmount(p)-paymentDiscountAmount(p));
+}
+function digitsOnly(value){
+  return String(value||'').replace(/\D/g,'');
+}
+function formatAdminPhone(phone){
+  const raw=String(phone||'').trim();
+  const digits=digitsOnly(raw);
+  if(!digits) return '未留手機';
+  if(digits.length===10) return digits.replace(/(\d{4})(\d{3})(\d{3})/,'$1-$2-$3');
+  return raw||digits;
+}
+function createStudentPhoneLookup(students){
+  return (students||[]).reduce((map,s)=>{
+    map[String(s.id)]=s.phone||'';
+    return map;
+  },{});
+}
+function paymentPhone(p, phoneByStudentId){
+  return (p&&p.phone)||phoneByStudentId?.[String(p&&p.studentId)]||'';
 }
 function savePayment(){
   const sid=document.getElementById('fp-student').value;
@@ -2604,14 +2627,17 @@ window.openPayDetail=function(id){
   const netAmount=paymentNetAmount(p);
   const statusClass=p.status==='paid'?'paid':'unpaid';
   const statusText=p.status==='paid'?'已收款':'待收款';
+  const phoneText=formatAdminPhone(paymentPhone(p,createStudentPhoneLookup(loadStudents())));
   const detailId=Number.isFinite(Number(p.id))?String(Number(p.id)):JSON.stringify(String(p.id));
   document.getElementById('sheet-payDetail-body').innerHTML=`
     <div class="detail-hero-pay ${statusClass}">
       <div class="dhp-name">${escapeHtml(p.studentName)}</div>
+      <div class="dhp-phone">${escapeHtml(phoneText)}</div>
       <div class="dhp-amount ${statusClass}">NT$ ${netAmount.toLocaleString()}</div>
       <div class="dhp-sub">${escapeHtml(p.item)}・${statusText}</div>
     </div>
     <div class="pay-summary-card">
+      <div class="pay-summary-row"><span>手機</span><span>${escapeHtml(phoneText)}</span></div>
       <div class="pay-summary-row"><span>收費日期</span><span>${escapeHtml(p.date)}</span></div>
       <div class="pay-summary-row"><span>付款方式</span><span>${escapeHtml(p.method)}</span></div>
       <div class="pay-summary-row"><span>狀態</span><span style="color:${statusClass==='paid'?'var(--paid)':'var(--unpaid)'};font-weight:600">${statusText}</span></div>
