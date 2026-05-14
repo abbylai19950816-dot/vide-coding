@@ -15,6 +15,7 @@ This folder is the single source of truth for product, data, deployment, and ope
 
 - `product_scope.md`: product goals, user roles, booking rules.
 - `data_model.md`: Firestore documents, localStorage cache keys, ownership of each data field.
+- `security_and_tenancy_plan.md`: Firestore rules, student privacy, public mirror, and future multi-teacher tenant isolation plan.
 - `release_process.md`: how to package, upload, deploy, and verify.
 - `decision_log.md`: important architecture decisions and why they were made.
 

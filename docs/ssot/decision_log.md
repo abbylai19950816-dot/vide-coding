@@ -17,3 +17,9 @@ Reason: future edits must remember Firestore read/write cost, student/admin data
 Decision: student purchase dates, booking ticket deductions, admin calendar month defaults, attendance quick dates, and ticket expiration calculations should use the user's device local time.
 
 Reason: the maintainer may be in Taiwan, but students/admins can open the system from other time zones such as Japan. Fixed UTC+8 offsets and `toISOString()` date slicing can shift dates incorrectly.
+
+## 2026-05-14: Separate Public Mirror From Private Tenant Data
+
+Decision: student-facing devices should read only public mirror documents plus one direct `student_lookup` document, while private student/payment/ticket/attendance data should become admin-only and tenant-scoped.
+
+Reason: students may use many devices and must see the latest schedule, but student personal data must not leak. Future multi-teacher support also requires tenant isolation so teachers cannot read each other's students.
