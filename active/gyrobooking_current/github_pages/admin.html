@@ -1936,7 +1936,7 @@ function saveTicket(){
   tickets.push({id:tktId,studentId:studentId,studentName:student.name,color:student.color||'c0',typeName:type?.name||'',planName:plan?.name||'',type:sessions,total:sessions,left:sessions,price:price,boughtDate:boughtDate,expireDate:expireDate,log:[{date:boughtDate,action:'buy'}]});
   saveTickets(tickets);
   const payments=loadPayments();
-  payments.push({id:tktId+1,studentId:studentId,studentName:student.name,color:student.color||'c0',item:(type?.name||'')+(plan?'・'+plan.name:''),amount:price,date:boughtDate,method:method,status:status,note:''});
+  payments.push({id:tktId+1,studentId:studentId,studentName:student.name,color:student.color||'c0',item:(type?.name||'')+(plan?'・'+plan.name:''),originalAmount:price,discountAmount:0,discountReason:'',amount:price,date:boughtDate,method:method,status:status,note:''});
   savePayments(payments);
   renderStudents(); updateBadges();
   closeSubSheet('sheet-tktAdd');
@@ -2277,6 +2277,15 @@ function openPayAdd(){
   openSheet('sheet-payAdd');
 }
 function payAutoPrice(){ const p=DEFAULT_PRICES[document.getElementById('fp-item').value]; if(p!=='') document.getElementById('fp-amount').value=p; }
+function paymentOriginalAmount(p){
+  return Number(p.originalAmount!=null?p.originalAmount:(p.amount||0));
+}
+function paymentDiscountAmount(p){
+  return Number(p.discountAmount!=null?p.discountAmount:Math.max(0,paymentOriginalAmount(p)-Number(p.amount||0)));
+}
+function paymentNetAmount(p){
+  return Math.max(0,paymentOriginalAmount(p)-paymentDiscountAmount(p));
+}
 function savePayment(){
   const sid=document.getElementById('fp-student').value;
   if(!sid){toast('請選擇學員');return}
@@ -2286,7 +2295,7 @@ function savePayment(){
   const amount=parseInt(document.getElementById('fp-amount').value)||0;
   if(!amount){toast('請填寫金額');return}
   const payments=loadPayments();
-  payments.push({id:Date.now(),studentId:stu.id,studentName:stu.name,phone:stu.phone||'',color:stu.color||'c0',item:document.getElementById('fp-item').value,amount,date:document.getElementById('fp-date').value,method:document.getElementById('fp-method').value,status:document.getElementById('fp-status').value,note:document.getElementById('fp-note').value.trim()});
+  payments.push({id:Date.now(),studentId:stu.id,studentName:stu.name,phone:stu.phone||'',color:stu.color||'c0',item:document.getElementById('fp-item').value,originalAmount:amount,discountAmount:0,discountReason:'',amount,date:document.getElementById('fp-date').value,method:document.getElementById('fp-method').value,status:document.getElementById('fp-status').value,note:document.getElementById('fp-note').value.trim()});
   savePayments(payments);
   closeSheets(); renderFinance(); updateBadges();
   toast('✓ 已新增收費紀錄');
@@ -2295,6 +2304,9 @@ function openPayDetail(id){
   const payments=loadPayments();
   const p=payments.find(p=>p.id===id);
   if(!p) return;
+  const originalAmount=paymentOriginalAmount(p);
+  const discountAmount=paymentDiscountAmount(p);
+  const netAmount=paymentNetAmount(p);
   document.getElementById('sheet-payDetail-body').innerHTML=`
     <div class="detail-hero-pay ${p.status}"><div class="dhp-name">${p.studentName}</div><div class="dhp-amount ${p.status}">NT$ ${p.amount.toLocaleString()}</div><div class="dhp-sub">${p.item}・${p.status==='paid'?'已收款':'待收款'}</div></div>
     <div class="info-row"><span class="info-label">收款日</span><span class="info-val">${p.date}</span></div>
@@ -2378,6 +2390,82 @@ function deletePayment(id){
 /* ══════════════════════════════════
    BOOKING PAGE
 ══════════════════════════════════ */
+window.savePaymentDiscount=function(id){
+  const payments=loadPayments();
+  const p=payments.find(function(item){return String(item.id)===String(id);});
+  if(!p) return;
+  const originalInput=document.getElementById('pay-original');
+  const discountInput=document.getElementById('pay-discount');
+  const reasonInput=document.getElementById('pay-discount-reason');
+  const original=Math.max(0,parseInt(originalInput?.value||'0',10)||0);
+  const rawDiscount=parseInt(discountInput?.value||'0',10)||0;
+  const discount=Math.min(original,Math.max(0,rawDiscount));
+  p.originalAmount=original;
+  p.discountAmount=discount;
+  p.discountReason=(reasonInput?.value||'').trim();
+  p.amount=original-discount;
+  if(p.status==='paid'){
+    const tickets=loadTickets();
+    let ticketChanged=false;
+    tickets.forEach(function(t){
+      if(String(t.paymentId||'')===String(p.id)||String(t.sourcePaymentId||'')===String(p.id)){
+        t.price=p.amount;
+        ticketChanged=true;
+      }
+    });
+    if(ticketChanged) saveTickets(tickets);
+  }
+  savePayments(payments);
+  renderFinance();
+  updateBadges();
+  openPayDetail(id);
+  toast('已儲存優惠');
+};
+
+window.openPayDetail=function(id){
+  const payments=loadPayments();
+  const p=payments.find(function(item){return String(item.id)===String(id);});
+  if(!p) return;
+  const escapeHtml=function(value){
+    return String(value??'').replace(/[&<>"']/g,function(ch){
+      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch];
+    });
+  };
+  const originalAmount=paymentOriginalAmount(p);
+  const discountAmount=paymentDiscountAmount(p);
+  const netAmount=paymentNetAmount(p);
+  const statusClass=p.status==='paid'?'paid':'unpaid';
+  const statusText=p.status==='paid'?'已收款':'待收款';
+  const detailId=Number.isFinite(Number(p.id))?String(Number(p.id)):JSON.stringify(String(p.id));
+  document.getElementById('sheet-payDetail-body').innerHTML=`
+    <div class="detail-hero-pay ${statusClass}">
+      <div class="dhp-name">${escapeHtml(p.studentName)}</div>
+      <div class="dhp-amount ${statusClass}">NT$ ${netAmount.toLocaleString()}</div>
+      <div class="dhp-sub">${escapeHtml(p.item)}・${statusText}</div>
+    </div>
+    <div class="info-row"><span class="info-label">日期</span><span class="info-val">${escapeHtml(p.date)}</span></div>
+    <div class="info-row"><span class="info-label">付款方式</span><span class="info-val">${escapeHtml(p.method)}</span></div>
+    <div class="info-row"><span class="info-label">狀態</span><span class="info-val" style="color:${statusClass==='paid'?'var(--paid)':'var(--unpaid)'};font-weight:500">${statusText}</span></div>
+    <div class="info-row"><span class="info-label">原價</span><span class="info-val">NT$ ${originalAmount.toLocaleString()}</span></div>
+    <div class="info-row"><span class="info-label">優惠折抵</span><span class="info-val">NT$ ${discountAmount.toLocaleString()}</span></div>
+    <div class="info-row"><span class="info-label">實收金額</span><span class="info-val">NT$ ${netAmount.toLocaleString()}</span></div>
+    ${p.discountReason?`<div class="info-row"><span class="info-label">優惠原因</span><span class="info-val">${escapeHtml(p.discountReason)}</span></div>`:''}
+    ${p.note?`<div class="info-row"><span class="info-label">備註</span><span class="info-val">${escapeHtml(p.note)}</span></div>`:''}
+    <div class="form-section" style="margin-top:14px">
+      <div class="form-label">客製化優惠</div>
+      <input id="pay-original" type="number" min="0" step="1" value="${originalAmount}">
+      <div class="form-label" style="margin-top:10px">折抵金額</div>
+      <input id="pay-discount" type="number" min="0" step="1" value="${discountAmount}">
+      <div class="form-label" style="margin-top:10px">優惠原因</div>
+      <textarea id="pay-discount-reason" rows="2" placeholder="例：舊生優惠、活動折扣、朋友同行">${escapeHtml(p.discountReason||'')}</textarea>
+      <button class="big-btn" onclick="savePaymentDiscount(${detailId})" style="margin-top:12px">儲存優惠</button>
+    </div>
+    <button class="big-btn ${p.status==='unpaid'?'green':'unpaid-outline'}" onclick="togglePayStatus(${detailId})" style="margin-top:12px">${p.status==='unpaid'?'標記為已收款':'改回待收款'}</button>
+    <button class="btn-danger" onclick="deletePayment(${detailId})">刪除收費紀錄</button>
+  `;
+  openSheet('sheet-payDetail');
+};
+
 // Safer overrides for production flows. Kept here to avoid touching legacy UI markup.
 cancelStudentBooking = function(studentId, slotId, evt){
   if(evt) evt.stopPropagation();
@@ -3668,7 +3756,7 @@ async function importPurchaseRequests(){
       if(!stu.line && r.social) stu.line=r.social;
       if(r.note && !stu.notes) stu.notes=r.note;
     }
-    payments.push({id:Date.now()+1000+imported,sourceRequestId:r.id,studentId:stu.id,studentName:stu.name,phone:stu.phone||r.phone||phoneDigits,color:stu.color||'c0',item:(r.typeName||'課程')+'・'+(r.planName||'方案'),typeId:r.typeId||null,typeName:r.typeName||'',planId:r.planId||null,planName:r.planName||'',sessions:Number(r.sessions||0),amount:Number(r.amount||0),date:r.date||todayStr(),method:'待收款',status:'unpaid',note:'購課申請自動匯入'+(r.social?' LINE/Instagram：'+r.social:'')+(r.note?' '+r.note:'')});
+    payments.push({id:Date.now()+1000+imported,sourceRequestId:r.id,studentId:stu.id,studentName:stu.name,phone:stu.phone||r.phone||phoneDigits,color:stu.color||'c0',item:(r.typeName||'課程')+'・'+(r.planName||'方案'),typeId:r.typeId||null,typeName:r.typeName||'',planId:r.planId||null,planName:r.planName||'',sessions:Number(r.sessions||0),originalAmount:Number(r.amount||0),discountAmount:0,discountReason:'',amount:Number(r.amount||0),date:r.date||todayStr(),method:'待收款',status:'unpaid',note:'購課申請自動匯入'+(r.social?' LINE/Instagram：'+r.social:'')+(r.note?' '+r.note:'')});
     await window._fb.deleteDocPath(['purchase_requests',item.id]);
     imported++;
   }

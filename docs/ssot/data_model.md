@@ -53,6 +53,24 @@ Rules:
 - Student page should not bulk-read these documents for normal display.
 - Booking transaction may touch only the required documents until a backend exists.
 
+#### `/data/payments` discount fields
+
+Payment records store the actual receivable amount after any custom discount. Course plans remain the source for sessions and validity; discounts must not change ticket sessions.
+
+Expected payment amount fields:
+
+- `originalAmount`: original course/package price before discount.
+- `discountAmount`: custom discount amount. Clamp to `0 <= discountAmount <= originalAmount`.
+- `discountReason`: short admin note for the custom offer, such as old-student discount, event offer, or friend referral.
+- `amount`: net receivable amount after discount, calculated as `originalAmount - discountAmount`.
+
+Rules:
+
+- Admin payment detail may edit discount fields.
+- If a paid payment already created a linked ticket, updating the discount only updates the linked ticket `price`; it does not create another ticket and does not change `total`, `left`, `expireDate`, or plan identity.
+- Student purchase requests still submit the public plan amount only. Admin imports them as unpaid payments with `discountAmount: 0`; any custom offer is applied later by admin.
+- No student page reads or writes are added for discounts.
+
 ### `purchase_requests/{requestId}`
 
 Public create-only buffer for student purchase submissions.
