@@ -1232,16 +1232,18 @@ const METHOD_COLORS = {'現金':'#5a97b8','轉帳':'#8a7fc2','Line Pay':'#7a9e87
 const DEFAULT_PRICES = {'10堂套票':3000,'20堂套票':5500,'5堂套票':1600,'單堂':400,'月費':2800,'其他':''};
 
 function localDateStr(d){
-  // Always use UTC+8 (Taiwan time), not UTC
   const t = d || new Date();
-  const tw = new Date(t.getTime() + 8*60*60*1000);
-  return tw.toISOString().split('T')[0];
+  const y=t.getFullYear();
+  const m=String(t.getMonth()+1).padStart(2,'0');
+  const dd=String(t.getDate()).padStart(2,'0');
+  return y+'-'+m+'-'+dd;
 }
 function todayStr(){ return localDateStr(); }
 function localDateTimeKey(d){
   const t = d || new Date();
-  const tw = new Date(t.getTime() + 8*60*60*1000);
-  return tw.toISOString().slice(0,16);
+  const hh=String(t.getHours()).padStart(2,'0');
+  const mm=String(t.getMinutes()).padStart(2,'0');
+  return localDateStr(t)+'T'+hh+':'+mm;
 }
 function normalizeTimeKey(v){
   const m = String(v||'00:00').match(/(\d{1,2}):(\d{2})/);
@@ -1253,6 +1255,24 @@ function scheduledBookingDateTimeKey(booking, slots){
   const date = String((slot&&slot.date)||booking.date||'');
   const time = normalizeTimeKey((slot&&slot.time)||booking.time);
   return date ? (date+'T'+time) : '';
+}
+function slotDateTimeKey(slot){
+  const date = String(slot?.date||'');
+  const time = normalizeTimeKey(slot?.time);
+  return date ? (date+'T'+time) : '';
+}
+function classDateTimeKey(cls){
+  const date = String(cls?.date||'');
+  const time = normalizeTimeKey(cls?.time);
+  return date ? (date+'T'+time) : '';
+}
+function isFutureSlot(slot){
+  const key = slotDateTimeKey(slot);
+  return key && key > localDateTimeKey();
+}
+function isPastOrStartedClass(cls){
+  const key = classDateTimeKey(cls);
+  return key && key <= localDateTimeKey();
 }
 function isFutureScheduledBooking(booking, slots){
   const key = scheduledBookingDateTimeKey(booking, slots);
@@ -1471,9 +1491,8 @@ function openStudentDetail(id){
   classes.forEach(function(c){const m=c.members.find(function(m){return String(m.studentId)===sid||(String(m.studentId).startsWith("ext-")&&m.studentName===s.name);});if(m)attCounts[m.status]=(attCounts[m.status]||0)+1;});
   const attTotal=classes.length;
   const absentCount=(attCounts.absent||0)+(attCounts.leave||0); const attRate=attTotal?Math.round(attCounts.present/attTotal*100):0; const absRate=attTotal?Math.round(absentCount/attTotal*100):0;
-  const today=todayStr();
   const allStudClasses=loadClasses().filter(function(c){return c.members.some(function(m){return String(m.studentId)===sid||(String(m.studentId).startsWith("ext-")&&m.studentName===s.name);});});
-  const recentClasses=allStudClasses.filter(cl=>cl.date<=today).sort((a,b)=>b.date.localeCompare(a.date)).slice(0,3);
+  const recentClasses=allStudClasses.filter(isPastOrStartedClass).sort((a,b)=>classDateTimeKey(b).localeCompare(classDateTimeKey(a))).slice(0,3);
   const SCH_D=['日','一','二','三','四','五','六'];
   document.getElementById('sheet-stuDetail-body').innerHTML=
     '<div class="avatar av72 '+s.color+'" style="display:flex">'+s.name.slice(0,1)+'</div>'+
@@ -1536,10 +1555,9 @@ function openStudentAllHistory(studentId){
   const STATUS_LBL={present:'到課',absent:'缺席',leave:'請假',makeup:'補課',pending:'待確認'};
   const allStudents = loadStudents();
   const s=allStudents.find(s=>String(s.id)===sid);
-  const today=todayStr();
   const allClasses = loadClasses();
-  const classes=allClasses.filter(cl=>cl.members.some(m=>String(m.studentId)===sid)&&cl.date<=today)
-    .sort((a,b)=>b.date.localeCompare(a.date));
+  const classes=allClasses.filter(cl=>cl.members.some(m=>String(m.studentId)===sid)&&isPastOrStartedClass(cl))
+    .sort((a,b)=>classDateTimeKey(b).localeCompare(classDateTimeKey(a)));
   const body=document.getElementById('sheet-stuDetail-body');
   const backBtn=`<button data-sid="${sid}" onclick="openStudentDetail(this.dataset.sid)" style="font-size:13px;color:var(--sage);background:none;border:none;cursor:pointer;font-family:inherit;padding:0 0 16px">← 返回</button>`;
   if(!classes.length){
@@ -1571,15 +1589,18 @@ function cancelStudentBooking(studentId, slotId, evt){
   const slots=loadSlots();
   const si=slots.findIndex(s=>s.id===slotId);
   const students=loadStudents();
-  const stu=students.find(s=>s.id===studentId);
+  const stu=students.find(s=>String(s.id)===String(studentId));
   if(si>=0){
-    slots[si].bookings=(slots[si].bookings||[]).filter(b=>b.name!==stu?.name);
+    slots[si].bookings=(slots[si].bookings||[]).filter(b=>{
+      if(b.studentId!=null && String(b.studentId)!=='') return String(b.studentId)!==String(studentId);
+      return !(stu && String(b.name||'').trim()===String(stu.name||'').trim());
+    });
     saveSlots(slots);
     // Remove from attendance class
     const classes=loadClasses();
     const ci=classes.findIndex(c=>c.slotId===slotId);
     if(ci>=0){
-      classes[ci].members=classes[ci].members.filter(m=>m.studentId!==studentId);
+      classes[ci].members=classes[ci].members.filter(m=>String(m.studentId)!==String(studentId));
       if(classes[ci].members.length===0) classes.splice(ci,1);
       saveClasses(classes);
     }
@@ -1591,7 +1612,7 @@ function cancelStudentBooking(studentId, slotId, evt){
   }
   // Refund 1 session to ticket
   const tickets=loadTickets();
-  const tIdx=tickets.findIndex(t=>t.studentId===studentId&&t.left>=0&&(!t.expireDate||t.expireDate>=todayStr()));
+  const tIdx=tickets.findIndex(t=>String(t.studentId)===String(studentId)&&t.left>=0&&(!t.expireDate||t.expireDate>=todayStr()));
   if(tIdx>=0){
     tickets[tIdx].left+=1;
     tickets[tIdx].log=tickets[tIdx].log||[];
@@ -3576,13 +3597,12 @@ if (window._fbReady) {
     const students=loadStudents();
     const tickets=loadTickets();
     const slots=loadSlots();
-
-    const todayStr=new Date().toISOString().split('T')[0];
+    const today=todayStr();
 
     function isFutureOpenSlot(s){
       const cap=Number(s.capacity||1);
       const bookings=Array.isArray(s.bookings)?s.bookings:[];
-      return String(s.date||'')>=todayStr && bookings.length<cap;
+      return isFutureSlot(s) && bookings.length<cap;
     }
 
     function normTypeText(v){
@@ -3713,7 +3733,7 @@ if (window._fbReady) {
       tickets.forEach(t=>{
         if(String(t.studentId)!==String(s.id)) return;
         if(Number(t.left||0)<=0) return;
-        if(t.expireDate && t.expireDate<todayStr) return;
+        if(t.expireDate && t.expireDate<today) return;
 
         const resolvedTypeId=resolveTicketTypeId(t);
         if(!resolvedTypeId){

@@ -708,6 +708,38 @@ function loadPayments(){try{return JSON.parse(localStorage.getItem("pilates_paym
 function loadStudents(){try{return JSON.parse(localStorage.getItem("pilates_students")||"[]");}catch{return[];}}
 // savePayments and saveSlots defined below with Firebase sync
 const DAYS=["日","一","二","三","四","五","六"];
+function localDateStr(d){
+  const t=d||new Date();
+  const y=t.getFullYear();
+  const m=String(t.getMonth()+1).padStart(2,'0');
+  const dd=String(t.getDate()).padStart(2,'0');
+  return y+'-'+m+'-'+dd;
+}
+function localDateTimeKey(d){
+  const t=d||new Date();
+  const hh=String(t.getHours()).padStart(2,'0');
+  const mm=String(t.getMinutes()).padStart(2,'0');
+  return localDateStr(t)+'T'+hh+':'+mm;
+}
+function addDaysToDateStr(dateStr,days){
+  const d=new Date(dateStr+'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate()+days);
+  return d.toISOString().slice(0,10);
+}
+function normalizeTimeKey(v){
+  const m=String(v||'00:00').match(/(\d{1,2}):(\d{2})/);
+  if(!m) return '00:00';
+  return m[1].padStart(2,'0')+':'+m[2];
+}
+function slotDateTimeKey(slot){
+  const date=String(slot?.date||'');
+  const time=normalizeTimeKey(slot?.time);
+  return date ? date+'T'+time : '';
+}
+function isFutureSlot(slot){
+  const key=slotDateTimeKey(slot);
+  return key && key>localDateTimeKey();
+}
 let cfg=loadCfg();
 let selTypeId=null,selPlanId=null,bookingData=null;
 let schFilterTypeId=null,selSlotId=null;
@@ -1134,17 +1166,9 @@ let selectedSlots = new Set();
 let remaining = 0; // module-level so updateBatchBar can access it  // batch selection
 
 function getWeekRange(offset){
-  const today = new Date(Date.now()+8*3600000);
-  today.setHours(0,0,0,0);
-  const start = new Date(today);
-  start.setDate(start.getDate() + offset*7);
-  const end = new Date(start);
-  end.setDate(end.getDate() + 6);
-  const fmt = d => {
-    const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,'0'), dd=String(d.getDate()).padStart(2,'0');
-    return y+'-'+m+'-'+dd;
-  };
-  return {startDate: fmt(start), endDate: fmt(end)};
+  const startDate=addDaysToDateStr(localDateStr(), offset*7);
+  const endDate=addDaysToDateStr(startDate, 6);
+  return {startDate, endDate};
 }
 
 function renderSlotList(){
@@ -1160,7 +1184,7 @@ function renderSlotList(){
 
   const {startDate, endDate} = getWeekRange(schWeekOffset);
   const allSlots = loadSlots();
-  let slots = allSlots.filter(s => s.date >= startDate && s.date <= endDate);
+  let slots = allSlots.filter(s => isFutureSlot(s) && s.date >= startDate && s.date <= endDate);
   if(verifiedTypeId != null) slots = slots.filter(s => String(s.typeId) === String(verifiedTypeId));
   slots.sort((a,b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time));
 
@@ -1626,13 +1650,12 @@ async function verifyAndLoadSchedule(){
     // STRICT TYPE MODE:
     // Only ticket typeId that matches slot.typeId can be used for booking.
     // Prefer the matched type that actually has future open slots.
-    const todayStr=new Date().toISOString().split('T')[0];
     const hasFutureOpenSlot=(typeId)=>{
       return slots.some(s=>{
         const cap=Number(s.capacity||1);
         const bookings=Array.isArray(s.bookings)?s.bookings:[];
         return String(s.typeId||'default')===String(typeId)
-          && String(s.date||'')>=todayStr
+          && isFutureSlot(s)
           && bookings.length<cap;
       });
     };
@@ -1718,6 +1741,7 @@ async function loopBooking(){
 
   const candidates=slots
     .filter(s=>String(s.typeId||'default')===String(base.typeId||'default'))
+    .filter(s=>isFutureSlot(s))
     .filter(s=>s.date>=base.date)
     .filter(s=>String(s.time)===String(base.time))
     .filter(s=>(s.bookings||[]).length<Number(s.capacity||1))
