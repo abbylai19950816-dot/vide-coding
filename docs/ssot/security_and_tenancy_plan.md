@@ -318,6 +318,26 @@ service cloud.firestore {
 8. 未來有多老師時，為每位老師建立 tenant 與 custom claims。
 9. 若要恢復即時預約，再導入 Cloud Functions / Cloud Run 後端交易。
 
+## 2026-05-14 實作決策：背景自動匯入，不新增審核按鈕
+
+目前採用 Firebase 免費版優先方案，但不新增管理員「待審核」頁面或審核按鈕。
+
+學員購課：
+
+- 學員端只 create `purchase_requests/{requestId}`。
+- 管理員登入 admin 後，背景自動匯入 pending `purchase_requests`。
+- 匯入後自動建立/更新學員資料，並建立 `unpaid` 收費紀錄。
+- 管理員仍在原本收費頁標記已收款，標記後才建立有效票券。
+
+學員預約：
+
+- 學員端只 create `booking_requests/{requestId}`。
+- 管理員登入 admin 後，背景自動匯入 pending `booking_requests`。
+- 匯入時由管理員權限檢查時段、票券與容量，再更新 `slots`、`tickets`、`students`、`classes`。
+- 匯入後同步 `public_booking/state` 與 `student_lookup`。
+
+此做法保留現有管理員體感，同時讓學生端不再直接寫私密 `/data/*`。
+
 ## 驗證清單
 
 - 未登入使用者可讀 `public_booking/state`，不同裝置都拿到最新 `updatedAt`。

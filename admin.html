@@ -632,6 +632,16 @@ window._fb={
     try{ const snap=await getDoc(doc(db, ...pathParts)); return snap.exists()?snap.data():null; }
     catch(e){ console.warn('getDocPath',pathParts,e); return null; }
   },
+  async listCollection(pathParts){
+    try{
+      const snap=await getDocs(collection(db, ...pathParts));
+      return snap.docs.map(d=>({id:d.id,data:d.data()}));
+    }catch(e){ console.warn('listCollection',pathParts,e); return []; }
+  },
+  async deleteDocPath(pathParts){
+    try{ await deleteDoc(doc(db, ...pathParts)); return true; }
+    catch(e){ console.warn('deleteDocPath',pathParts,e); return false; }
+  },
   // Auth methods
   async signIn(email, password){
     const cred = await signInWithEmailAndPassword(auth, email, password);
@@ -1588,6 +1598,7 @@ function cancelStudentBooking(studentId, slotId, evt){
   // Remove from slot bookings
   const slots=loadSlots();
   const si=slots.findIndex(s=>s.id===slotId);
+  const slot=si>=0?slots[si]:null;
   const students=loadStudents();
   const stu=students.find(s=>String(s.id)===String(studentId));
   if(si>=0){
@@ -2367,6 +2378,114 @@ function deletePayment(id){
 /* ══════════════════════════════════
    BOOKING PAGE
 ══════════════════════════════════ */
+// Safer overrides for production flows. Kept here to avoid touching legacy UI markup.
+cancelStudentBooking = function(studentId, slotId, evt){
+  if(evt) evt.stopPropagation();
+  if(!confirm('確定要取消這筆預約並補回 1 堂嗎？')) return;
+  const slots=loadSlots();
+  const si=slots.findIndex(s=>String(s.id)===String(slotId));
+  const slot=si>=0?slots[si]:null;
+  const students=loadStudents();
+  const stu=students.find(s=>String(s.id)===String(studentId));
+  if(si>=0){
+    slots[si].bookings=(slots[si].bookings||[]).filter(b=>{
+      if(b.studentId!=null && String(b.studentId)!=='') return String(b.studentId)!==String(studentId);
+      return !(stu && String(b.name||'').trim()===String(stu.name||'').trim());
+    });
+    saveSlots(slots);
+    const classes=loadClasses();
+    const ci=classes.findIndex(c=>String(c.slotId)===String(slotId));
+    if(ci>=0){
+      classes[ci].members=(classes[ci].members||[]).filter(m=>String(m.studentId)!==String(studentId));
+      if(classes[ci].members.length===0) classes.splice(ci,1);
+      saveClasses(classes);
+    }
+  }
+  if(stu){
+    stu.scheduledBookings=(stu.scheduledBookings||[]).filter(b=>String(b.slotId)!==String(slotId));
+    saveStudents(students);
+  }
+  const tickets=loadTickets();
+  const sid=String(studentId);
+  const slotKey=String(slotId);
+  const logMatchIdx=tickets.findIndex(t=>
+    String(t.studentId)===sid &&
+    Array.isArray(t.logs) &&
+    t.logs.some(l=>Array.isArray(l.slotIds)&&l.slotIds.map(String).includes(slotKey))
+  );
+  const fallbackIdx=tickets.findIndex(t=>
+    String(t.studentId)===sid &&
+    (slot?.typeId==null || t.typeId==null || String(t.typeId)===String(slot.typeId)) &&
+    Number(t.left||0)>=0 &&
+    (!t.expireDate||t.expireDate>=todayStr())
+  );
+  const refundIdx=logMatchIdx>=0?logMatchIdx:fallbackIdx;
+  if(refundIdx>=0){
+    tickets[refundIdx].left=Number(tickets[refundIdx].left||0)+1;
+    const refundLog={date:todayStr(),action:'refund',slotIds:[slotId],note:'取消預約，補回1堂'};
+    tickets[refundIdx].log=Array.isArray(tickets[refundIdx].log)?tickets[refundIdx].log:[];
+    tickets[refundIdx].logs=Array.isArray(tickets[refundIdx].logs)?tickets[refundIdx].logs:[];
+    tickets[refundIdx].log.push(refundLog);
+    tickets[refundIdx].logs.push(refundLog);
+    saveTickets(tickets);
+  }
+  openStudentDetail(studentId);
+  schRenderCalendar();
+  updateBadges();
+  toast(refundIdx>=0?'已取消預約並補回 1 堂':'已取消預約；找不到可回補票券，請手動確認');
+};
+
+createTicketFromPayment = function(p){
+  if(!p||p.status!=='paid') return;
+  const cfg=bkLoadCfg();
+  const typeName=(p.typeName||'').trim() || String(p.item||'').split('・')[0]?.trim() || '';
+  const planName=(p.planName||'').trim() || String(p.item||'').split('・')[1]?.trim() || '';
+  const type=cfg.classTypes?.find(t=>String(t.id)===String(p.typeId)||t.name===typeName);
+  const plan=type?.plans?.find(pl=>String(pl.id)===String(p.planId)||pl.name===planName);
+  if(!type||!plan) return;
+  const tickets=loadTickets();
+  const students=loadStudents();
+  const pPhone=(p.phone||'').replace(/\D/g,'');
+  const stu=students.find(s=>String(s.id)===String(p.studentId)) ||
+    students.find(s=>s.name===p.studentName && pPhone && (s.phone||'').replace(/\D/g,'')===pPhone);
+  const studentId=stu?stu.id:(p.studentId||Date.now());
+  const sourceId=String(p.id||'');
+  const dup=tickets.find(t=>
+    (sourceId && String(t.paymentId||'')===sourceId) ||
+    (sourceId && String(t.sourcePaymentId||'')===sourceId)
+  );
+  if(dup) return;
+  const sessions=Number(p.sessions||plan.sessions||plan.count||0);
+  if(!sessions) return;
+  const validDays=plan.validDays||180;
+  const boughtDate=p.date||todayStr();
+  const expDate=new Date(boughtDate+'T00:00:00');
+  expDate.setDate(expDate.getDate()+validDays);
+  tickets.push({
+    id:Date.now(),
+    paymentId:p.id,
+    sourcePaymentId:p.id,
+    studentId,
+    studentName:stu?stu.name:p.studentName,
+    color:stu?stu.color||'c0':(p.color||'c0'),
+    phone:stu?stu.phone||p.phone||'':(p.phone||''),
+    typeId:type.id,
+    typeName:type.name||typeName,
+    planId:plan.id||p.planId||null,
+    planName:plan.name||planName,
+    type:sessions,
+    total:sessions,
+    used:0,
+    left:sessions,
+    price:p.price||p.amount||0,
+    boughtDate,
+    expireDate:localDateStr(expDate),
+    log:[{date:boughtDate,action:'buy',paymentId:p.id}],
+    logs:[{date:boughtDate,action:'buy',paymentId:p.id}]
+  });
+  saveTickets(tickets);
+};
+
 const BK_DEFAULT = {
   teacherName:'嬋柔老師',
   lineId:'',
@@ -3515,6 +3634,137 @@ function fbSubscribeAll() {
 
 // Override save functions — fbSet writes localStorage + Firestore
 // Note: fbSet already calls localStorage.setItem, so we don't duplicate it here
+let _requestImportRunning=false;
+
+async function persistDataKey(key,value){
+  await fbSet(key,value);
+}
+
+async function importPurchaseRequests(){
+  if(!window._fb?.listCollection) return 0;
+  const requests=await window._fb.listCollection(['purchase_requests']);
+  if(!requests.length) return 0;
+  let students=loadStudents();
+  let payments=loadPayments();
+  let imported=0;
+  const COLORS=["c0","c1","c2","c3","c4"];
+
+  for(const item of requests){
+    const r={id:item.id,...(item.data||{})};
+    if(r.status && r.status!=='pending') continue;
+    if(payments.some(p=>String(p.sourceRequestId||'')===String(r.id))){
+      await window._fb.deleteDocPath(['purchase_requests',item.id]);
+      continue;
+    }
+    const phoneDigits=String(r.phoneDigits||r.phone||'').replace(/\D/g,'');
+    const name=String(r.name||'').trim();
+    if(!name || !phoneDigits) continue;
+    let stu=students.find(s=>String(s.name||'').trim()===name && String(s.phone||'').replace(/\D/g,'')===phoneDigits);
+    if(!stu){
+      stu={id:Date.now()+imported,name,phone:r.phone||phoneDigits,line:r.social||'',joined:r.date||todayStr(),ecName:'',ecRel:'',ecPhone:'',notes:r.note||'',color:COLORS[students.length%COLORS.length],fromBooking:true,sourceRequestId:r.id};
+      students.push(stu);
+    }else{
+      if(!stu.phone && r.phone) stu.phone=r.phone;
+      if(!stu.line && r.social) stu.line=r.social;
+      if(r.note && !stu.notes) stu.notes=r.note;
+    }
+    payments.push({id:Date.now()+1000+imported,sourceRequestId:r.id,studentId:stu.id,studentName:stu.name,phone:stu.phone||r.phone||phoneDigits,color:stu.color||'c0',item:(r.typeName||'課程')+'・'+(r.planName||'方案'),typeId:r.typeId||null,typeName:r.typeName||'',planId:r.planId||null,planName:r.planName||'',sessions:Number(r.sessions||0),amount:Number(r.amount||0),date:r.date||todayStr(),method:'待收款',status:'unpaid',note:'購課申請自動匯入'+(r.social?' LINE/Instagram：'+r.social:'')+(r.note?' '+r.note:'')});
+    await window._fb.deleteDocPath(['purchase_requests',item.id]);
+    imported++;
+  }
+  if(imported>0){
+    await persistDataKey('students',students);
+    await persistDataKey('payments',payments);
+  }
+  return imported;
+}
+
+function findBookingTicket(tickets, studentId, slot, slotId){
+  const sid=String(studentId);
+  const slotKey=String(slotId);
+  return tickets.find(t=>String(t.studentId)===sid && Array.isArray(t.logs) && t.logs.some(l=>Array.isArray(l.slotIds)&&l.slotIds.map(String).includes(slotKey))) ||
+    tickets.find(t=>String(t.studentId)===sid && Number(t.left||0)>0 && (!t.expireDate||t.expireDate>=todayStr()) && (slot?.typeId==null || t.typeId==null || String(t.typeId)===String(slot.typeId)));
+}
+
+async function importBookingRequests(){
+  if(!window._fb?.listCollection) return 0;
+  const requests=await window._fb.listCollection(['booking_requests']);
+  if(!requests.length) return 0;
+  let students=loadStudents();
+  let tickets=loadTickets();
+  let slots=loadSlots();
+  let imported=0;
+
+  for(const item of requests){
+    const r={id:item.id,...(item.data||{})};
+    if(r.status && r.status!=='pending') continue;
+    const slotIds=Array.isArray(r.slotIds)?r.slotIds:[];
+    const studentId=String(r.studentId||'');
+    const stuIdx=students.findIndex(s=>String(s.id)===studentId);
+    if(!slotIds.length || stuIdx<0) continue;
+
+    let canImport=true;
+    for(const slotId of slotIds){
+      const slot=slots.find(s=>String(s.id)===String(slotId));
+      const bookings=Array.isArray(slot?.bookings)?slot.bookings:[];
+      if(!slot || !isFutureSlot(slot) || bookings.length>=Number(slot.capacity||1)) { canImport=false; break; }
+      if(bookings.some(b=>String(b.studentId)===studentId || String(b.lookupKey||'')===String(r.lookupKey||''))) { canImport=false; break; }
+      if(!findBookingTicket(tickets, studentId, slot, slotId)) { canImport=false; break; }
+    }
+    if(!canImport) continue;
+
+    for(const slotId of slotIds){
+      const slot=slots.find(s=>String(s.id)===String(slotId));
+      const rec={lookupKey:r.lookupKey||'',studentId,name:r.bookingName||students[stuIdx].name||'',typeId:r.typeId??slot.typeId??null,typeName:slot.typeName||slot.name||'',date:slot.date||'',time:slot.time||'',slotId:slot.id,requestId:r.id,ts:Date.now()};
+      slot.bookings=[...(slot.bookings||[]),rec];
+      const ticket=findBookingTicket(tickets, studentId, slot, slotId);
+      ticket.left=Number(ticket.left||0)-1;
+      ticket.used=Number(ticket.used||0)+1;
+      const deductLog={action:'booking_deduct',date:todayStr(),slotIds:[slot.id],requestId:r.id,note:'預約申請自動匯入扣堂',ts:Date.now()};
+      ticket.log=Array.isArray(ticket.log)?ticket.log:[];
+      ticket.logs=Array.isArray(ticket.logs)?ticket.logs:[];
+      ticket.log.push(deductLog);
+      ticket.logs.push(deductLog);
+      const stu={...students[stuIdx]};
+      const scheduled=Array.isArray(stu.scheduledBookings)?stu.scheduledBookings:[];
+      if(!scheduled.some(x=>String(x.slotId)===String(slot.id))){
+        scheduled.push({slotId:slot.id,date:slot.date,time:slot.time,typeId:slot.typeId,typeName:slot.typeName||slot.name||'',status:'booked',requestId:r.id,ts:Date.now()});
+      }
+      stu.scheduledBookings=scheduled;
+      stu.lastBookingAt=Date.now();
+      students[stuIdx]=stu;
+      syncSlotToAttendance(slot);
+    }
+    await window._fb.deleteDocPath(['booking_requests',item.id]);
+    imported++;
+  }
+  if(imported>0){
+    await persistDataKey('students',students);
+    await persistDataKey('tickets',tickets);
+    await persistDataKey('slots',slots);
+    if(typeof window.lowCostSyncPublicMirror==='function') await window.lowCostSyncPublicMirror('request-import');
+  }
+  return imported;
+}
+
+async function importPendingRequests(){
+  if(_requestImportRunning) return;
+  _requestImportRunning=true;
+  try{
+    const purchaseCount=await importPurchaseRequests();
+    const bookingCount=await importBookingRequests();
+    if(purchaseCount||bookingCount){
+      if(typeof renderFinance==='function') renderFinance();
+      if(typeof renderStudents==='function') renderStudents();
+      if(typeof schRenderCalendar==='function') schRenderCalendar();
+      if(typeof updateBadges==='function') updateBadges();
+      toast('已自動匯入申請：購課 '+purchaseCount+' 筆，預約 '+bookingCount+' 筆');
+    }
+  }finally{
+    _requestImportRunning=false;
+  }
+}
+
 function saveStudents(d){ fbSet('students',d); }
 function saveTickets(d){  fbSet('tickets',d); }
 function saveClasses(d){  fbSet('classes',d); }
@@ -3529,7 +3779,19 @@ function bkSaveCfg(d){   fbSet('booking_cfg',d); }
   dot.title = '雲端同步中';
   dot.style.cssText = 'position:fixed;top:8px;right:8px;width:8px;height:8px;border-radius:50%;background:#6b8f71;opacity:0;z-index:9998;transition:opacity .4s;pointer-events:none';
   document.body.appendChild(dot);
+  const status = document.createElement('div');
+  status.id = 'public-sync-status';
+  status.textContent = '公開課表：尚未同步';
+  status.style.cssText = 'position:fixed;top:20px;right:8px;background:rgba(255,255,255,.92);color:#4a6b50;border:1px solid rgba(74,107,80,.18);border-radius:999px;padding:4px 9px;font-size:11px;z-index:9998;box-shadow:0 2px 10px rgba(0,0,0,.06);pointer-events:none';
+  document.body.appendChild(status);
 })();
+
+function setPublicSyncStatus(text, state){
+  const el=document.getElementById('public-sync-status');
+  if(!el) return;
+  el.textContent=text;
+  el.style.color=state==='error'?'#a95151':state==='syncing'?'#8a6f2a':'#4a6b50';
+}
 
 async function initFirebaseSync() {
   if (_syncInitDone) return;  // GUARD: only run once
@@ -3559,6 +3821,8 @@ async function initFirebaseSync() {
 
   // Subscribe to real-time pushes (no polling, no interval)
   fbSubscribeAll();
+  importPendingRequests();
+  setInterval(importPendingRequests, 30000);
 }
 
 // Run once when Firebase module signals ready
@@ -3773,8 +4037,10 @@ if (window._fbReady) {
   window.lowCostSyncPublicMirror = async function(reason='manual'){
     if(!window._fb || !window._fb.setDocPath) {
       toast && toast('Firebase 尚未完成初始化');
+      if(typeof setPublicSyncStatus==='function') setPublicSyncStatus('公開課表：同步失敗','error');
       return;
     }
+    if(typeof setPublicSyncStatus==='function') setPublicSyncStatus('公開課表：同步中','syncing');
     const slots=loadSlots().map(s=>({
       ...s,
       bookings:(s.bookings||[]).map(b=>({
@@ -3803,6 +4069,7 @@ if (window._fbReady) {
       localStorage.setItem(k,h);
       writes++;
     }
+    if(typeof setPublicSyncStatus==='function') setPublicSyncStatus('公開課表：已同步 '+new Date().toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'}),'ok');
     if(typeof toast==='function') toast('低成本公開索引已同步：'+writes+' 筆更新');
   };
 
@@ -3878,6 +4145,7 @@ window.resetAllTestData = async function(){
 
   const deletedLookup = await deleteCollectionClient('student_lookup');
   const deletedRequests = await deleteCollectionClient('purchase_requests');
+  const deletedBookingRequests = await deleteCollectionClient('booking_requests');
 
   // Clear localStorage cache
   [
@@ -3895,7 +4163,7 @@ window.resetAllTestData = async function(){
     .filter(k=>k.startsWith('low_cost_lookup_hash_') || k==='low_cost_public_state_hash')
     .forEach(k=>localStorage.removeItem(k));
 
-  console.log('[RESET] done', {deletedLookup, deletedRequests});
+  console.log('[RESET] done', {deletedLookup, deletedRequests, deletedBookingRequests});
   alert('清空完成！student_lookup 刪除 '+deletedLookup+' 筆，purchase_requests 刪除 '+deletedRequests+' 筆。請重新整理管理員頁。');
 };
 </script>

@@ -2,51 +2,68 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isPasswordAdmin() {
+      return signedIn()
+        && request.auth.token.firebase != null
+        && request.auth.token.firebase.sign_in_provider == 'password';
+    }
+
+    function hasOnlyPurchaseFields() {
+      return request.resource.data.keys().hasOnly([
+        'id', 'name', 'phone', 'phoneDigits', 'social', 'note', 'customFields',
+        'typeId', 'typeName', 'planId', 'planName', 'sessions', 'amount',
+        'date', 'status', 'createdAt', 'source'
+      ]);
+    }
+
+    function hasOnlyBookingFields() {
+      return request.resource.data.keys().hasOnly([
+        'id', 'lookupKey', 'slotIds', 'typeId', 'remainingKey', 'bookingName',
+        'studentId', 'typeKey', 'status', 'createdAt', 'source'
+      ]);
+    }
+
     match /public_booking/state {
       allow read: if true;
-      allow write: if true;
+      allow write: if isPasswordAdmin();
     }
 
     match /student_lookup/{lookupId} {
       allow get: if true;
-      allow list: if true;
-      allow create, update, delete: if true;
+      allow list: if isPasswordAdmin();
+      allow create, update, delete: if isPasswordAdmin();
     }
 
     match /purchase_requests/{requestId} {
-      allow read, create, update, delete: if true;
+      allow create: if hasOnlyPurchaseFields()
+        && request.resource.data.status == 'pending'
+        && request.resource.data.name is string
+        && request.resource.data.phoneDigits is string
+        && request.resource.data.phoneDigits.matches('^09[0-9]{8}$');
+      allow read, update, delete: if isPasswordAdmin();
+    }
+
+    match /booking_requests/{requestId} {
+      allow create: if hasOnlyBookingFields()
+        && request.resource.data.status == 'pending'
+        && request.resource.data.lookupKey is string
+        && request.resource.data.slotIds is list
+        && request.resource.data.slotIds.size() > 0
+        && request.resource.data.slotIds.size() <= 12;
+      allow read, update, delete: if isPasswordAdmin();
     }
 
     match /web_config/flags {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if isPasswordAdmin();
     }
 
-    match /data/students {
-      allow read, write: if true;
-    }
-
-    match /data/payments {
-      allow read, write: if true;
-    }
-
-    match /data/tickets {
-      allow read, write: if true;
-    }
-
-    match /data/classes {
-      allow read, write: if true;
-    }
-
-    match /data/course_logs {
-      allow read, write: if true;
-    }
-
-    match /data/slots {
-      allow read, write: if true;
-    }
-
-    match /data/booking_cfg {
-      allow read, write: if true;
+    match /data/{docId} {
+      allow read, write: if isPasswordAdmin();
     }
 
     match /{document=**} {

@@ -273,6 +273,7 @@ window._fb={
 
 
   async createDirectPurchaseRecord(payload){
+    return await this.createPurchaseRequest(payload);
     return await runTransaction(db, async (tx)=>{
       const studentsRef=doc(db,'data','students');
       const paymentsRef=doc(db,'data','payments');
@@ -357,7 +358,20 @@ window._fb={
     await setDoc(doc(db,'purchase_requests',id),data);
     return {ok:true,id};
   },
+  async createBookingRequest(payload){
+    const id='br_'+Date.now()+'_'+Math.random().toString(36).slice(2,8);
+    const data={
+      ...payload,
+      id,
+      status:'pending',
+      createdAt:Date.now(),
+      source:'student_page_low_cost_v11'
+    };
+    await setDoc(doc(db,'booking_requests',id),data);
+    return {ok:true,id};
+  },
   async runLowCostBooking({lookupKey,slotIds,typeId,remainingKey,bookingName}){
+    return await this.createBookingRequest({lookupKey,slotIds,typeId,remainingKey,bookingName,studentId:'',typeKey:String(remainingKey ?? typeId ?? 'default')});
     return await runTransaction(db, async (tx)=>{
       const stateRef=doc(db,'public_booking','state');
       const lookupRef=doc(db,'student_lookup',lookupKey);
@@ -926,19 +940,16 @@ function submitPurchase(){
   if(submitBtn){submitBtn.disabled=true;submitBtn.textContent='送出中…';submitBtn.style.opacity='.7';}
 
   Promise.resolve()
-    .then(()=>window._fb.createDirectPurchaseRecord(payload))
+    .then(()=>window._fb.createPurchaseRequest(payload))
     .then((res)=>{
-      if(res?.students) localStorage.setItem('pilates_students',JSON.stringify(res.students));
-      if(res?.payments) localStorage.setItem('pilates_payments',JSON.stringify(res.payments));
-
-      bookingData={name,phone,social,note,type,plan,studentId:res?.studentId||''};
+      bookingData={name,phone,social,note,type,plan,requestId:res?.id||''};
       document.getElementById("successDetail").innerHTML=`<div class="sc-row"><span class="sc-label">姓名</span><span class="sc-val">${name}</span></div><div class="sc-row"><span class="sc-label">類型</span><span class="sc-val">${type.icon||""} ${type.name}</span></div><div class="sc-row"><span class="sc-label">方案</span><span class="sc-val">${plan.name}</span></div><div class="sc-row"><span class="sc-label">金額</span><span class="sc-val">NT$ ${plan.price.toLocaleString()}</span></div>${phone?`<div class="sc-row"><span class="sc-label">電話</span><span class="sc-val">${phone}</span></div>`:""}`;
       document.getElementById("lineBtn").style.display=cfg.lineId?"flex":"none";
       document.getElementById("successOverlay").classList.add("show");
       window.scrollTo({top:0,behavior:"smooth"});
     })
     .catch((e)=>{
-      console.error('[DIRECT_PURCHASE] failed',e);
+      console.error('[PURCHASE_REQUEST] failed',e);
       alert('送出失敗，請稍後再試或直接聯絡老師');
     })
     .finally(()=>{
@@ -1536,24 +1547,21 @@ async function batchSubmitBooking(){
   if(remaining<selectedSlots.size){ alert('堂數不足，無法預約所選全部時段'); return; }
 
   try{
-    const res=await window._fb.runLowCostBooking({
+    const key=String(window._lowCostRemainingKey || verifiedTypeId || 'default');
+    const res=await window._fb.createBookingRequest({
       lookupKey:window._lowCostLookup.key,
       slotIds:[...selectedSlots],
       typeId:verifiedTypeId,
       remainingKey:window._lowCostRemainingKey,
-      bookingName:verifiedName
+      bookingName:verifiedName,
+      studentId:window._lowCostLookup.studentId||verifiedStudentId||'',
+      typeKey:key
     });
-    const key=String(window._lowCostRemainingKey || verifiedTypeId || 'default');
-    window._lowCostLookup.remainingByType=window._lowCostLookup.remainingByType||{};
-    window._lowCostLookup.remainingByType[key]=Number(res.remaining||0);
-    if(Array.isArray(res.slots)) localStorage.setItem('pilates_slots',JSON.stringify(res.slots));
-    if(Array.isArray(res.tickets)) localStorage.setItem('pilates_tickets',JSON.stringify(res.tickets));
-    if(Array.isArray(res.students)) localStorage.setItem('pilates_students',JSON.stringify(res.students));
     selectedSlots.clear();
     alert('預約成功！剩餘 '+res.remaining+' 堂');
     if(typeof renderSlotList==='function') renderSlotList();
   }catch(e){
-    console.warn('low-cost booking failed',e);
+    console.warn('booking request failed',e);
     alert(e.message||'預約失敗，請重新整理後再試');
   }
 }
@@ -1582,6 +1590,32 @@ async function loopBooking(){
   if(typeof updateBatchBar==='function') updateBatchBar();
   if(typeof renderSlotList==='function') renderSlotList();
 }
+
+batchSubmitBooking = async function(){
+  if(!window._lowCostLookup){ alert('請先查詢學員資料'); return; }
+  if(selectedSlots.size===0){ alert('請先選擇預約時段'); return; }
+  const remaining=getRemainingTickets();
+  if(remaining<selectedSlots.size){ alert('剩餘堂數不足，請重新確認方案'); return; }
+
+  try{
+    const key=String(window._lowCostRemainingKey || verifiedTypeId || 'default');
+    const res=await window._fb.createBookingRequest({
+      lookupKey:window._lowCostLookup.key,
+      slotIds:[...selectedSlots],
+      typeId:verifiedTypeId,
+      remainingKey:window._lowCostRemainingKey,
+      bookingName:verifiedName,
+      studentId:window._lowCostLookup.studentId||verifiedStudentId||'',
+      typeKey:key
+    });
+    selectedSlots.clear();
+    alert('預約申請已送出，管理員確認後會更新名額與剩餘堂數。申請編號：'+(res.id||''));
+    if(typeof renderSlotList==='function') renderSlotList();
+  }catch(e){
+    console.warn('booking request failed',e);
+    alert(e.message||'預約申請送出失敗，請稍後再試或聯絡老師');
+  }
+};
 window.verifyAndLoadSchedule = verifyAndLoadSchedule;
 window.batchSubmitBooking = batchSubmitBooking;
 window.loopBooking = loopBooking;

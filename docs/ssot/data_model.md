@@ -53,7 +53,58 @@ Rules:
 - Student page should not bulk-read these documents for normal display.
 - Booking transaction may touch only the required documents until a backend exists.
 
+### `purchase_requests/{requestId}`
+
+Public create-only buffer for student purchase submissions.
+
+Expected data:
+
+- `name`
+- `phone`
+- `phoneDigits`
+- `social`
+- `note`
+- `customFields`
+- `typeId`
+- `typeName`
+- `planId`
+- `planName`
+- `sessions`
+- `amount`
+- `date`
+- `status: pending`
+- `createdAt`
+- `source`
+
+Rules:
+
+- Student page may create only.
+- Student page may not read, list, update, or delete.
+- Admin page imports pending requests in the background and converts them into `/data/students` plus `/data/payments`.
+
+### `booking_requests/{requestId}`
+
+Public create-only buffer for student booking submissions.
+
+Expected data:
+
+- `lookupKey`
+- `slotIds`
+- `typeId`
+- `remainingKey`
+- `bookingName`
+- `studentId`
+- `typeKey`
+- `status: pending`
+- `createdAt`
+- `source`
+
+Rules:
+
+- Student page may create only.
+- Student page may not read, list, update, or delete.
+- Admin page imports pending requests in the background, validates capacity and ticket availability, then updates private data and public mirrors.
+
 ## localStorage
 
 localStorage keys beginning with `pilates_` are cache only. They must not become the source of truth for booking correctness.
-

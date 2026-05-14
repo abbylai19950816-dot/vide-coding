@@ -23,3 +23,9 @@ Reason: the maintainer may be in Taiwan, but students/admins can open the system
 Decision: student-facing devices should read only public mirror documents plus one direct `student_lookup` document, while private student/payment/ticket/attendance data should become admin-only and tenant-scoped.
 
 Reason: students may use many devices and must see the latest schedule, but student personal data must not leak. Future multi-teacher support also requires tenant isolation so teachers cannot read each other's students.
+
+## 2026-05-14: Use Request Buffers Without Adding Admin Review UI
+
+Decision: student purchase and booking submissions are written to `purchase_requests` and `booking_requests`, then automatically imported in the admin page background.
+
+Reason: this keeps the manager's workflow simple: purchases still appear as unpaid payments, and payment marking still creates valid tickets. At the same time, the student page no longer needs direct write access to private `/data/*` documents.
