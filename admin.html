@@ -215,6 +215,7 @@ body{font-family:'Chiron GoRound TC',sans-serif;background:var(--sand);color:var
 .date-display small{display:block;font-size:11px;color:var(--ink-mid);font-weight:400;margin-top:1px}
 .att-date-picker-nav{display:flex;align-items:center;justify-content:space-between;background:var(--sand);border-radius:99px;padding:6px;margin-bottom:14px}
 .att-date-picker-nav button{background:var(--white);border:none;border-radius:50%;width:34px;height:34px;display:flex;align-items:center;justify-content:center;color:var(--ink-mid);cursor:pointer}
+.att-date-picker-nav .picker-nav-btn.is-hidden{visibility:hidden}
 .picker-title-btn{background:transparent!important;border:none!important;border-radius:99px!important;width:auto!important;min-width:0!important;height:auto!important;padding:7px 14px!important;font-size:17px!important;font-weight:700!important;font-family:inherit;color:var(--ink)!important}
 .att-date-weekdays,.att-date-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:3px}
 .att-date-weekdays div{font-size:11px;color:var(--ink-light);text-align:center;padding:4px 0;font-weight:600}
@@ -1085,15 +1086,16 @@ onAuthStateChanged(auth, (user) => {
   <div class="sheet-header"><span class="sheet-title">選擇日期</span><button class="btn-close" onclick="closeSheets()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="3" y1="3" x2="21" y2="21"/><line x1="21" y1="3" x2="3" y2="21"/></svg></button></div>
   <div class="sheet-body">
     <div class="att-date-picker-nav">
-      <button type="button" onclick="attPickerShiftMonth(-1)" aria-label="上一個月"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg></button>
+      <button type="button" class="picker-nav-btn" id="att-picker-prev" onclick="attPickerShiftMonth(-1)" aria-label="上一個月"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg></button>
       <button type="button" class="picker-title-btn" id="att-picker-month" onclick="attToggleYearPicker()"></button>
-      <button type="button" onclick="attPickerShiftMonth(1)" aria-label="下一個月"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg></button>
+      <button type="button" class="picker-nav-btn" id="att-picker-next" onclick="attPickerShiftMonth(1)" aria-label="下一個月"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg></button>
     </div>
     <div id="att-picker-calendar">
       <div class="att-date-weekdays" id="att-picker-weekdays"></div>
       <div class="att-date-grid" id="att-picker-grid"></div>
       <button type="button" class="att-picker-today" onclick="goToday()">回到今天</button>
     </div>
+    <div id="att-picker-months" style="display:none"></div>
     <div id="att-picker-years" style="display:none"></div>
   </div>
 </div>
@@ -2033,18 +2035,19 @@ function deleteTicket(id){ if(!confirm('確定要刪除此方案嗎？')) return
 ══════════════════════════════════ */
 let attTab='roll', attDate=todayStr(), rollState={}, openStuId=null, rollFilter=null; // rollFilter: null=全部, 'present','leave','makeup','pending'
 let attPickerYear=new Date().getFullYear(), attPickerMonth=new Date().getMonth();
-let attYearPickerOpen=false;
+let attPickerMode='date'; // date, year, month
 
 function setDate(val){ attDate=val; updateDateLabel(); renderAttendance(); }
 function openDatePicker(){
   const d=new Date(attDate+'T00:00:00');
   attPickerYear=d.getFullYear();
   attPickerMonth=d.getMonth();
-  attYearPickerOpen=false;
+  attPickerMode='date';
   renderAttDatePicker();
   openSheet('sheet-attDatePicker');
 }
 function attPickerShiftMonth(n){
+  if(attPickerMode!=='date') return;
   attPickerMonth+=n;
   if(attPickerMonth>11){attPickerMonth=0;attPickerYear++;}
   if(attPickerMonth<0){attPickerMonth=11;attPickerYear--;}
@@ -2055,12 +2058,22 @@ function renderAttDatePicker(){
   const weekdaysEl=document.getElementById('att-picker-weekdays');
   const gridEl=document.getElementById('att-picker-grid');
   const calendarEl=document.getElementById('att-picker-calendar');
+  const monthsEl=document.getElementById('att-picker-months');
   const yearsEl=document.getElementById('att-picker-years');
-  if(monthEl) monthEl.textContent=attPickerYear+' 年 '+(attPickerMonth+1)+' 月';
-  if(calendarEl) calendarEl.style.display=attYearPickerOpen?'none':'block';
-  if(yearsEl) yearsEl.style.display=attYearPickerOpen?'block':'none';
-  if(attYearPickerOpen){
+  const prevBtn=document.getElementById('att-picker-prev');
+  const nextBtn=document.getElementById('att-picker-next');
+  if(monthEl) monthEl.textContent=attPickerMode==='year'?'選擇年份':(attPickerMode==='month'?attPickerYear+' 年':attPickerYear+' 年 '+(attPickerMonth+1)+' 月');
+  if(prevBtn) prevBtn.classList.toggle('is-hidden',attPickerMode!=='date');
+  if(nextBtn) nextBtn.classList.toggle('is-hidden',attPickerMode!=='date');
+  if(calendarEl) calendarEl.style.display=attPickerMode==='date'?'block':'none';
+  if(monthsEl) monthsEl.style.display=attPickerMode==='month'?'block':'none';
+  if(yearsEl) yearsEl.style.display=attPickerMode==='year'?'block':'none';
+  if(attPickerMode==='year'){
     renderAttYearPicker();
+    return;
+  }
+  if(attPickerMode==='month'){
+    renderAttMonthPicker();
     return;
   }
   if(weekdaysEl) weekdaysEl.innerHTML=DAYS.map(d=>'<div>'+d+'</div>').join('');
@@ -2093,7 +2106,7 @@ function renderAttDatePicker(){
   gridEl.innerHTML=html;
 }
 function attToggleYearPicker(){
-  attYearPickerOpen=!attYearPickerOpen;
+  attPickerMode=attPickerMode==='year'?'date':'year';
   renderAttDatePicker();
 }
 function renderAttYearPicker(){
@@ -2112,7 +2125,20 @@ function renderAttYearPicker(){
 }
 function attPickYear(year){
   attPickerYear=year;
-  attYearPickerOpen=false;
+  attPickerMode='month';
+  renderAttDatePicker();
+}
+function renderAttMonthPicker(){
+  const monthsEl=document.getElementById('att-picker-months');
+  if(!monthsEl) return;
+  monthsEl.innerHTML=
+    '<div class="month-picker-grid">'+Array.from({length:12},(_,i)=>
+      '<button type="button" class="month-picker-btn '+(i===attPickerMonth?'active':'')+'" onclick="attPickMonth('+i+')">'+(i+1)+'月</button>'
+    ).join('')+'</div>';
+}
+function attPickMonth(monthIndex){
+  attPickerMonth=monthIndex;
+  attPickerMode='date';
   renderAttDatePicker();
 }
 function pickAttDate(dateStr){
