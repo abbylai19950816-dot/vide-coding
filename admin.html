@@ -309,6 +309,23 @@ body{font-family:'Chiron GoRound TC',sans-serif;background:var(--sand);color:var
 .dhp-amount.paid{color:var(--paid)}
 .dhp-amount.unpaid{color:var(--unpaid)}
 .dhp-sub{font-size:13px;color:var(--ink-mid)}
+.pay-summary-card{background:var(--white);border:1px solid var(--sand-dark);border-radius:var(--radius);padding:14px 16px;margin-bottom:14px}
+.pay-summary-row{display:flex;align-items:center;justify-content:space-between;padding:7px 0;font-size:13px;color:var(--ink-mid)}
+.pay-summary-row strong{font-size:16px;color:var(--ink);font-weight:700}
+.pay-summary-row.discount span:last-child{color:var(--warn);font-weight:600}
+.pay-summary-row.net{border-top:1px solid var(--sand-dark);margin-top:6px;padding-top:12px;color:var(--ink)}
+.pay-discount-panel{background:var(--sand);border-radius:var(--radius);padding:14px;margin:0 0 14px}
+.pay-discount-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.pay-discount-title{font-size:14px;font-weight:700;color:var(--ink)}
+.pay-discount-badge{font-size:11px;color:var(--sage);background:var(--sage-light);border-radius:99px;padding:4px 9px}
+.pay-discount-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.pay-field-label{font-size:11px;color:var(--ink-mid);margin-bottom:5px}
+.pay-discount-panel input,.pay-discount-panel textarea{width:100%;background:var(--white);border:1px solid var(--sand-dark);border-radius:var(--radius-sm);padding:10px 12px;font-size:14px;font-family:inherit;color:var(--ink)}
+.pay-discount-panel textarea{resize:vertical;min-height:58px;line-height:1.5}
+.pay-discount-note{font-size:12px;color:var(--ink-mid);line-height:1.6;margin-top:10px}
+.pay-discount-save{width:100%;border:none;border-radius:99px;background:var(--sage);color:var(--white);padding:12px;font-size:14px;font-weight:600;font-family:inherit;margin-top:12px;cursor:pointer}
+.pay-discount-save:active{opacity:.75}
+@media (max-width:420px){.pay-discount-grid{grid-template-columns:1fr}.dhp-amount{font-size:40px}}
 
 /* ══════════════════════════════════
    BOOKING PAGE
@@ -2443,22 +2460,37 @@ window.openPayDetail=function(id){
       <div class="dhp-amount ${statusClass}">NT$ ${netAmount.toLocaleString()}</div>
       <div class="dhp-sub">${escapeHtml(p.item)}・${statusText}</div>
     </div>
-    <div class="info-row"><span class="info-label">日期</span><span class="info-val">${escapeHtml(p.date)}</span></div>
-    <div class="info-row"><span class="info-label">付款方式</span><span class="info-val">${escapeHtml(p.method)}</span></div>
-    <div class="info-row"><span class="info-label">狀態</span><span class="info-val" style="color:${statusClass==='paid'?'var(--paid)':'var(--unpaid)'};font-weight:500">${statusText}</span></div>
-    <div class="info-row"><span class="info-label">原價</span><span class="info-val">NT$ ${originalAmount.toLocaleString()}</span></div>
-    <div class="info-row"><span class="info-label">優惠折抵</span><span class="info-val">NT$ ${discountAmount.toLocaleString()}</span></div>
-    <div class="info-row"><span class="info-label">實收金額</span><span class="info-val">NT$ ${netAmount.toLocaleString()}</span></div>
-    ${p.discountReason?`<div class="info-row"><span class="info-label">優惠原因</span><span class="info-val">${escapeHtml(p.discountReason)}</span></div>`:''}
-    ${p.note?`<div class="info-row"><span class="info-label">備註</span><span class="info-val">${escapeHtml(p.note)}</span></div>`:''}
-    <div class="form-section" style="margin-top:14px">
-      <div class="form-label">客製化優惠</div>
-      <input id="pay-original" type="number" min="0" step="1" value="${originalAmount}">
-      <div class="form-label" style="margin-top:10px">折抵金額</div>
-      <input id="pay-discount" type="number" min="0" step="1" value="${discountAmount}">
-      <div class="form-label" style="margin-top:10px">優惠原因</div>
-      <textarea id="pay-discount-reason" rows="2" placeholder="例：舊生優惠、活動折扣、朋友同行">${escapeHtml(p.discountReason||'')}</textarea>
-      <button class="big-btn" onclick="savePaymentDiscount(${detailId})" style="margin-top:12px">儲存優惠</button>
+    <div class="pay-summary-card">
+      <div class="pay-summary-row"><span>收費日期</span><span>${escapeHtml(p.date)}</span></div>
+      <div class="pay-summary-row"><span>付款方式</span><span>${escapeHtml(p.method)}</span></div>
+      <div class="pay-summary-row"><span>狀態</span><span style="color:${statusClass==='paid'?'var(--paid)':'var(--unpaid)'};font-weight:600">${statusText}</span></div>
+      <div class="pay-summary-row"><span>原價</span><span>NT$ ${originalAmount.toLocaleString()}</span></div>
+      <div class="pay-summary-row discount"><span>優惠折抵</span><span>- NT$ ${discountAmount.toLocaleString()}</span></div>
+      <div class="pay-summary-row net"><span>實收金額</span><strong>NT$ ${netAmount.toLocaleString()}</strong></div>
+      ${p.discountReason?`<div class="pay-summary-row"><span>優惠原因</span><span>${escapeHtml(p.discountReason)}</span></div>`:''}
+      ${p.note?`<div class="pay-summary-row"><span>備註</span><span>${escapeHtml(p.note)}</span></div>`:''}
+    </div>
+    <div class="pay-discount-panel">
+      <div class="pay-discount-head">
+        <div class="pay-discount-title">客製化優惠</div>
+        <div class="pay-discount-badge">不影響堂數</div>
+      </div>
+      <div class="pay-discount-grid">
+        <div>
+          <div class="pay-field-label">原價</div>
+          <input id="pay-original" type="number" min="0" step="1" inputmode="numeric" value="${originalAmount}">
+        </div>
+        <div>
+          <div class="pay-field-label">折抵金額</div>
+          <input id="pay-discount" type="number" min="0" step="1" inputmode="numeric" value="${discountAmount}">
+        </div>
+      </div>
+      <div style="margin-top:10px">
+        <div class="pay-field-label">優惠原因</div>
+        <textarea id="pay-discount-reason" rows="2" placeholder="例：舊生優惠、活動折扣、朋友同行">${escapeHtml(p.discountReason||'')}</textarea>
+      </div>
+      <div class="pay-discount-note">折扣只會調整這筆收費的實收金額；方案堂數與效期仍依原課程方案建立。</div>
+      <button class="pay-discount-save" onclick="savePaymentDiscount(${detailId})">儲存優惠</button>
     </div>
     <button class="big-btn ${p.status==='unpaid'?'green':'unpaid-outline'}" onclick="togglePayStatus(${detailId})" style="margin-top:12px">${p.status==='unpaid'?'標記為已收款':'改回待收款'}</button>
     <button class="btn-danger" onclick="deletePayment(${detailId})">刪除收費紀錄</button>
