@@ -1308,7 +1308,7 @@ function isFutureScheduledBooking(booking, slots){
 function fmtDate(str){
   if(!str) return '';
   const d = new Date(str+'T00:00:00');
-  return `${d.getMonth()+1}月${d.getDate()}日（${DAYS[d.getDay()]}）`;
+  return `${d.getFullYear()}/${d.getMonth()+1}/${d.getDate()} (${DAYS[d.getDay()]})`;
 }
 function fmtDateShort(str){
   if(!str) return '';
@@ -2009,11 +2009,10 @@ function shiftDate(n){
 }
 function updateDateLabel(){
   const t=todayStr();
-  const yd=new Date(t+'T00:00:00'); yd.setDate(yd.getDate()-1); const yesterday=localDateStr(yd);
-  const tom=new Date(t+'T00:00:00'); tom.setDate(tom.getDate()+1); const tomorrow=localDateStr(tom);
   const d=new Date(attDate+'T00:00:00');
-  document.getElementById('att-dateLabel').textContent=attDate===t?'今天':`${d.getMonth()+1}月${d.getDate()}日`;
-  document.getElementById('att-dateSub').textContent=`${d.getFullYear()}/${d.getMonth()+1}/${d.getDate()}（${DAYS[d.getDay()]}）`;
+  const fullDate=`${d.getFullYear()}/${d.getMonth()+1}/${d.getDate()} (${DAYS[d.getDay()]})`;
+  document.getElementById('att-dateLabel').textContent=attDate===t?'今天':fullDate;
+  document.getElementById('att-dateSub').textContent=attDate===t?fullDate:'';
 }
 function switchAttTab(tab){
   attTab=tab;
