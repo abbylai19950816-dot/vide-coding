@@ -1016,6 +1016,30 @@ onAuthStateChanged(auth, (user) => {
   </div>
 </div>
 
+<!-- Move Booking Sheet -->
+<div class="sheet" id="sheet-bookingMove">
+  <div class="sheet-handle"></div>
+  <div class="sheet-header">
+    <span class="sheet-title">更改預約時間</span>
+    <button class="btn-close" onclick="closeSubSheet('sheet-bookingMove')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="3" y1="3" x2="21" y2="21"/><line x1="21" y1="3" x2="3" y2="21"/></svg></button>
+  </div>
+  <div class="sheet-body">
+    <input type="hidden" id="move-student-id">
+    <input type="hidden" id="move-from-slot-id">
+    <div class="form-section">
+      <div class="form-section-label">原預約</div>
+      <div id="move-current-slot" style="font-size:13px;line-height:1.7;color:var(--ink-mid)"></div>
+    </div>
+    <div class="form-section">
+      <div class="form-section-label">可更改時段</div>
+      <div id="move-slot-list" style="display:flex;flex-direction:column;gap:8px"></div>
+    </div>
+    <div style="font-size:12px;color:var(--ink-light);line-height:1.7">
+      同課程類型改時間不會補堂或扣堂；系統會同步預約名單、學員排程、出缺勤與課程日誌。
+    </div>
+  </div>
+</div>
+
 <!-- Log Add/Edit Sheet -->
 <div class="sheet" id="sheet-logEdit">
   <div class="sheet-handle"></div>
@@ -1430,7 +1454,7 @@ function loadPayments(){ return _cacheGet('payments',[]); }
 
 
 /* Sheet helpers */
-const allSheets = ['sheet-stuAdd','sheet-stuDetail','sheet-stuEdit','sheet-tktAdd','sheet-tktDetail','sheet-classAdd','sheet-payAdd','sheet-payDetail','sheet-slotAdd','sheet-attDatePicker','sheet-schMonthPicker','sheet-classNote','sheet-logEdit','sheet-logSlotPicker'];
+const allSheets = ['sheet-stuAdd','sheet-stuDetail','sheet-stuEdit','sheet-tktAdd','sheet-tktDetail','sheet-classAdd','sheet-payAdd','sheet-payDetail','sheet-slotAdd','sheet-bookingMove','sheet-attDatePicker','sheet-schMonthPicker','sheet-classNote','sheet-logEdit','sheet-logSlotPicker'];
 function openSheet(id){ document.getElementById('backdrop').classList.add('open'); document.getElementById(id).classList.add('open'); }
 function closeSheets(){
   document.getElementById('backdrop').classList.remove('open');
@@ -1660,9 +1684,10 @@ function openStudentDetail(id){
           const displayTime=currentSlot?currentSlot.time:b.time;
           const displayDate=currentSlot?currentSlot.date:b.date;
           const d=new Date(displayDate+'T00:00:00');
+          const moveBtn='<button onclick="openBookingMove('+id+',\''+b.slotId+'\',event)" style="font-size:11px;background:var(--sand-dark);color:var(--ink-mid);border:none;border-radius:99px;padding:2px 10px;cursor:pointer;font-family:inherit;margin-left:4px">改時間</button>';
           const cancelBtn='<button onclick="cancelStudentBooking('+id+',\''+b.slotId+'\',event)" style="font-size:11px;background:var(--warn-bg);color:var(--warn);border:none;border-radius:99px;padding:2px 10px;cursor:pointer;font-family:inherit;margin-left:6px">取消</button>';
           const noteBtn='<button onclick="openClassNote(\''+b.slotId+'\','+sid+',event)" style="font-size:11px;background:var(--sage-light);color:var(--sage-deep);border:none;border-radius:99px;padding:2px 10px;cursor:pointer;font-family:inherit;margin-left:4px">課程紀錄</button>';
-          return '<div class="info-row" style="align-items:center"><span class="info-label">'+(d.getMonth()+1)+'/'+d.getDate()+'（'+SCH_D[d.getDay()]+'）</span><span class="info-val" style="display:flex;align-items:center;gap:4px;flex-wrap:wrap">'+displayTime+'　'+(b.typeName||'')+noteBtn+cancelBtn+'</span></div>';
+          return '<div class="info-row" style="align-items:center"><span class="info-label">'+(d.getMonth()+1)+'/'+d.getDate()+'（'+SCH_D[d.getDay()]+'）</span><span class="info-val" style="display:flex;align-items:center;gap:4px;flex-wrap:wrap">'+displayTime+'　'+(b.typeName||'')+noteBtn+moveBtn+cancelBtn+'</span></div>';
         }).join('');
     })()+
     '<button class="btn-danger" onclick="deleteStudent('+s.id+')">刪除學員</button>';
@@ -1699,6 +1724,212 @@ function openStudentAllHistory(studentId){
           '<button data-slot="'+slotRef+'" data-sid="'+sid+'" onclick="openClassNote(this.dataset.slot,this.dataset.sid,event)" style="font-size:11px;background:var(--sage-light);color:var(--sage-deep);border:none;border-radius:99px;padding:2px 8px;cursor:pointer;font-family:inherit">課程紀錄</button>'+
         '</span></div>';
     }).join('');
+}
+
+function bookingMatchesStudent(booking, student, studentId){
+  if(!booking) return false;
+  const sid=String(studentId);
+  if(booking.studentId!=null && String(booking.studentId)!=='') return String(booking.studentId)===sid;
+  return !!(student && String(booking.name||'').trim()===String(student.name||'').trim());
+}
+
+function slotDisplayName(slot){
+  const cfg=bkLoadCfg();
+  const type=cfg.classTypes?.find(t=>String(t.id)===String(slot?.typeId));
+  return type?(type.icon||'')+' '+type.name:(slot?.typeName||slot?.name||'課程');
+}
+
+function slotDisplayLabel(slot){
+  if(!slot) return '';
+  const d=new Date(slot.date+'T00:00:00');
+  const day=DAYS[d.getDay()]||'';
+  return (d.getMonth()+1)+'/'+d.getDate()+'（'+day+'） '+(slot.time||'')+'　'+slotDisplayName(slot);
+}
+
+function classHasLockedAttendance(cls, studentId){
+  if(!cls) return false;
+  const member=(cls.members||[]).find(m=>String(m.studentId)===String(studentId));
+  return !!(member && member.status && member.status!=='pending');
+}
+
+function buildAttendanceClassFromSlot(slot, members){
+  return {id:'slot-'+slot.id,slotId:slot.id,date:slot.date,name:slotDisplayName(slot),time:slot.time,location:slot.location||'',saved:true,members:members||[]};
+}
+
+function openBookingMove(studentId, fromSlotId, evt){
+  if(evt) evt.stopPropagation();
+  const sid=String(studentId);
+  const slots=loadSlots();
+  const students=loadStudents();
+  const stu=students.find(s=>String(s.id)===sid);
+  const fromSlot=slots.find(s=>String(s.id)===String(fromSlotId));
+  if(!stu||!fromSlot){ toast('找不到原預約資料'); return; }
+  if(!isFutureSlot(fromSlot)){ toast('已開始或已過去的課程請用課程紀錄修正，不建議直接改時間'); return; }
+
+  const fromClass=loadClasses().find(c=>String(c.slotId)===String(fromSlotId));
+  if(classHasLockedAttendance(fromClass, sid)){
+    toast('此預約已有出缺勤狀態，請先確認課程紀錄後再調整');
+    return;
+  }
+
+  const candidates=slots
+    .filter(s=>String(s.id)!==String(fromSlotId))
+    .filter(s=>String(s.typeId||'default')===String(fromSlot.typeId||'default'))
+    .filter(s=>isFutureSlot(s))
+    .filter(s=>(s.bookings||[]).length<Number(s.capacity||1))
+    .filter(s=>!(s.bookings||[]).some(b=>bookingMatchesStudent(b,stu,sid)))
+    .sort((a,b)=>slotDateTimeKey(a).localeCompare(slotDateTimeKey(b)))
+    .slice(0,40);
+
+  document.getElementById('move-student-id').value=sid;
+  document.getElementById('move-from-slot-id').value=fromSlotId;
+  document.getElementById('move-current-slot').textContent=stu.name+'：'+slotDisplayLabel(fromSlot);
+  const list=document.getElementById('move-slot-list');
+  if(!candidates.length){
+    list.innerHTML='<div style="font-size:13px;color:var(--ink-light);line-height:1.8">目前沒有同課程類型、未來、且尚有名額的時段。</div>';
+  } else {
+    list.innerHTML=candidates.map(s=>{
+      const cap=Number(s.capacity||1);
+      const booked=(s.bookings||[]).length;
+      return '<button type="button" onclick="confirmMoveBooking(\''+sid+'\',\''+fromSlotId+'\',\''+s.id+'\')" style="width:100%;background:var(--white);border:1px solid var(--sand-dark);border-radius:var(--radius-sm);padding:12px;text-align:left;font-family:inherit;cursor:pointer">'+
+        '<div style="font-size:14px;font-weight:500;color:var(--ink)">'+slotDisplayLabel(s)+'</div>'+
+        '<div style="font-size:12px;color:var(--ink-mid);margin-top:3px">名額 '+booked+'/'+cap+(s.location?' · '+s.location:'')+'</div>'+
+      '</button>';
+    }).join('');
+  }
+  document.getElementById('sheet-stuDetail')?.classList.remove('open');
+  openSheet('sheet-bookingMove');
+}
+
+function updateMovedCourseLogs(logs, student, fromSlot, toSlot){
+  const sid=String(student.id);
+  const nowISO=new Date().toISOString();
+  const typeName=slotDisplayName(toSlot).replace(/^\s+|\s+$/g,'');
+  let changed=false;
+  const additions=[];
+  logs.forEach(log=>{
+    if(String(log.slotId)!==String(fromSlot.id)) return;
+    const ids=(log.studentIds||[]).map(String);
+    const idx=ids.indexOf(sid);
+    if(idx<0) return;
+    if(ids.length<=1){
+      log.slotId=toSlot.id;
+      log.date=toSlot.date;
+      log.time=toSlot.time||'';
+      log.classTypeId=String(toSlot.typeId||'');
+      log.classTypeName=typeName;
+      log.movedFromSlotId=fromSlot.id;
+      log.updatedAt=nowISO;
+      changed=true;
+      return;
+    }
+    const names=Array.isArray(log.studentNames)?log.studentNames:[];
+    log.studentIds=(log.studentIds||[]).filter(id=>String(id)!==sid);
+    log.studentNames=names.filter((name,i)=>String(ids[i])!==sid && name!==student.name);
+    log.attendance=Math.max(0,Number(log.attendance||0)-1);
+    log.updatedAt=nowISO;
+    additions.push({...log,id:'log-'+Date.now()+'-'+Math.floor(Math.random()*1000),slotId:toSlot.id,date:toSlot.date,time:toSlot.time||'',classTypeId:String(toSlot.typeId||''),classTypeName:typeName,studentIds:[student.id],studentNames:[student.name],attendance:1,movedFromLogId:log.id,movedFromSlotId:fromSlot.id,createdAt:log.createdAt||nowISO,updatedAt:nowISO});
+    changed=true;
+  });
+  additions.forEach(l=>logs.push(l));
+  return changed;
+}
+
+function appendBookingMoveTicketLog(tickets, studentId, fromSlot, toSlot){
+  const sid=String(studentId);
+  const oldSlotKey=String(fromSlot.id);
+  const byDeductLog=tickets.find(t=>
+    String(t.studentId)===sid &&
+    ((Array.isArray(t.logs)&&t.logs.some(l=>Array.isArray(l.slotIds)&&l.slotIds.map(String).includes(oldSlotKey))) ||
+     (Array.isArray(t.log)&&t.log.some(l=>Array.isArray(l.slotIds)&&l.slotIds.map(String).includes(oldSlotKey))))
+  );
+  const byType=tickets.find(t=>String(t.studentId)===sid && (fromSlot.typeId==null || t.typeId==null || String(t.typeId)===String(fromSlot.typeId)) && (!t.expireDate||t.expireDate>=todayStr()));
+  const ticket=byDeductLog||byType;
+  if(!ticket) return false;
+  const audit={date:todayStr(),action:'booking_move',slotIds:[fromSlot.id,toSlot.id],fromSlotId:fromSlot.id,toSlotId:toSlot.id,fromDate:fromSlot.date,fromTime:fromSlot.time||'',toDate:toSlot.date,toTime:toSlot.time||'',note:'管理員更改預約時間（未增減堂數）',ts:Date.now()};
+  ticket.log=Array.isArray(ticket.log)?ticket.log:[];
+  ticket.logs=Array.isArray(ticket.logs)?ticket.logs:[];
+  ticket.log.push(audit);
+  ticket.logs.push(audit);
+  return true;
+}
+
+function confirmMoveBooking(studentId, fromSlotId, toSlotId){
+  const sid=String(studentId);
+  const slots=loadSlots();
+  const students=loadStudents();
+  const classes=loadClasses();
+  const logs=loadLogs();
+  const tickets=loadTickets();
+  const stu=students.find(s=>String(s.id)===sid);
+  const fromIdx=slots.findIndex(s=>String(s.id)===String(fromSlotId));
+  const toIdx=slots.findIndex(s=>String(s.id)===String(toSlotId));
+  const fromSlot=fromIdx>=0?slots[fromIdx]:null;
+  const toSlot=toIdx>=0?slots[toIdx]:null;
+  if(!stu||!fromSlot||!toSlot){ toast('找不到預約或目標時段'); return; }
+  if(!isFutureSlot(fromSlot)||!isFutureSlot(toSlot)){ toast('只能更改尚未開始的課程'); return; }
+  if(String(fromSlot.typeId||'default')!==String(toSlot.typeId||'default')){ toast('目前僅支援更改到同課程類型'); return; }
+  if((toSlot.bookings||[]).length>=Number(toSlot.capacity||1)){ toast('目標時段已額滿'); return; }
+  if((toSlot.bookings||[]).some(b=>bookingMatchesStudent(b,stu,sid))){ toast('此學員已在目標時段'); return; }
+
+  const fromClassIdx=classes.findIndex(c=>String(c.slotId)===String(fromSlotId));
+  const fromClass=fromClassIdx>=0?classes[fromClassIdx]:null;
+  if(classHasLockedAttendance(fromClass, sid)){
+    toast('此預約已有出缺勤狀態，請先確認課程紀錄後再調整');
+    return;
+  }
+
+  const bookingIdx=(fromSlot.bookings||[]).findIndex(b=>bookingMatchesStudent(b,stu,sid));
+  if(bookingIdx<0){ toast('原時段沒有找到這位學員的預約'); return; }
+  const oldBooking=fromSlot.bookings[bookingIdx];
+  const now=Date.now();
+  const movedBooking={...oldBooking,studentId:oldBooking.studentId||stu.id,name:oldBooking.name||stu.name,slotId:toSlot.id,date:toSlot.date,time:toSlot.time||'',typeId:toSlot.typeId??oldBooking.typeId??null,typeName:slotDisplayName(toSlot),movedFromSlotId:fromSlot.id,movedAt:now,movedBy:'admin'};
+  slots[fromIdx].bookings=(fromSlot.bookings||[]).filter((_,i)=>i!==bookingIdx);
+  slots[toIdx].bookings=[...(toSlot.bookings||[]),movedBooking];
+
+  const sIdx=students.findIndex(s=>String(s.id)===sid);
+  const scheduled=Array.isArray(students[sIdx].scheduledBookings)?students[sIdx].scheduledBookings:[];
+  const schedIdx=scheduled.findIndex(b=>String(b.slotId)===String(fromSlot.id));
+  const nextScheduled={slotId:toSlot.id,date:toSlot.date,time:toSlot.time||'',typeId:toSlot.typeId,typeName:slotDisplayName(toSlot),status:'booked',movedFromSlotId:fromSlot.id,movedAt:now};
+  if(schedIdx>=0) scheduled[schedIdx]={...scheduled[schedIdx],...nextScheduled};
+  else scheduled.push(nextScheduled);
+  students[sIdx]={...students[sIdx],scheduledBookings:scheduled,lastBookingMoveAt:now};
+
+  let movedMember=null;
+  if(fromClassIdx>=0){
+    const mIdx=(classes[fromClassIdx].members||[]).findIndex(m=>String(m.studentId)===sid);
+    if(mIdx>=0){
+      movedMember={...classes[fromClassIdx].members[mIdx],status:'pending'};
+      classes[fromClassIdx].members=classes[fromClassIdx].members.filter((_,i)=>i!==mIdx);
+      if(classes[fromClassIdx].members.length===0) classes.splice(fromClassIdx,1);
+    }
+  }
+  if(!movedMember) movedMember={studentId:stu.id,studentName:stu.name,color:stu.color||'c0',status:'pending'};
+  const toClassIdx=classes.findIndex(c=>String(c.slotId)===String(toSlot.id));
+  if(toClassIdx>=0){
+    classes[toClassIdx].date=toSlot.date;
+    classes[toClassIdx].name=slotDisplayName(toSlot);
+    classes[toClassIdx].time=toSlot.time||'';
+    classes[toClassIdx].location=toSlot.location||'';
+    classes[toClassIdx].saved=true;
+    if(!(classes[toClassIdx].members||[]).some(m=>String(m.studentId)===sid)) classes[toClassIdx].members=[...(classes[toClassIdx].members||[]),movedMember];
+  } else {
+    classes.push(buildAttendanceClassFromSlot(toSlot,[movedMember]));
+  }
+
+  const logsChanged=updateMovedCourseLogs(logs, stu, fromSlot, toSlot);
+  const ticketLogged=appendBookingMoveTicketLog(tickets, sid, fromSlot, toSlot);
+  saveSlots(slots);
+  saveStudents(students);
+  saveClasses(classes);
+  if(logsChanged) saveLogs(logs);
+  if(ticketLogged) saveTickets(tickets);
+  closeSubSheet('sheet-bookingMove');
+  openStudentDetail(studentId);
+  schRenderCalendar();
+  if(typeof renderLogs==='function') renderLogs();
+  updateBadges();
+  toast('已更改預約時間，日誌與出缺勤已同步');
 }
 
 function cancelStudentBooking(studentId, slotId, evt){
