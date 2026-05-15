@@ -93,6 +93,36 @@ Rules:
 - Student purchase requests still submit the public plan amount only. Admin imports them as unpaid payments with `discountAmount: 0`; any custom offer is applied later by admin.
 - No student page reads or writes are added for discounts.
 
+#### Payment deletion cascade
+
+Admin `delete payment` is for test data, mistaken entries, or transactions that should be treated as never having existed.
+
+When deleting a payment, the system must remove data derived from that payment:
+
+- `/data/payments`: remove the payment record.
+- `/data/tickets`: remove tickets whose `paymentId` or `sourcePaymentId` matches the payment.
+- `/data/slots`: remove bookings created by those tickets, using ticket log `slotIds`.
+- `/data/students`: remove matching `scheduledBookings`.
+- `/data/classes`: remove matching attendance members; remove an empty class row if no members remain.
+- `/data/course_logs`: remove the matching student from the course log; remove the whole log if no students remain.
+- `student_lookup` / `phone_lookup`: update through the existing low-cost sync path so the student page no longer sees deleted plans.
+
+This delete path intentionally erases history. It should be used for incorrect or test records, not normal refunds.
+
+#### Future refund / void workflow
+
+正式營運需要另一個行為：「退款 / 作廢方案」。
+
+Refund or void should preserve historical records instead of deleting them:
+
+- Keep original payment, booking, attendance, and course logs for audit history.
+- Mark the payment or ticket with a status such as `refunded`, `voided`, or `cancelled`.
+- Make remaining sessions unavailable for future booking.
+- Keep past attendance and course logs visible to admins.
+- Student lookup should exclude unavailable sessions, but admin history should remain traceable.
+
+This workflow is not implemented yet. Do not reuse `delete payment` as the long-term refund workflow.
+
 ### `purchase_requests/{requestId}`
 
 Public create-only buffer for student purchase submissions.

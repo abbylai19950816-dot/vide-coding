@@ -2600,6 +2600,134 @@ function markPaid(id){
   renderFinance(); renderStudents(); updateBadges();
   toast(`✓ ${p.studentName} 已收款，方案已建立`);
 }
+function _paymentCascadePhone(value){
+  return String(value||'').replace(/\D/g,'');
+}
+function _collectTicketSlotIds(tickets){
+  const slotIds=new Set();
+  tickets.forEach(t=>{
+    const logs=[...(Array.isArray(t.logs)?t.logs:[]),...(Array.isArray(t.log)?t.log:[])];
+    logs.forEach(l=>{
+      if(Array.isArray(l.slotIds)) l.slotIds.forEach(id=>{ if(id!=null&&String(id)!=='') slotIds.add(String(id)); });
+      if(l.slotId!=null&&String(l.slotId)!=='') slotIds.add(String(l.slotId));
+    });
+  });
+  return slotIds;
+}
+function _cascadeTargetFromPayment(payment, tickets){
+  const studentIds=new Set();
+  const names=new Set();
+  const phones=new Set();
+  if(payment?.studentId!=null&&String(payment.studentId)!=='') studentIds.add(String(payment.studentId));
+  if(payment?.studentName) names.add(String(payment.studentName).trim());
+  const payPhone=_paymentCascadePhone(payment?.phone);
+  if(payPhone) phones.add(payPhone);
+  tickets.forEach(t=>{
+    if(t.studentId!=null&&String(t.studentId)!=='') studentIds.add(String(t.studentId));
+    if(t.studentName) names.add(String(t.studentName).trim());
+    const phone=_paymentCascadePhone(t.phone);
+    if(phone) phones.add(phone);
+  });
+  return {studentIds,names,phones};
+}
+function _matchesCascadeTarget(record, target){
+  const id=record?.studentId!=null?String(record.studentId):'';
+  const name=String(record?.studentName||record?.name||'').trim();
+  const phone=_paymentCascadePhone(record?.phone);
+  return (id&&target.studentIds.has(id)) ||
+    (phone&&target.phones.has(phone)) ||
+    (name&&target.names.has(name));
+}
+function _removeTargetFromCourseLog(log, target){
+  const ids=Array.isArray(log.studentIds)?log.studentIds.map(v=>String(v)):[];
+  const names=Array.isArray(log.studentNames)?log.studentNames.map(v=>String(v)):[];
+  const singleMatch=_matchesCascadeTarget({
+    studentId:log.studentId,
+    studentName:log.studentName||log.name,
+    phone:log.phone
+  },target);
+  if(!ids.length&&!names.length){
+    return singleMatch?{changed:true,keep:false,log:null}:{changed:false,keep:true,log};
+  }
+  const max=Math.max(ids.length,names.length);
+  const keepIdx=[];
+  let removed=0;
+  for(let i=0;i<max;i++){
+    const match=(ids[i]&&target.studentIds.has(String(ids[i]))) ||
+      (names[i]&&target.names.has(String(names[i]).trim()));
+    if(match) removed++;
+    else keepIdx.push(i);
+  }
+  if(!removed) return {changed:false,keep:true,log};
+  if(!keepIdx.length) return {changed:true,keep:false,log:null};
+  const next={...log};
+  if(ids.length) next.studentIds=keepIdx.map(i=>log.studentIds[i]).filter(v=>v!=null);
+  if(names.length) next.studentNames=keepIdx.map(i=>log.studentNames[i]).filter(v=>v!=null);
+  next.attendance=Math.max(0,Number(log.attendance||0)-removed);
+  next.updatedAt=new Date().toISOString();
+  return {changed:true,keep:true,log:next};
+}
+function cascadeDeletePaymentArtifacts(payment, linkedTickets){
+  const slotIds=_collectTicketSlotIds(linkedTickets);
+  const target=_cascadeTargetFromPayment(payment, linkedTickets);
+  const summary={slotIds:slotIds.size,bookings:0,scheduled:0,classes:0,logs:0};
+  if(!slotIds.size) return summary;
+
+  const slots=loadSlots();
+  let slotsChanged=false;
+  slots.forEach(slot=>{
+    if(!slotIds.has(String(slot.id))) return;
+    const before=(slot.bookings||[]).length;
+    slot.bookings=(slot.bookings||[]).filter(b=>!_matchesCascadeTarget(b,target));
+    const removed=before-slot.bookings.length;
+    if(removed>0){ summary.bookings+=removed; slotsChanged=true; }
+  });
+  if(slotsChanged) saveSlots(slots);
+
+  const students=loadStudents();
+  let studentsChanged=false;
+  students.forEach(stu=>{
+    if(!_matchesCascadeTarget(stu,target)) return;
+    const before=(stu.scheduledBookings||[]).length;
+    stu.scheduledBookings=(stu.scheduledBookings||[]).filter(b=>!slotIds.has(String(b.slotId)));
+    const removed=before-stu.scheduledBookings.length;
+    if(removed>0){ summary.scheduled+=removed; studentsChanged=true; }
+  });
+  if(studentsChanged) saveStudents(students);
+
+  const classes=loadClasses();
+  let classesChanged=false;
+  const nextClasses=[];
+  classes.forEach(cls=>{
+    if(!slotIds.has(String(cls.slotId))){
+      nextClasses.push(cls);
+      return;
+    }
+    const before=(cls.members||[]).length;
+    cls.members=(cls.members||[]).filter(m=>!_matchesCascadeTarget(m,target));
+    const removed=before-cls.members.length;
+    if(removed>0){ summary.classes+=removed; classesChanged=true; }
+    if((cls.members||[]).length>0) nextClasses.push(cls);
+    else classesChanged=true;
+  });
+  if(classesChanged) saveClasses(nextClasses);
+
+  const logs=loadLogs();
+  let logsChanged=false;
+  const nextLogs=[];
+  logs.forEach(log=>{
+    if(!slotIds.has(String(log.slotId))){
+      nextLogs.push(log);
+      return;
+    }
+    const result=_removeTargetFromCourseLog(log,target);
+    if(result.changed){ summary.logs+=1; logsChanged=true; }
+    if(result.keep) nextLogs.push(result.log);
+  });
+  if(logsChanged) saveLogs(nextLogs);
+
+  return summary;
+}
 function deletePayment(id){
   const payments=loadPayments();
   const p=payments.find(item=>String(item.id)===String(id));
@@ -2610,19 +2738,22 @@ function deletePayment(id){
     String(t.sourcePaymentId||'')===String(id)
   );
   const usedCount=linkedTickets.filter(t=>Number(t.used||0)>0 || Number(t.left||0)<Number(t.total||t.type||0)).length;
+  const usedSlotCount=_collectTicketSlotIds(linkedTickets).size;
   const msg='確定要刪除此收費紀錄嗎？'
     +(linkedTickets.length?'\n\n會一併移除對應學員方案：'+linkedTickets.length+' 筆':'')
-    +(usedCount?'\n其中 '+usedCount+' 筆方案已有使用紀錄，請確認是否仍要刪除。':'');
+    +(usedCount?'\n其中 '+usedCount+' 筆方案已有使用紀錄，請確認是否仍要刪除。':'')
+    +(usedSlotCount?'\n也會清除相關預約、學員排程、出缺勤與課程紀錄。':'');
   if(!confirm(msg)) return;
   savePayments(payments.filter(item=>String(item.id)!==String(id)));
+  const cascadeSummary=linkedTickets.length?cascadeDeletePaymentArtifacts(p,linkedTickets):null;
   if(linkedTickets.length){
     saveTickets(tickets.filter(t=>
       String(t.paymentId||'')!==String(id) &&
       String(t.sourcePaymentId||'')!==String(id)
     ));
   }
-  closeSheets(); renderFinance(); renderStudents(); updateBadges();
-  toast(linkedTickets.length?'已刪除收費紀錄與對應方案':'已刪除收費紀錄');
+  closeSheets(); renderFinance(); renderStudents(); renderAttendance(); schRenderCalendar(); updateBadges();
+  toast(linkedTickets.length?'已刪除收費紀錄與對應方案'+(cascadeSummary?.bookings?'，並清除預約':''):'已刪除收費紀錄');
 }
 
 /* ══════════════════════════════════
