@@ -2601,10 +2601,28 @@ function markPaid(id){
   toast(`✓ ${p.studentName} 已收款，方案已建立`);
 }
 function deletePayment(id){
-  if(!confirm('確定要刪除此收費紀錄嗎？')) return;
-  savePayments(loadPayments().filter(p=>p.id!==id));
-  closeSheets(); renderFinance(); updateBadges();
-  toast('已刪除收費紀錄');
+  const payments=loadPayments();
+  const p=payments.find(item=>String(item.id)===String(id));
+  if(!p) return;
+  const tickets=loadTickets();
+  const linkedTickets=tickets.filter(t=>
+    String(t.paymentId||'')===String(id) ||
+    String(t.sourcePaymentId||'')===String(id)
+  );
+  const usedCount=linkedTickets.filter(t=>Number(t.used||0)>0 || Number(t.left||0)<Number(t.total||t.type||0)).length;
+  const msg='確定要刪除此收費紀錄嗎？'
+    +(linkedTickets.length?'\n\n會一併移除對應學員方案：'+linkedTickets.length+' 筆':'')
+    +(usedCount?'\n其中 '+usedCount+' 筆方案已有使用紀錄，請確認是否仍要刪除。':'');
+  if(!confirm(msg)) return;
+  savePayments(payments.filter(item=>String(item.id)!==String(id)));
+  if(linkedTickets.length){
+    saveTickets(tickets.filter(t=>
+      String(t.paymentId||'')!==String(id) &&
+      String(t.sourcePaymentId||'')!==String(id)
+    ));
+  }
+  closeSheets(); renderFinance(); renderStudents(); updateBadges();
+  toast(linkedTickets.length?'已刪除收費紀錄與對應方案':'已刪除收費紀錄');
 }
 
 /* ══════════════════════════════════
