@@ -1026,8 +1026,8 @@ onAuthStateChanged(auth, (user) => {
   <div class="sheet-body">
     <input type="hidden" id="change-student-id">
     <input type="hidden" id="change-slot-id">
-    <div class="form-section">
-      <div class="form-section-label">目前預約</div>
+    <div style="margin:0 0 14px">
+      <div class="form-section-label" style="padding:0 0 6px;margin:0">目前預約</div>
       <div id="change-current-slot" style="font-size:13px;line-height:1.7;color:var(--ink-mid)"></div>
     </div>
     <div style="display:flex;gap:8px">
@@ -1047,12 +1047,12 @@ onAuthStateChanged(auth, (user) => {
   <div class="sheet-body">
     <input type="hidden" id="move-student-id">
     <input type="hidden" id="move-from-slot-id">
-    <div class="form-section">
-      <div class="form-section-label">原預約</div>
+    <div style="margin:0 0 14px">
+      <div class="form-section-label" style="padding:0 0 6px;margin:0">原預約</div>
       <div id="move-current-slot" style="font-size:13px;line-height:1.7;color:var(--ink-mid)"></div>
     </div>
-    <div class="form-section">
-      <div class="form-section-label">可更改時段</div>
+    <div style="margin:0 0 14px">
+      <div class="form-section-label" style="padding:0 0 6px;margin:0">可更改時段</div>
       <div id="move-slot-list" style="display:flex;flex-direction:column;gap:8px"></div>
     </div>
     <div style="font-size:12px;color:var(--ink-light);line-height:1.7">
