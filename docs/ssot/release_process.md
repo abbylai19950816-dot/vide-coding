@@ -19,3 +19,8 @@ Codex may upload and publish updates only when one of these is available:
 
 Until then, Codex can prepare files and release packages, but cannot push or publish by itself.
 
+## GitHub Pages Deployment Notes
+
+- The live GitHub Pages entrypoint is the repository root, especially `index.html` and `admin.html`.
+- Keep root `.nojekyll` in the repository so GitHub Pages serves this as a static HTML app instead of running Jekyll over project folders and Markdown docs.
+- After pushing to `main`, verify `https://abbylai19950816-dot.github.io/gyrobooking/admin.html` contains the expected feature strings before asking the user to retest.
