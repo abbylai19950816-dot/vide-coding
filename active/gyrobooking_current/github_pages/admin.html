@@ -1511,8 +1511,14 @@ function switchPage(page){
 \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550 */
 function renderStudents(){
   const q = document.getElementById('stu-search').value.trim().toLowerCase();
+  const qDigits = q.replace(/\D/g,'');
   let students = loadStudents();
-  if(q) students = students.filter(s=>s.name.toLowerCase().includes(q)||(s.phone||'').includes(q));
+  if(q) students = students.filter(s=>{
+    const name=String(s.name||'').toLowerCase();
+    const phone=String(s.phone||'');
+    const phoneDigits=phone.replace(/\D/g,'');
+    return name.includes(q) || phone.toLowerCase().includes(q) || (qDigits && phoneDigits.includes(qDigits));
+  });
   const allTkts = loadTickets();
   const allStus = loadStudents();
   const total = allStus.length;
