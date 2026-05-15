@@ -1694,16 +1694,11 @@ function openStudentDetail(id){
           const moveBtn='<button onclick="openBookingMove('+id+',\''+b.slotId+'\',event)" style="font-size:11px;background:var(--sand-dark);color:var(--ink-mid);border:none;border-radius:99px;padding:2px 10px;cursor:pointer;font-family:inherit">改時間</button>';
           const cancelBtn='<button onclick="cancelStudentBooking('+id+',\''+b.slotId+'\',event)" style="font-size:11px;background:var(--warn-bg);color:var(--warn);border:none;border-radius:99px;padding:2px 10px;cursor:pointer;font-family:inherit">取消</button>';
           const noteBtn='<button onclick="openClassNote(\''+b.slotId+'\','+sid+',event)" style="font-size:11px;background:var(--sage-light);color:var(--sage-deep);border:none;border-radius:99px;padding:2px 10px;cursor:pointer;font-family:inherit">課程紀錄</button>';
-          return '<div class="info-row" style="display:block;padding:8px 0 9px">'+
-            '<div style="display:grid;grid-template-columns:86px 56px minmax(0,1fr);gap:8px;align-items:center">'+
-              '<span class="info-label" style="min-width:0">'+(d.getMonth()+1)+'/'+d.getDate()+'（'+SCH_D[d.getDay()]+'）</span>'+
-              '<span class="info-val" style="text-align:left;white-space:nowrap">'+displayTime+'</span>'+
-              '<span class="info-val" style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+displayTypeName+'</span>'+
-            '</div>'+
-            '<div style="display:grid;grid-template-columns:86px 56px minmax(0,1fr);gap:8px;margin-top:4px">'+
-              '<span></span><span></span>'+
-              '<div style="display:flex;justify-content:flex-start;gap:6px;flex-wrap:wrap">'+noteBtn+moveBtn+cancelBtn+'</div>'+
-            '</div>'+
+          return '<div class="info-row" style="display:grid;grid-template-columns:74px 44px minmax(72px,1fr) auto auto auto;gap:6px;align-items:center;padding:9px 0">'+
+            '<span class="info-label" style="min-width:0;white-space:nowrap">'+(d.getMonth()+1)+'/'+d.getDate()+'（'+SCH_D[d.getDay()]+'）</span>'+
+            '<span class="info-val" style="white-space:nowrap">'+displayTime+'</span>'+
+            '<span class="info-val" style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+displayTypeName+'</span>'+
+            noteBtn+moveBtn+cancelBtn+
           '</div>';
         }).join('');
     })()+
