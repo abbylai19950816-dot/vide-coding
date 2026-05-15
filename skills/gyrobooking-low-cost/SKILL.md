@@ -7,6 +7,7 @@ description: Project-specific guardrails for the Gyrobooking Pilates booking sys
 
 Before changing this project, inspect the relevant current files first:
 
+- `docs/skill/README.md` (project skill SSOT for new-chat and deployment rules)
 - `active/gyrobooking_current/github_pages/index.html` or the active `github_pages/index.html`
 - `active/gyrobooking_current/github_pages/admin.html` or the active `github_pages/admin.html`
 - `firestore.rules`
@@ -70,6 +71,9 @@ Explain any new Firestore read/write path and estimate whether it changes the st
 ## Packaging and archive rules
 
 - Treat `active/gyrobooking_current` as the working copy unless the user explicitly chooses another version.
+- GitHub Pages serves the repository root `index.html` and `admin.html`; after editing active `github_pages/index.html` or `github_pages/admin.html`, sync the matching root file before commit/push.
+- After pushing UI changes, verify the live GitHub Pages file contains the expected feature string/function before asking the user to retest.
+- If the live site does not update, inspect GitHub Pages build status before blaming browser cache.
 - Keep historical zip packages in `archive_versions`; do not delete them unless the user explicitly asks.
 - Put clean release packages in `current_release`.
 - When creating a release package, include only the files needed to run/deploy the project, not historical archives or analysis folders.

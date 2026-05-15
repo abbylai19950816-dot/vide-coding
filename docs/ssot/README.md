@@ -10,6 +10,7 @@ This folder is the single source of truth for product, data, deployment, and ope
 - Student-facing entry: `github_pages/index.html`
 - Admin entry: `github_pages/admin.html`
 - Firestore rules: `active/gyrobooking_current/firestore.rules`
+- Codex project skill SSOT: `docs/skill/README.md`
 
 ## Required SSOT Files
 
@@ -18,5 +19,6 @@ This folder is the single source of truth for product, data, deployment, and ope
 - `security_and_tenancy_plan.md`: Firestore rules, student privacy, public mirror, and future multi-teacher tenant isolation plan.
 - `release_process.md`: how to package, upload, deploy, and verify.
 - `decision_log.md`: important architecture decisions and why they were made.
+- `../skill/README.md`: Codex/new-chat operating rules, low-cost guardrails, and deployment verification checklist.
 
 When a file change modifies behavior, data shape, deployment, security, or cost, update the matching SSOT file in the same work session.
