@@ -1690,10 +1690,17 @@ function openStudentDetail(id){
           const displayTime=currentSlot?currentSlot.time:b.time;
           const displayDate=currentSlot?currentSlot.date:b.date;
           const d=new Date(displayDate+'T00:00:00');
-          const moveBtn='<button onclick="openBookingMove('+id+',\''+b.slotId+'\',event)" style="font-size:11px;background:var(--sand-dark);color:var(--ink-mid);border:none;border-radius:99px;padding:2px 10px;cursor:pointer;font-family:inherit;margin-left:4px">改時間</button>';
-          const cancelBtn='<button onclick="cancelStudentBooking('+id+',\''+b.slotId+'\',event)" style="font-size:11px;background:var(--warn-bg);color:var(--warn);border:none;border-radius:99px;padding:2px 10px;cursor:pointer;font-family:inherit;margin-left:6px">取消</button>';
-          const noteBtn='<button onclick="openClassNote(\''+b.slotId+'\','+sid+',event)" style="font-size:11px;background:var(--sage-light);color:var(--sage-deep);border:none;border-radius:99px;padding:2px 10px;cursor:pointer;font-family:inherit;margin-left:4px">課程紀錄</button>';
-          return '<div class="info-row" style="align-items:center"><span class="info-label">'+(d.getMonth()+1)+'/'+d.getDate()+'（'+SCH_D[d.getDay()]+'）</span><span class="info-val" style="display:flex;align-items:center;gap:4px;flex-wrap:wrap">'+displayTime+'　'+(b.typeName||'')+noteBtn+moveBtn+cancelBtn+'</span></div>';
+          const moveBtn='<button onclick="openBookingMove('+id+',\''+b.slotId+'\',event)" style="font-size:11px;background:var(--sand-dark);color:var(--ink-mid);border:none;border-radius:99px;padding:2px 10px;cursor:pointer;font-family:inherit">改時間</button>';
+          const cancelBtn='<button onclick="cancelStudentBooking('+id+',\''+b.slotId+'\',event)" style="font-size:11px;background:var(--warn-bg);color:var(--warn);border:none;border-radius:99px;padding:2px 10px;cursor:pointer;font-family:inherit">取消</button>';
+          const noteBtn='<button onclick="openClassNote(\''+b.slotId+'\','+sid+',event)" style="font-size:11px;background:var(--sage-light);color:var(--sage-deep);border:none;border-radius:99px;padding:2px 10px;cursor:pointer;font-family:inherit">課程紀錄</button>';
+          return '<div class="info-row" style="display:block;padding:8px 0 9px">'+
+            '<div style="display:grid;grid-template-columns:minmax(74px,auto) 48px minmax(0,1fr);gap:8px;align-items:center">'+
+              '<span class="info-label" style="min-width:0">'+(d.getMonth()+1)+'/'+d.getDate()+'（'+SCH_D[d.getDay()]+'）</span>'+
+              '<span class="info-val" style="text-align:left;white-space:nowrap">'+displayTime+'</span>'+
+              '<span class="info-val" style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(b.typeName||'')+'</span>'+
+            '</div>'+
+            '<div style="display:flex;justify-content:flex-end;gap:6px;flex-wrap:wrap;margin-top:4px">'+noteBtn+moveBtn+cancelBtn+'</div>'+
+          '</div>';
         }).join('');
     })()+
     '<button class="btn-danger" onclick="deleteStudent('+s.id+')">刪除學員</button>';
