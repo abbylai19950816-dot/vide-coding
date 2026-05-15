@@ -9,7 +9,7 @@
 <script>
 // Auto-update: check if a newer version is available on GitHub Pages
 (function(){
-  var CURRENT_VERSION = '20260513-026';
+  var CURRENT_VERSION = '20260515-027';
   // Store version in sessionStorage to avoid re-checking in same session
   if(sessionStorage.getItem('app_version')===CURRENT_VERSION) return;
   sessionStorage.setItem('app_version', CURRENT_VERSION);
@@ -24,7 +24,7 @@
     localStorage.removeItem('pilates_payments');
     localStorage.setItem('app_version', CURRENT_VERSION);
     // Reload bypassing cache
-    window.location.replace(window.location.href.split('?')[0] + '?v=20260513-026');
+    window.location.replace(window.location.href.split('?')[0] + '?v=20260515-027');
     return;
   }
   localStorage.setItem('app_version', CURRENT_VERSION);
@@ -172,6 +172,16 @@ footer{text-align:center;padding:14px 20px 30px;font-size:12px;color:var(--ink-l
 .slot-preview-box{background:var(--sage-light);border-radius:var(--radius-sm);padding:12px 14px;margin-bottom:16px}
 .slot-preview-time{font-size:15px;font-weight:500;color:var(--sage-deep)}
 .slot-preview-meta{font-size:12px;color:var(--ink-mid);margin-top:3px}
+.booking-success-overlay{position:fixed;inset:0;background:rgba(42,38,32,.42);z-index:220;display:flex;align-items:center;justify-content:center;padding:24px;opacity:0;pointer-events:none;transition:opacity .25s}
+.booking-success-overlay.show{opacity:1;pointer-events:all}
+.booking-success-card{width:100%;max-width:340px;background:var(--white);border-radius:24px;padding:26px 22px 20px;text-align:center;box-shadow:0 18px 50px rgba(42,38,32,.18)}
+.booking-success-icon{width:58px;height:58px;border-radius:50%;background:var(--sage-light);color:var(--sage-deep);display:flex;align-items:center;justify-content:center;margin:0 auto 14px}
+.booking-success-icon svg{width:28px;height:28px}
+.booking-success-title{font-size:20px;font-weight:600;color:var(--ink);margin-bottom:8px}
+.booking-success-text{font-size:14px;color:var(--ink-mid);line-height:1.8;margin-bottom:16px}
+.booking-success-note{background:var(--sand);border-radius:14px;padding:11px 12px;font-size:12px;color:var(--ink-mid);line-height:1.7;margin-bottom:16px;text-align:left}
+.booking-success-btn{width:100%;border:none;border-radius:99px;background:var(--sage);color:#fff;padding:13px;font-size:14px;font-weight:500;font-family:inherit;cursor:pointer}
+.booking-success-btn:active{opacity:.86;transform:scale(.98)}
 </style>
 <!-- Firebase SDK -->
 <script type="module">
@@ -686,6 +696,18 @@ window.showVerifyError = window.__lowCostDisplayMessage;
     <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
     <span class="tab-label">預約時間</span>
   </button>
+</div>
+
+<div class="booking-success-overlay" id="bookingSuccessOverlay" role="dialog" aria-modal="true" aria-labelledby="bookingSuccessTitle">
+  <div class="booking-success-card">
+    <div class="booking-success-icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+    </div>
+    <div class="booking-success-title" id="bookingSuccessTitle">預約申請已送出</div>
+    <div class="booking-success-text">管理員確認後，會更新名額與你的剩餘堂數。</div>
+    <div class="booking-success-note">你可以稍後重新查詢方案狀態；若課程時間較接近，也可以直接聯絡老師確認。</div>
+    <button class="booking-success-btn" onclick="closeBookingSuccess()">知道了</button>
+  </div>
 </div>
 
 <div class="success-overlay" id="successOverlay">
@@ -1373,6 +1395,16 @@ function submitSlotBooking(){
   closeSlotForm();
 }
 
+function showBookingSuccess(){
+  const overlay=document.getElementById('bookingSuccessOverlay');
+  if(overlay) overlay.classList.add('show');
+}
+
+function closeBookingSuccess(){
+  const overlay=document.getElementById('bookingSuccessOverlay');
+  if(overlay) overlay.classList.remove('show');
+}
+
 renderPurchase();
 
 
@@ -1586,7 +1618,7 @@ async function batchSubmitBooking(){
 
   try{
     const key=String(window._lowCostRemainingKey || verifiedTypeId || 'default');
-    const res=await window._fb.createBookingRequest({
+    await window._fb.createBookingRequest({
       lookupKey:window._lowCostLookup.key,
       slotIds:[...selectedSlots],
       typeId:verifiedTypeId,
@@ -1648,7 +1680,7 @@ batchSubmitBooking = async function(){
       typeKey:key
     });
     selectedSlots.clear();
-    alert('預約申請已送出，管理員確認後會更新名額與剩餘堂數。申請編號：'+(res.id||''));
+    showBookingSuccess();
     if(typeof renderSlotList==='function') renderSlotList();
   }catch(e){
     console.warn('booking request failed',e);
