@@ -686,6 +686,13 @@ window._fb={
       return snap.docs.map(d=>({id:d.id,data:d.data()}));
     }catch(e){ console.warn('listCollection',pathParts,e); return []; }
   },
+  subscribeCollection(pathParts, cb){
+    try{
+      return onSnapshot(collection(db, ...pathParts), snap=>{
+        cb(snap.docs.map(d=>({id:d.id,data:d.data()})));
+      }, e=>console.warn('collectionListener',pathParts,e));
+    }catch(e){ console.warn('subscribeCollection',pathParts,e); return ()=>{}; }
+  },
   async deleteDocPath(pathParts){
     try{ await deleteDoc(doc(db, ...pathParts)); return true; }
     catch(e){ console.warn('deleteDocPath',pathParts,e); return false; }
@@ -4038,6 +4045,11 @@ function fbSubscribeAll() {
 // Override save functions — fbSet writes localStorage + Firestore
 // Note: fbSet already calls localStorage.setItem, so we don't duplicate it here
 let _requestImportRunning=false;
+let _requestImportTimer=null;
+function schedulePendingRequestImport(reason){
+  clearTimeout(_requestImportTimer);
+  _requestImportTimer=setTimeout(()=>importPendingRequests(reason),600);
+}
 
 async function persistDataKey(key,value){
   await fbSet(key,value);
@@ -4094,8 +4106,21 @@ async function importPurchaseRequests(){
 function findBookingTicket(tickets, studentId, slot, slotId){
   const sid=String(studentId);
   const slotKey=String(slotId);
-  return tickets.find(t=>String(t.studentId)===sid && Array.isArray(t.logs) && t.logs.some(l=>Array.isArray(l.slotIds)&&l.slotIds.map(String).includes(slotKey))) ||
-    tickets.find(t=>String(t.studentId)===sid && Number(t.left||0)>0 && (!t.expireDate||t.expireDate>=todayStr()) && (slot?.typeId==null || t.typeId==null || String(t.typeId)===String(slot.typeId)));
+  const alreadyUsed=tickets.find(t=>String(t.studentId)===sid && Array.isArray(t.logs) && t.logs.some(l=>Array.isArray(l.slotIds)&&l.slotIds.map(String).includes(slotKey)));
+  if(alreadyUsed) return alreadyUsed;
+  const active=tickets.filter(t=>String(t.studentId)===sid && Number(t.left||0)>0 && (!t.expireDate||t.expireDate>=todayStr()));
+  if(slot?.typeId!=null && String(slot.typeId)!==''){
+    const exact=active.find(t=>String(t.typeId||'')===String(slot.typeId));
+    if(exact) return exact;
+    const cfg=bkLoadCfg();
+    const slotType=cfg.classTypes?.find(t=>String(t.id)===String(slot.typeId));
+    const typeName=String(slotType?.name||slot.typeName||slot.name||'').trim();
+    if(typeName){
+      const exactName=active.find(t=>String(t.typeName||'').trim()===typeName);
+      if(exactName) return exactName;
+    }
+  }
+  return active.find(t=>!t.typeId && slot?.typeId==null) || null;
 }
 
 async function importBookingRequests(){
@@ -4159,7 +4184,7 @@ async function importBookingRequests(){
   return imported;
 }
 
-async function importPendingRequests(){
+async function importPendingRequests(reason='manual'){
   if(_requestImportRunning) return;
   _requestImportRunning=true;
   try{
@@ -4175,6 +4200,13 @@ async function importPendingRequests(){
   }finally{
     _requestImportRunning=false;
   }
+}
+
+function subscribePendingRequestImports(){
+  if(!window._fb?.subscribeCollection) return;
+  if(_fbUnsubscribers.purchase_requests || _fbUnsubscribers.booking_requests) return;
+  _fbUnsubscribers.purchase_requests=window._fb.subscribeCollection(['purchase_requests'],()=>schedulePendingRequestImport('purchase_requests'));
+  _fbUnsubscribers.booking_requests=window._fb.subscribeCollection(['booking_requests'],()=>schedulePendingRequestImport('booking_requests'));
 }
 
 function saveStudents(d){ fbSet('students',d); }
@@ -4233,6 +4265,7 @@ async function initFirebaseSync() {
 
   // Subscribe to real-time pushes (no polling, no interval)
   fbSubscribeAll();
+  subscribePendingRequestImports();
   importPendingRequests();
   setTimeout(()=>{ if(typeof window.lowCostScheduleSync==='function') window.lowCostScheduleSync('startup'); },1000);
   setInterval(importPendingRequests, 30000);
