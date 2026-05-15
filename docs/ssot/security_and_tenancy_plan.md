@@ -338,6 +338,17 @@ service cloud.firestore {
 
 此做法保留現有管理員體感，同時讓學生端不再直接寫私密 `/data/*`。
 
+## 2026-05-15 實作決策：管理員同步必須使用 Email/Password auth
+
+管理員頁不得把匿名 Firebase auth 視為管理員登入。因為同一台瀏覽器可能先開過學員頁，學員頁會使用 anonymous auth 送出購課/預約申請；如果管理員頁把這個匿名狀態當成已登入，就會開始讀取 `purchase_requests` / `booking_requests`，但 Firestore rules 會拒絕，造成「申請匯入失敗」。
+
+目前規則：
+
+- `admin.html` 只有在 `providerData.providerId === 'password'` 且 `!user.isAnonymous` 時，才啟動 `initFirebaseSync()`。
+- 偵測到 anonymous/student auth 時，管理員頁顯示登入畫面，並清除該非管理員 auth。
+- `purchase_requests` / `booking_requests` 的背景匯入仍只在管理員登入後執行。
+- 學員端不同裝置仍可讀 `public_booking/state` 與 `web_config/flags`，不受此限制影響。
+
 ## 驗證清單
 
 - 未登入使用者可讀 `public_booking/state`，不同裝置都拿到最新 `updatedAt`。

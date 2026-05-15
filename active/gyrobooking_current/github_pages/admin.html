@@ -4143,17 +4143,29 @@ async function adminSignOut(){
   toast('已登出');
 }
 
+function isPasswordAdminUser(user){
+  return !!user &&
+    !user.isAnonymous &&
+    Array.isArray(user.providerData) &&
+    user.providerData.some(p=>p.providerId==='password');
+}
+
 // Called by Firebase onAuthStateChanged (in module script)
 window._handleAuthChange = function(user){
-  window._fbCurrentUser = user;
+  const isAdmin=isPasswordAdminUser(user);
+  window._fbCurrentUser = isAdmin ? user : null;
   const gate = document.getElementById('auth-gate');
-  if(user){
-    // Authenticated — hide gate and start app
+  if(isAdmin){
+    // Password admin — hide gate and start app
     if(gate) gate.style.display='none';
     if(!_syncInitDone) initFirebaseSync();
   } else {
-    // Not authenticated — show gate
+    // Anonymous/student auth is not an admin session.
+    _syncInitDone=false;
     if(gate) gate.style.display='flex';
+    const err=document.getElementById('auth-err');
+    if(err && user?.isAnonymous) err.textContent='請使用管理員帳號登入';
+    if(user && window._fb?.signOut) window._fb.signOut().catch(e=>console.warn('clear non-admin auth',e));
     setTimeout(()=>document.getElementById('auth-email')?.focus(), 100);
   }
 };
@@ -4391,8 +4403,12 @@ async function importPendingRequests(reason='manual'){
     setPublicSyncStatus('申請匯入正常', 'ok');
   }catch(e){
     console.warn('importPendingRequests failed',reason,e);
-    setPublicSyncStatus('申請匯入失敗，請重新登入', 'error');
-    toast('申請匯入失敗，請重新登入管理員');
+    const code=String(e?.code||'');
+    const message=code.includes('permission-denied')
+      ? '管理員登入狀態失效，請重新登入'
+      : '申請匯入失敗，請重新整理後再試';
+    setPublicSyncStatus(message, 'error');
+    toast(message);
   }finally{
     _requestImportRunning=false;
   }
@@ -4445,9 +4461,9 @@ function setPublicSyncStatus(text, state){
 
 async function initFirebaseSync() {
   if (_syncInitDone) return;  // GUARD: only run once
-  // Must be authenticated
-  if (!window._fbCurrentUser) {
-    console.warn('initFirebaseSync: not authenticated');
+  // Must be password admin, not anonymous student auth.
+  if (!isPasswordAdminUser(window._fbCurrentUser)) {
+    console.warn('initFirebaseSync: not password admin');
     return;
   }
   _syncInitDone = true;
@@ -4482,11 +4498,11 @@ async function initFirebaseSync() {
 // Auth-driven init: _handleAuthChange calls initFirebaseSync when user is logged in
 // firebase-ready just triggers _handleAuthChange if auth is already resolved
 if (window._fbReady) {
-  if(window._fbCurrentUser) initFirebaseSync();
+  if(isPasswordAdminUser(window._fbCurrentUser)) initFirebaseSync();
   // else: waiting for user to log in (auth gate will be shown)
 } else {
   window.addEventListener('firebase-ready', function(){
-    if(window._fbCurrentUser) initFirebaseSync();
+    if(isPasswordAdminUser(window._fbCurrentUser)) initFirebaseSync();
   }, { once: true });
 }
 
