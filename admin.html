@@ -2768,8 +2768,41 @@ createTicketFromPayment = function(p){
   const tickets=loadTickets();
   const students=loadStudents();
   const pPhone=(p.phone||'').replace(/\D/g,'');
-  const stu=students.find(s=>String(s.id)===String(p.studentId)) ||
+  let stu=students.find(s=>String(s.id)===String(p.studentId)) ||
     students.find(s=>s.name===p.studentName && pPhone && (s.phone||'').replace(/\D/g,'')===pPhone);
+  if(!stu){
+    const samePhone=pPhone?students.find(s=>String(s.phone||'').replace(/\D/g,'')===pPhone):null;
+    if(samePhone){
+      toast('此手機號碼已由 '+samePhone.name+' 使用，請先確認付款紀錄');
+      return;
+    }
+    stu={
+      id:p.studentId||Date.now(),
+      name:p.studentName||'未命名學員',
+      phone:p.phone||pPhone,
+      line:'',
+      joined:p.date||todayStr(),
+      ecName:'',
+      ecRel:'',
+      ecPhone:'',
+      notes:p.note||'',
+      color:p.color||COLORS[students.length%COLORS.length],
+      fromPayment:true,
+      sourcePaymentId:p.id||''
+    };
+    students.push(stu);
+    saveStudents(students);
+    const payments=loadPayments();
+    const pIdx=payments.findIndex(item=>String(item.id)===String(p.id));
+    if(pIdx>=0){
+      payments[pIdx]={...payments[pIdx],studentId:stu.id,studentName:stu.name,phone:stu.phone,color:stu.color};
+      savePayments(payments);
+    }
+    p.studentId=stu.id;
+    p.studentName=stu.name;
+    p.phone=stu.phone;
+    p.color=stu.color;
+  }
   const studentId=stu?stu.id:(p.studentId||Date.now());
   const sourceId=String(p.id||'');
   const dup=tickets.find(t=>
