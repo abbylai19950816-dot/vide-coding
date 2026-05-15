@@ -2817,7 +2817,10 @@ createTicketFromPayment = function(p){
   if(plan.oncePerStudent || p.oncePerStudent){
     const used=tickets.some(t=>
       String(t.studentId)===String(studentId) &&
-      (String(t.planId||'')===String(plan.id)||t.planName===(plan.name||planName))
+      (
+        (String(t.typeId||'')===String(type.id) && String(t.planId||'')===String(plan.id)) ||
+        (!t.typeId && !t.planId && String(t.typeName||'')===String(type.name||typeName) && String(t.planName||'')===String(plan.name||planName))
+      )
     );
     if(used){
       toast('此方案每位學員限使用一次，已略過重複開票');
