@@ -290,6 +290,7 @@ body{font-family:'Chiron GoRound TC',sans-serif;background:var(--sand);color:var
 .detail-meta-text{text-align:center;font-size:13px;color:var(--ink-mid);margin-bottom:20px}
 .info-row{display:flex;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--sand-dark);gap:10px}
 .info-row:last-child{border-bottom:none}
+.form-section .info-row{padding-left:14px;padding-right:14px}
 .info-label{font-size:13px;color:var(--ink-mid);width:90px;flex-shrink:0;padding-top:1px}
 .info-val{font-size:13px;color:var(--ink);flex:1;line-height:1.5}
 .detail-tickets{background:var(--sage-light);border-radius:var(--radius);padding:16px 20px;display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
@@ -1026,7 +1027,7 @@ onAuthStateChanged(auth, (user) => {
   <div class="sheet-body">
     <input type="hidden" id="change-student-id">
     <input type="hidden" id="change-slot-id">
-    <div style="background:var(--sand);border-radius:var(--radius-sm);padding:10px 0;margin:0 0 14px">
+    <div style="background:var(--sand);border-radius:var(--radius-sm);padding:10px 14px;margin:0 0 14px">
       <div class="form-section-label" style="padding:0 0 6px;margin:0">目前預約</div>
       <div id="change-current-slot" style="font-size:13px;line-height:1.7;color:var(--ink-mid)"></div>
     </div>
@@ -1047,11 +1048,11 @@ onAuthStateChanged(auth, (user) => {
   <div class="sheet-body">
     <input type="hidden" id="move-student-id">
     <input type="hidden" id="move-from-slot-id">
-    <div style="background:var(--sand);border-radius:var(--radius-sm);padding:10px 0;margin:0 0 14px">
+    <div style="background:var(--sand);border-radius:var(--radius-sm);padding:10px 14px;margin:0 0 14px">
       <div class="form-section-label" style="padding:0 0 6px;margin:0">原預約</div>
       <div id="move-current-slot" style="font-size:13px;line-height:1.7;color:var(--ink-mid)"></div>
     </div>
-    <div style="background:var(--sand);border-radius:var(--radius-sm);padding:10px 0;margin:0 0 14px">
+    <div style="background:var(--sand);border-radius:var(--radius-sm);padding:10px 14px;margin:0 0 14px">
       <div class="form-section-label" style="padding:0 0 6px;margin:0">可更改時段</div>
       <div id="move-slot-list" style="display:flex;flex-direction:column;gap:8px"></div>
     </div>
