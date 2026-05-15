@@ -680,11 +680,15 @@ window._fb={
     try{ const snap=await getDoc(doc(db, ...pathParts)); return snap.exists()?snap.data():null; }
     catch(e){ console.warn('getDocPath',pathParts,e); return null; }
   },
-  async listCollection(pathParts){
+  async listCollection(pathParts, options={}){
     try{
       const snap=await getDocs(collection(db, ...pathParts));
       return snap.docs.map(d=>({id:d.id,data:d.data()}));
-    }catch(e){ console.warn('listCollection',pathParts,e); return []; }
+    }catch(e){
+      console.warn('listCollection',pathParts,e);
+      if(options.throwOnError) throw e;
+      return [];
+    }
   },
   subscribeCollection(pathParts, cb){
     try{
@@ -4079,6 +4083,7 @@ function fbSubscribeAll() {
 // Note: fbSet already calls localStorage.setItem, so we don't duplicate it here
 let _requestImportRunning=false;
 let _requestImportTimer=null;
+let _requestImportHooksReady=false;
 function schedulePendingRequestImport(reason){
   clearTimeout(_requestImportTimer);
   _requestImportTimer=setTimeout(()=>importPendingRequests(reason),600);
@@ -4090,7 +4095,7 @@ async function persistDataKey(key,value){
 
 async function importPurchaseRequests(){
   if(!window._fb?.listCollection) return 0;
-  const requests=await window._fb.listCollection(['purchase_requests']);
+  const requests=await window._fb.listCollection(['purchase_requests'],{throwOnError:true});
   if(!requests.length) return 0;
   let students=loadStudents();
   let payments=loadPayments();
@@ -4158,7 +4163,7 @@ function findBookingTicket(tickets, studentId, slot, slotId){
 
 async function importBookingRequests(){
   if(!window._fb?.listCollection) return 0;
-  const requests=await window._fb.listCollection(['booking_requests']);
+  const requests=await window._fb.listCollection(['booking_requests'],{throwOnError:true});
   if(!requests.length) return 0;
   let students=loadStudents();
   let tickets=loadTickets();
@@ -4221,6 +4226,7 @@ async function importPendingRequests(reason='manual'){
   if(_requestImportRunning) return;
   _requestImportRunning=true;
   try{
+    setPublicSyncStatus('申請匯入檢查中', 'syncing');
     const purchaseCount=await importPurchaseRequests();
     const bookingCount=await importBookingRequests();
     if(purchaseCount||bookingCount){
@@ -4230,6 +4236,11 @@ async function importPendingRequests(reason='manual'){
       if(typeof updateBadges==='function') updateBadges();
       toast('已自動匯入申請：購課 '+purchaseCount+' 筆，預約 '+bookingCount+' 筆');
     }
+    setPublicSyncStatus('申請匯入正常', 'ok');
+  }catch(e){
+    console.warn('importPendingRequests failed',reason,e);
+    setPublicSyncStatus('申請匯入失敗，請重新登入', 'error');
+    toast('申請匯入失敗，請重新登入管理員');
   }finally{
     _requestImportRunning=false;
   }
@@ -4240,6 +4251,16 @@ function subscribePendingRequestImports(){
   if(_fbUnsubscribers.purchase_requests || _fbUnsubscribers.booking_requests) return;
   _fbUnsubscribers.purchase_requests=window._fb.subscribeCollection(['purchase_requests'],()=>schedulePendingRequestImport('purchase_requests'));
   _fbUnsubscribers.booking_requests=window._fb.subscribeCollection(['booking_requests'],()=>schedulePendingRequestImport('booking_requests'));
+}
+
+function initPendingRequestImportHooks(){
+  if(_requestImportHooksReady) return;
+  _requestImportHooksReady=true;
+  window.addEventListener('focus',()=>schedulePendingRequestImport('window-focus'));
+  window.addEventListener('online',()=>schedulePendingRequestImport('online'));
+  document.addEventListener('visibilitychange',()=>{
+    if(!document.hidden) schedulePendingRequestImport('visible');
+  });
 }
 
 function saveStudents(d){ fbSet('students',d); }
@@ -4299,6 +4320,7 @@ async function initFirebaseSync() {
   // Subscribe to real-time pushes (no polling, no interval)
   fbSubscribeAll();
   subscribePendingRequestImports();
+  initPendingRequestImportHooks();
   importPendingRequests();
   setTimeout(()=>{ if(typeof window.lowCostScheduleSync==='function') window.lowCostScheduleSync('startup'); },1000);
   setInterval(importPendingRequests, 30000);
