@@ -22,4 +22,5 @@ Gyrobooking is a low-cost Pilates booking system for:
 - A phone number can belong to only one registered student. Public duplicate checks use `phone_lookup/{hash}` and must not expose private student data.
 - Course plans may be marked `oncePerStudent` for trial classes; once used, the same student cannot purchase that plan again from the student page.
 - Course plans may set `allowRecurring: false`; student-side loop booking should be hidden and blocked for those active plans.
+- 學員若同時擁有多個有效課程類型，例如一對一與一對二，預約頁查詢方案後必須讓學員切換課程類型；不得只自動顯示其中一種，避免誤以為其他方案消失。
 - 日期與時間判斷以使用者裝置當地時間為準；不要在前端硬加固定 UTC+8。

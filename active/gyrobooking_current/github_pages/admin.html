@@ -1508,11 +1508,11 @@ function renderStudents(){
   if(!students.length){ wrap.innerHTML='<div class="empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg><p>'+(q?'找不到符合的學員':'還沒有學員，點右上角新增！')+'</p></div>'; return; }
   wrap.innerHTML = students.map(function(s){
     const myTickets = allTkts.filter(t=>t.studentId===s.id&&!isTicketExpired(t));
-    const best = myTickets.sort((a,b)=>b.left-a.left)[0];
-    const left = best ? best.left : 0;
-    const warn = best && left <= 3;
-    const badgeTxt = best ? ('剩 '+left+' 堂') : '無方案';
-    const badgeCls = best ? (warn?'warn':'ok') : 'none';
+    const totalLeft = myTickets.reduce((sum,t)=>sum+Number(t.left||0),0);
+    const hasTicket = myTickets.length>0;
+    const warn = hasTicket && totalLeft <= 3;
+    const badgeTxt = hasTicket ? ('剩 '+totalLeft+' 堂') : '無方案';
+    const badgeCls = hasTicket ? (warn?'warn':'ok') : 'none';
     return '<div class="card '+(warn?'warn-border':'')+'" onclick="openStudentDetail('+s.id+')"><div class="card-row"><div class="avatar av44 '+s.color+'">'+s.name.slice(0,1)+'</div><div class="card-info"><div class="card-name">'+s.name+'</div><div class="card-meta">'+(s.phone||'')+(s.line?' · '+s.line:'')+'</div></div><span class="badge '+badgeCls+'">'+badgeTxt+'</span><svg class="chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg></div></div>';
   }).join('');
 }
@@ -2897,6 +2897,7 @@ cancelStudentBooking = function(studentId, slotId, evt){
   const refundIdx=logMatchIdx>=0?logMatchIdx:fallbackIdx;
   if(refundIdx>=0){
     tickets[refundIdx].left=Number(tickets[refundIdx].left||0)+1;
+    tickets[refundIdx].used=Math.max(0,Number(tickets[refundIdx].used||0)-1);
     const refundLog={date:todayStr(),action:'refund',slotIds:[slotId],note:'取消預約，補回1堂'};
     tickets[refundIdx].log=Array.isArray(tickets[refundIdx].log)?tickets[refundIdx].log:[];
     tickets[refundIdx].logs=Array.isArray(tickets[refundIdx].logs)?tickets[refundIdx].logs:[];
@@ -4065,6 +4066,7 @@ function schDeleteSlot(){
       );
       if(tIdx>=0){
         tickets[tIdx].left+=1;
+        tickets[tIdx].used=Math.max(0,Number(tickets[tIdx].used||0)-1);
         tickets[tIdx].log=tickets[tIdx].log||[];
         tickets[tIdx].log.push({date:todayStr(),action:'refund',note:'時段被刪除：補回1堂'});
       }
