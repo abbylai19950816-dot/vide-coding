@@ -5138,9 +5138,11 @@ function buildTicketRecalcRows(){
     const dupKey=String(t.studentId||'')+'|'+dataHealthTicketTypeKey(t);
     const sameActive=activeByStudentType.get(dupKey)||[];
     const issues=[];
+    const arithmeticOk=total>0 && (currentUsed+currentLeft===total);
+    const weakLogsNeedReview=hasWeakLogs && (matchingSlots.length>0 || missingLogSlots.length>0 || !arithmeticOk);
     if(expectedLeft!=null && expectedLeft!==currentLeft) issues.push('推算剩餘 '+expectedLeft+' 堂，和目前 '+currentLeft+' 堂不同');
     if(edits) issues.push('曾手動修改堂數，需人工判讀');
-    if(hasWeakLogs) issues.push('有 '+weakLogs.length+' 筆扣補堂紀錄缺 slotId，需人工判讀');
+    if(weakLogsNeedReview) issues.push('有 '+weakLogs.length+' 筆扣補堂紀錄缺 slotId，需人工判讀');
     if(missingLogSlots.length) issues.push('有 '+missingLogSlots.length+' 筆預約找不到票券 slotId log');
     if(sameActive.length>1) issues.push('同學員同課程類型有 '+sameActive.length+' 張有效票券，取消補堂需留意');
 
@@ -5565,7 +5567,7 @@ function renderTicketRecalcReport(){
       '<div class="health-issue-body">'+
         '目前：total='+row.total+'、used='+row.currentUsed+'、left='+row.currentLeft+'<br>'+
         '推算：扣堂 '+row.deduct+'、補回 '+(row.refund+row.manualAdd)+'、預期剩餘 '+expected+'<br>'+
-        '預約：符合課程類型 '+row.bookedCount+' 筆；缺 slotId log '+row.missingLogCount+' 筆；缺 slotId 的扣補紀錄 '+row.weakLogCount+' 筆。'+
+        '預約：符合課程類型 '+row.bookedCount+' 筆；缺 slotId log '+row.missingLogCount+' 筆；歷史扣補堂缺 slotId '+row.weakLogCount+' 筆。'+
       '</div>'+issues+
     '</div>';
   }).join('');

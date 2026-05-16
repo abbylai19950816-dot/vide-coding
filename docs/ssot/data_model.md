@@ -207,7 +207,8 @@ Rules:
 
 - This report must not auto-fix tickets.
 - If a ticket has manual `edit` logs, the report should mark it as requiring human review and must not show a deterministic expected-left value.
-- Missing `slotIds` means cancellation/refund matching is less reliable. The report should mark the ticket as requiring human review and must not compare the current `left` against a deterministic expected-left value.
+- Missing `slotIds` means cancellation/refund matching is less reliable. The report must not compare the current `left` against a deterministic expected-left value.
+- Missing `slotIds` alone should not make a ticket appear as a problem when current arithmetic is coherent (`total = used + left`) and there are no matching bookings or missing booking logs. In that case, treat it as historical log incompleteness, not an action item for admins.
 - A same-course multi-ticket warning is not necessarily an error, but it should be reviewed before automatic refund or correction logic is trusted.
 
 #### Course log orphan member cleanup
