@@ -971,6 +971,7 @@ onAuthStateChanged(auth, (user) => {
         </div>
         <div class="health-actions">
           <button class="health-btn primary" type="button" onclick="runDataHealthCheck()">開始檢查</button>
+          <button class="health-btn muted" type="button" onclick="renderTicketRecalcReport()">票券重算報告</button>
           <button class="health-btn muted" type="button" onclick="clearDataHealthReport()">清除結果</button>
           <button class="health-btn warn" type="button" onclick="forceRebuildStudentLookupIndex()">強制重建學員查詢</button>
         </div>
@@ -5046,6 +5047,123 @@ function dataHealthTicketHasSlotLog(ticket,slotId){
     Array.isArray(item?.slotIds) && item.slotIds.map(String).includes(key)
   ));
 }
+function dataHealthTicketLogs(ticket){
+  const logs=[...(Array.isArray(ticket?.log)?ticket.log:[]),...(Array.isArray(ticket?.logs)?ticket.logs:[])];
+  const seen=new Set();
+  return logs.filter(item=>{
+    const key=JSON.stringify(item||{});
+    if(seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+function dataHealthLogSlotIds(item){
+  const ids=[];
+  if(Array.isArray(item?.slotIds)) ids.push(...item.slotIds);
+  if(item?.slotId!=null) ids.push(item.slotId);
+  return [...new Set(ids.map(v=>String(v)).filter(Boolean))];
+}
+function dataHealthTicketTypeKey(ticket){
+  return String(ticket?.typeId||ticket?.typeName||ticket?.courseType||ticket?.courseName||'未分類');
+}
+function dataHealthBookingMatchesTicket(slot, booking, ticket, student){
+  if(String(ticket.studentId||'')!==String(student?.id||'')) return false;
+  const ticketTypeId=String(ticket.typeId||'');
+  const slotTypeId=String(slot?.typeId||'');
+  if(ticketTypeId && slotTypeId && ticketTypeId!==slotTypeId) return false;
+  const ticketTypeName=String(ticket.typeName||ticket.courseName||ticket.planName||'').replace(/\s+/g,'');
+  const slotTypeName=String(slot?.typeName||slot?.name||slot?.courseName||slot?.title||'').replace(/\s+/g,'');
+  if(ticketTypeName && slotTypeName && !slotTypeName.includes(ticketTypeName) && !ticketTypeName.includes(slotTypeName)) return false;
+  return true;
+}
+function buildTicketRecalcRows(){
+  const students=loadStudents();
+  const tickets=loadTickets();
+  const slots=loadSlots();
+  const studentById=new Map(students.map(s=>[String(s.id),s]));
+  const rows=[];
+  const activeByStudentType=new Map();
+
+  tickets.forEach(t=>{
+    if(Number(t.left||0)>0 && !isTicketExpired(t)){
+      const key=String(t.studentId||'')+'|'+dataHealthTicketTypeKey(t);
+      if(!activeByStudentType.has(key)) activeByStudentType.set(key,[]);
+      activeByStudentType.get(key).push(t);
+    }
+  });
+
+  tickets.forEach(t=>{
+    const stu=studentById.get(String(t.studentId||''));
+    const total=Number(t.total||t.type||0);
+    const currentLeft=Number(t.left||0);
+    const currentUsed=Number(t.used||0);
+    const logs=dataHealthTicketLogs(t);
+    let deduct=0, refund=0, manualAdd=0, manualDeduct=0, edits=0;
+    const slotLogIds=new Set();
+    const weakLogs=[];
+
+    logs.forEach(l=>{
+      const action=String(l.action||'').toLowerCase();
+      const ids=dataHealthLogSlotIds(l);
+      ids.forEach(id=>slotLogIds.add(String(id)));
+      if(action==='buy') return;
+      if(action.includes('edit')){
+        edits++;
+        return;
+      }
+      if(action.includes('refund') || action.includes('makeup') || action==='add'){
+        if(action==='add') manualAdd++;
+        else refund++;
+        if(!ids.length && (action.includes('refund') || action.includes('makeup'))) weakLogs.push(l);
+        return;
+      }
+      if(action.includes('deduct')){
+        if(ids.length) deduct+=ids.length;
+        else { deduct++; manualDeduct++; weakLogs.push(l); }
+      }
+    });
+
+    const expectedLeft=edits||!total ? null : Math.max(0,total-deduct+refund+manualAdd);
+    const matchingSlots=[];
+    slots.forEach(slot=>{
+      (slot.bookings||[]).forEach(b=>{
+        const bStu=resolveBookingStudent(b,students);
+        if(bStu && stu && String(bStu.id)===String(stu.id) && dataHealthBookingMatchesTicket(slot,b,t,stu)){
+          matchingSlots.push(slot);
+        }
+      });
+    });
+    const missingLogSlots=matchingSlots.filter(slot=>!slotLogIds.has(String(slot.id)));
+    const dupKey=String(t.studentId||'')+'|'+dataHealthTicketTypeKey(t);
+    const sameActive=activeByStudentType.get(dupKey)||[];
+    const issues=[];
+    if(expectedLeft!=null && expectedLeft!==currentLeft) issues.push('推算剩餘 '+expectedLeft+' 堂，和目前 '+currentLeft+' 堂不同');
+    if(edits) issues.push('曾手動修改堂數，推算僅供參考');
+    if(weakLogs.length) issues.push('有 '+weakLogs.length+' 筆扣補堂紀錄缺 slotId');
+    if(missingLogSlots.length) issues.push('有 '+missingLogSlots.length+' 筆預約找不到票券 slotId log');
+    if(sameActive.length>1) issues.push('同學員同課程類型有 '+sameActive.length+' 張有效票券，取消補堂需留意');
+
+    rows.push({
+      ticket:t,
+      student:stu,
+      total,
+      currentLeft,
+      currentUsed,
+      expectedLeft,
+      deduct,
+      refund,
+      manualAdd,
+      manualDeduct,
+      edits,
+      weakLogCount:weakLogs.length,
+      bookedCount:matchingSlots.length,
+      missingLogCount:missingLogSlots.length,
+      sameActiveCount:sameActive.length,
+      issues
+    });
+  });
+  return rows;
+}
 function dataHealthFindCourseLog(logs,slot,student){
   const sid=String(student?.id||'');
   const name=String(student?.name||'').trim();
@@ -5185,6 +5303,18 @@ function buildDataHealthReport(){
     if(total && used && used+left!==total) addIssue('warn','票券 used + left 與 total 不一致','「'+dataHealthStudentLabel(stu)+'」的「'+(t.typeName||t.planName||t.id)+'」 total='+total+'、used='+used+'、left='+left+'。',{studentId:stu.id,ticketId:t.id});
   });
 
+  buildTicketRecalcRows().forEach(row=>{
+    const t=row.ticket;
+    const stu=row.student;
+    if(!stu) return;
+    if(row.expectedLeft!=null && row.expectedLeft!==row.currentLeft){
+      addIssue('warn','票券剩餘堂數與紀錄推算不同','「'+dataHealthStudentLabel(stu)+'」的「'+(t.typeName||t.planName||t.id)+'」目前剩 '+row.currentLeft+' 堂，但依票券 log 推算為 '+row.expectedLeft+' 堂。',{studentId:stu.id,ticketId:t.id,repairAction:'showTicketRecalcReport'});
+    }
+    if(row.sameActiveCount>1){
+      addIssue('warn','同課程類型有多張有效票券','「'+dataHealthStudentLabel(stu)+'」同課程類型目前有 '+row.sameActiveCount+' 張有效票券。取消、刪課或補堂時可能需要確認補回哪一張。',{studentId:stu.id,ticketId:t.id,repairAction:'showTicketRecalcReport'});
+    }
+  });
+
   slots.forEach(slot=>{
     const bookings=Array.isArray(slot.bookings)?slot.bookings:[];
     bookings.forEach(booking=>{
@@ -5286,6 +5416,14 @@ function dataHealthGuidance(issue){
       meaning:'票券統計欄位不同步，但實際可預約通常以 left 為主。',
       next:'暫時不是第一優先；等預約與收費問題穩定後，再做票券統計欄位重算。'
     },
+    '票券剩餘堂數與紀錄推算不同':{
+      meaning:'票券目前剩餘堂數和票券 log 推算結果不同。這可能來自舊資料、手動修改、缺 slotId 的扣補堂紀錄，或取消補堂補到不同票券。',
+      next:'先按「查看票券重算報告」確認差異來源；目前此工具只讀，不會自動修正。'
+    },
+    '同課程類型有多張有效票券':{
+      meaning:'同一位學員同一課程類型同時有多張可用票券。這不一定錯，但取消預約、刪課或補堂時更容易補錯張。',
+      next:'先按「查看票券重算報告」確認是哪幾張票券；未來若要正式修正，應做單筆票券確認式修復。'
+    },
     '行事曆預約找不到學員':{
       meaning:'行事曆時段有預約名單，但對不到學員資料，可能是學員被刪或舊資料缺少手機/id。',
       next:'若時段尚未發生，先不要讓學員端繼續使用這筆名單；下一步用預約孤兒資料清理工具處理。'
@@ -5364,6 +5502,8 @@ function renderDataHealthReport(report){
       action='<button class="health-btn muted" type="button" style="margin-top:10px;padding:7px 12px" onclick="forceRebuildStudentLookupIndex(\'data-health\')">重建學員查詢</button>';
     }else if(issue.repairAction==='cleanOrphanLogMembers'){
       action='<button class="health-btn muted" type="button" style="margin-top:10px;padding:7px 12px" onclick="cleanOrphanCourseLogMembers()">清除孤兒日誌成員</button>';
+    }else if(issue.repairAction==='showTicketRecalcReport'){
+      action='<button class="health-btn muted" type="button" style="margin-top:10px;padding:7px 12px" onclick="renderTicketRecalcReport()">查看票券重算報告</button>';
     }
     return '<div class="health-issue '+cls+'">'+
       '<div class="health-issue-top"><div class="health-issue-title">'+dataHealthHtml(issue.title)+'</div><span class="badge '+cls+'">'+label+'</span></div>'+
@@ -5393,6 +5533,44 @@ async function runDataHealthCheck(){
     if(badge){ badge.className='badge danger'; badge.textContent='檢查失敗'; }
     if(result) result.innerHTML='<div class="health-issue danger"><div class="health-issue-title">檢查失敗</div><div class="health-issue-body">'+dataHealthHtml(err?.message||err)+'</div></div>';
   }
+}
+function renderTicketRecalcReport(){
+  const result=document.getElementById('data-health-result');
+  const badge=document.getElementById('data-health-badge');
+  if(!result||!badge) return;
+  const rows=buildTicketRecalcRows();
+  const risky=rows.filter(r=>r.issues.length);
+  badge.className='badge '+(risky.length?'warn':'ok');
+  badge.textContent=risky.length?('票券報告 '+risky.length+' 項'):'票券正常';
+
+  const summary=
+    '<div class="health-summary">'+
+      '<div class="health-metric"><div class="health-metric-num">'+rows.length+'</div><div class="health-metric-label">票券</div></div>'+
+      '<div class="health-metric"><div class="health-metric-num warn">'+risky.length+'</div><div class="health-metric-label">需檢查</div></div>'+
+      '<div class="health-metric"><div class="health-metric-num">'+rows.filter(r=>r.expectedLeft==null).length+'</div><div class="health-metric-label">人工判讀</div></div>'+
+    '</div>'+
+    '<div class="health-nextbox"><b>票券重算報告是只讀工具。</b><br>它會用 ticket log 推算堂數，幫你找出可能錯位的票券；目前不會自動修改任何資料。</div>';
+
+  const sourceRows=(risky.length?risky:rows).slice(0,80).map(row=>{
+    const t=row.ticket;
+    const stu=row.student;
+    const title=(stu?dataHealthStudentLabel(stu):'未知學員')+'｜'+(t.typeName||t.planName||t.id||'未命名票券');
+    const expected=row.expectedLeft==null?'需人工判讀':(row.expectedLeft+' 堂');
+    const issues=row.issues.length
+      ? '<div class="health-issue-guidance"><b>需檢查：</b>'+dataHealthHtml(row.issues.join('；'))+'</div>'
+      : '<div class="health-issue-guidance"><b>狀態：</b>目前沒有明顯差異。</div>';
+    return '<div class="health-issue '+(row.issues.length?'warn':'')+'">'+
+      '<div class="health-issue-top"><div class="health-issue-title">'+dataHealthHtml(title)+'</div><span class="badge '+(row.issues.length?'warn':'ok')+'">'+(row.issues.length?'需檢查':'正常')+'</span></div>'+
+      '<div class="health-issue-body">'+
+        '目前：total='+row.total+'、used='+row.currentUsed+'、left='+row.currentLeft+'<br>'+
+        '推算：扣堂 '+row.deduct+'、補回 '+(row.refund+row.manualAdd)+'、預期剩餘 '+expected+'<br>'+
+        '預約：符合課程類型 '+row.bookedCount+' 筆；缺 slotId log '+row.missingLogCount+' 筆；缺 slotId 的扣補紀錄 '+row.weakLogCount+' 筆。'+
+      '</div>'+issues+
+    '</div>';
+  }).join('');
+
+  const more=(risky.length?risky:rows).length>80?'<div class="health-desc" style="margin-top:10px">只顯示前 80 張票券。</div>':'';
+  result.innerHTML=summary+(sourceRows||'<div class="health-empty">目前沒有票券資料。</div>')+more;
 }
 function clearDataHealthReport(){
   window._lastDataHealthReport=null;

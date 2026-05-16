@@ -167,6 +167,8 @@ This workflow is not implemented yet. Do not reuse `delete payment` as the long-
 - 管理員端有有效票券，但 `student_lookup/{hash}` 不存在。
 - `student_lookup/{hash}` 的剩餘堂數與管理員端推算結果不同步。
 - 有剩餘票券，但票券課程類型無法對應目前公開課表課程類型。
+- 票券目前 `left` 與依票券 log 推算的剩餘堂數不同。
+- 同一位學員同課程類型同時有多張有效票券。
 
 Rules:
 
@@ -178,7 +180,35 @@ Rules:
 - Repair tools must remain separate from health check results. The admin should review severe issues before any automatic repair is introduced.
 - Lookup-related issues may show a scoped repair entry, such as `重建學員查詢`, which calls the same force rebuild workflow documented below.
 - Course-log orphan member issues may show a scoped repair entry, `清除孤兒日誌成員`, which removes only missing `studentIds` and their same-index `studentNames` from `/data/course_logs`.
+- Ticket recalculation issues may show a scoped read-only entry, `查看票券重算報告`. This report must not write data.
 - Future repair actions must write their own worklog and clearly state which source of truth is used to rebuild derived data.
+
+#### Ticket recalculation report
+
+`票券重算報告` is a read-only diagnostic report. It helps compare current ticket state with what can be inferred from ticket logs.
+
+Inputs:
+
+- `/data/tickets`
+- `/data/students`
+- `/data/slots`
+
+Displayed fields:
+
+- Current `total`, `used`, and `left`.
+- Deductions inferred from ticket `log[]` / `logs[]`.
+- Refunds, makeups, and manual adds inferred from logs.
+- Expected remaining sessions when no manual `edit` log prevents deterministic calculation.
+- Matching bookings by student and course type.
+- Missing `slotIds` in ticket logs.
+- Same-student same-course active ticket count.
+
+Rules:
+
+- This report must not auto-fix tickets.
+- If a ticket has manual `edit` logs, the report should mark it as requiring human review.
+- Missing `slotIds` means cancellation/refund matching is less reliable; future repair should be single-ticket and confirmation-based.
+- A same-course multi-ticket warning is not necessarily an error, but it should be reviewed before automatic refund or correction logic is trusted.
 
 #### Course log orphan member cleanup
 
