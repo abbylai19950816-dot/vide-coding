@@ -198,7 +198,7 @@ Displayed fields:
 - Current `total`, `used`, and `left`.
 - Deductions inferred from ticket `log[]` / `logs[]`.
 - Refunds, makeups, and manual adds inferred from logs.
-- Expected remaining sessions when no manual `edit` log prevents deterministic calculation.
+- Expected remaining sessions only when no manual `edit` log and no missing-`slotIds` deduct/refund log prevents deterministic calculation.
 - Matching bookings by student and course type.
 - Missing `slotIds` in ticket logs.
 - Same-student same-course active ticket count.
@@ -206,8 +206,8 @@ Displayed fields:
 Rules:
 
 - This report must not auto-fix tickets.
-- If a ticket has manual `edit` logs, the report should mark it as requiring human review.
-- Missing `slotIds` means cancellation/refund matching is less reliable; future repair should be single-ticket and confirmation-based.
+- If a ticket has manual `edit` logs, the report should mark it as requiring human review and must not show a deterministic expected-left value.
+- Missing `slotIds` means cancellation/refund matching is less reliable. The report should mark the ticket as requiring human review and must not compare the current `left` against a deterministic expected-left value.
 - A same-course multi-ticket warning is not necessarily an error, but it should be reviewed before automatic refund or correction logic is trusted.
 
 #### Course log orphan member cleanup
