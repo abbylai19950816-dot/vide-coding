@@ -8,6 +8,7 @@ description: Project-specific guardrails for the Gyrobooking Pilates booking sys
 Before changing this project, inspect the relevant current files first:
 
 - `docs/skill/README.md` (project skill SSOT for new-chat and deployment rules)
+- `docs/ssot/core_data_flows.md` (mandatory source of truth for purchase, payment, ticket, booking, cancel, move, slot delete, attendance, logs, and student lookup flows)
 - `active/gyrobooking_current/github_pages/index.html` or the active `github_pages/index.html`
 - `active/gyrobooking_current/github_pages/admin.html` or the active `github_pages/admin.html`
 - `firestore.rules`
@@ -26,6 +27,10 @@ Before changing this project, inspect the relevant current files first:
 
 ## Booking flow rules
 
+- Before adding, modifying, removing, or securing any feature, verify the core flow in `docs/ssot/core_data_flows.md` has not drifted.
+- Regression checks must cover purchase requests, manual admin plan creation, payment-to-ticket creation, booking import, cancel, move, slot delete, attendance, course logs, and `student_lookup` / `public_booking` sync when affected.
+- Student purchase flow: student-side plan purchase creates a pending purchase/payment path first; no usable ticket appears until admin marks payment as paid.
+- Admin manual plan flow: adding a plan from the student detail page defaults to paid and should create exactly one payment and one ticket.
 - Single booking and loop booking must share the same low-cost transaction shape.
 - A booking transaction may read: `public_booking/state`, `student_lookup/{hash}`, `/data/tickets`, `/data/students`.
 - A booking transaction may write: `public_booking/state`, `/data/slots`, `/data/tickets`, `/data/students`, `student_lookup/{hash}`.
