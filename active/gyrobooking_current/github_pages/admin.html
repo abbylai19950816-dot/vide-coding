@@ -3371,7 +3371,12 @@ function paymentTicketMatches(ticket, paymentId){
 function getTicketsByPaymentId(paymentId, tickets=loadTickets()){
   return tickets.filter(t=>paymentTicketMatches(t,paymentId));
 }
-function _cascadeTargetFromPayment(payment, tickets){
+function _recordCascadeId(record){
+  if(record?.studentId!=null&&String(record.studentId)!=='') return String(record.studentId);
+  if(record?.id!=null&&String(record.id)!=='') return String(record.id);
+  return '';
+}
+function _ticketArtifactTarget(payment, tickets){
   const studentIds=new Set();
   const names=new Set();
   const phones=new Set();
@@ -3388,12 +3393,11 @@ function _cascadeTargetFromPayment(payment, tickets){
   return {studentIds,names,phones};
 }
 function _matchesCascadeTarget(record, target){
-  const id=record?.studentId!=null?String(record.studentId):'';
+  const id=_recordCascadeId(record);
   const name=String(record?.studentName||record?.name||'').trim();
   const phone=_paymentCascadePhone(record?.phone);
-  return (id&&target.studentIds.has(id)) ||
-    (phone&&target.phones.has(phone)) ||
-    (name&&target.names.has(name));
+  if(id) return target.studentIds.has(id);
+  return (phone&&target.phones.has(phone)) || (name&&target.names.has(name));
 }
 function _removeTargetFromCourseLog(log, target){
   const ids=Array.isArray(log.studentIds)?log.studentIds.map(v=>String(v)):[];
@@ -3410,8 +3414,9 @@ function _removeTargetFromCourseLog(log, target){
   const keepIdx=[];
   let removed=0;
   for(let i=0;i<max;i++){
-    const match=(ids[i]&&target.studentIds.has(String(ids[i]))) ||
-      (names[i]&&target.names.has(String(names[i]).trim()));
+    const rowId=ids[i]?String(ids[i]):'';
+    const rowName=names[i]?String(names[i]).trim():'';
+    const match=rowId?target.studentIds.has(rowId):(rowName&&target.names.has(rowName));
     if(match) removed++;
     else keepIdx.push(i);
   }
@@ -3426,7 +3431,7 @@ function _removeTargetFromCourseLog(log, target){
 }
 function cascadeDeletePaymentArtifacts(payment, linkedTickets){
   const slotIds=_collectTicketSlotIds(linkedTickets);
-  const target=_cascadeTargetFromPayment(payment, linkedTickets);
+  const target=_ticketArtifactTarget(payment, linkedTickets);
   const summary={slotIds:slotIds.size,bookings:0,scheduled:0,classes:0,logs:0};
   if(!slotIds.size) return summary;
 

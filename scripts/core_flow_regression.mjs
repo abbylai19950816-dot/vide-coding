@@ -126,6 +126,26 @@ test('delete payment removes linked ticket artifacts', () => {
   assert.equal(state.students[0].scheduledBookings.length, 0);
 });
 
+test('delete payment preserves same-phone different-student artifacts', () => {
+  const state = makeState();
+  state.students[1].phone = '0911111111';
+  createPayment(state, { id: 'p-one', studentId: 's1', studentName: 'Student One', phone: '0911111111', typeId: 'private', typeName: 'Private', sessions: 1, status: 'paid' });
+  createTicketFromPayment(state, state.payments[0]);
+  addAdminPlan(state, 's2', 'group', 1);
+  addBooking(state, 's1', 'slot-a');
+  addBooking(state, 's2', 'slot-c');
+  deletePayment(state, 'p-one');
+  assert.equal(state.payments.length, 1);
+  assert.equal(state.payments[0].studentId, 's2');
+  assert.equal(state.tickets.length, 1);
+  assert.equal(state.tickets[0].studentId, 's2');
+  assert.equal(state.slots.find((slot) => slot.id === 'slot-a').bookings.length, 0);
+  assert.equal(state.slots.find((slot) => slot.id === 'slot-c').bookings.length, 1);
+  assert.equal(state.students.find((student) => student.id === 's2').scheduledBookings.length, 1);
+  assert.equal(state.classes.length, 1);
+  assert.equal(state.classes[0].members[0].studentId, 's2');
+});
+
 test('delete ticket removes linked booking artifacts but keeps payment record', () => {
   const state = makeState();
   createPayment(state, { id: 'p-ticket', studentId: 's1', studentName: 'Student One', phone: '0911111111', typeId: 'private', typeName: 'Private', sessions: 1, status: 'paid' });
