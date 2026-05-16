@@ -5066,6 +5066,13 @@ function dataHealthLogSlotIds(item){
 function dataHealthTicketTypeKey(ticket){
   return String(ticket?.typeId||ticket?.typeName||ticket?.courseType||ticket?.courseName||'未分類');
 }
+function dataHealthLogTime(item){
+  const raw=item?.ts || item?.updatedAt || item?.createdAt || item?.date || 0;
+  const n=Number(raw);
+  if(Number.isFinite(n) && n>0) return n;
+  const parsed=Date.parse(String(raw||''));
+  return Number.isFinite(parsed)?parsed:0;
+}
 function dataHealthBookingMatchesTicket(slot, booking, ticket, student){
   if(String(ticket.studentId||'')!==String(student?.id||'')) return false;
   const ticketTypeId=String(ticket.typeId||'');
@@ -5098,11 +5105,27 @@ function buildTicketRecalcRows(){
     const currentLeft=Number(t.left||0);
     const currentUsed=Number(t.used||0);
     const logs=dataHealthTicketLogs(t);
+    let baseTotal=total;
+    let baseLeft=currentLeft;
+    let baseUsed=currentUsed;
+    let baseTime=0;
+    logs.forEach(l=>{
+      if(String(l.action||'').toLowerCase()==='reconcile_balance'){
+        const ts=dataHealthLogTime(l);
+        if(ts>=baseTime){
+          baseTime=ts;
+          baseTotal=Number(l.total??baseTotal);
+          baseLeft=Number(l.left??l.remaining??baseLeft);
+          baseUsed=Number(l.used??baseUsed);
+        }
+      }
+    });
+    const calcLogs=baseTime ? logs.filter(l=>String(l.action||'').toLowerCase()!=='reconcile_balance' && dataHealthLogTime(l)>baseTime) : logs;
     let deduct=0, refund=0, manualAdd=0, manualDeduct=0, edits=0;
     const slotLogIds=new Set();
     const weakLogs=[];
 
-    logs.forEach(l=>{
+    calcLogs.forEach(l=>{
       const action=String(l.action||'').toLowerCase();
       const ids=dataHealthLogSlotIds(l);
       ids.forEach(id=>slotLogIds.add(String(id)));
@@ -5124,7 +5147,7 @@ function buildTicketRecalcRows(){
     });
 
     const hasWeakLogs=weakLogs.length>0;
-    const expectedLeft=(edits||hasWeakLogs||!total) ? null : Math.max(0,total-deduct+refund+manualAdd);
+    const expectedLeft=(edits||hasWeakLogs||!baseTotal) ? null : Math.max(0,baseLeft-deduct+refund+manualAdd);
     const matchingSlots=[];
     slots.forEach(slot=>{
       (slot.bookings||[]).forEach(b=>{
@@ -5153,6 +5176,10 @@ function buildTicketRecalcRows(){
       currentLeft,
       currentUsed,
       expectedLeft,
+      baseTotal,
+      baseLeft,
+      baseUsed,
+      hasReconcile:baseTime>0,
       deduct,
       refund,
       manualAdd,
@@ -5543,6 +5570,8 @@ function renderTicketRecalcReport(){
   if(!result||!badge) return;
   const rows=buildTicketRecalcRows();
   const risky=rows.filter(r=>r.issues.length);
+  const historicalOnly=rows.filter(r=>r.weakLogCount>0 && !r.issues.length && !r.hasReconcile);
+  const humanReview=risky.filter(r=>r.expectedLeft==null).length;
   badge.className='badge '+(risky.length?'warn':'ok');
   badge.textContent=risky.length?('票券報告 '+risky.length+' 項'):'票券正常';
 
@@ -5550,11 +5579,13 @@ function renderTicketRecalcReport(){
     '<div class="health-summary">'+
       '<div class="health-metric"><div class="health-metric-num">'+rows.length+'</div><div class="health-metric-label">票券</div></div>'+
       '<div class="health-metric"><div class="health-metric-num warn">'+risky.length+'</div><div class="health-metric-label">需檢查</div></div>'+
-      '<div class="health-metric"><div class="health-metric-num">'+rows.filter(r=>r.expectedLeft==null).length+'</div><div class="health-metric-label">人工判讀</div></div>'+
+      '<div class="health-metric"><div class="health-metric-num">'+humanReview+'</div><div class="health-metric-label">人工判讀</div></div>'+
     '</div>'+
-    '<div class="health-nextbox"><b>票券重算報告是只讀工具。</b><br>它會用 ticket log 推算堂數，幫你找出可能錯位的票券；目前不會自動修改任何資料。</div>';
+    '<div class="health-nextbox"><b>票券重算報告預設只顯示需處理項目。</b><br>目前不會自動修改票券。若只有歷史 log 缺 slotId、但現況堂數正確，可用校準工具整理歷史紀錄。'
+      +(historicalOnly.length?'<br><button class="health-btn muted" type="button" style="margin-top:10px;padding:7px 12px" onclick="reconcileHistoricalTicketLogs()">整理歷史票券紀錄（'+historicalOnly.length+'）</button>':'')+
+    '</div>';
 
-  const sourceRows=(risky.length?risky:rows).slice(0,80).map(row=>{
+  const sourceRows=risky.slice(0,80).map(row=>{
     const t=row.ticket;
     const stu=row.student;
     const title=(stu?dataHealthStudentLabel(stu):'未知學員')+'｜'+(t.typeName||t.planName||t.id||'未命名票券');
@@ -5566,14 +5597,59 @@ function renderTicketRecalcReport(){
       '<div class="health-issue-top"><div class="health-issue-title">'+dataHealthHtml(title)+'</div><span class="badge '+(row.issues.length?'warn':'ok')+'">'+(row.issues.length?'需檢查':'正常')+'</span></div>'+
       '<div class="health-issue-body">'+
         '目前：total='+row.total+'、used='+row.currentUsed+'、left='+row.currentLeft+'<br>'+
-        '推算：扣堂 '+row.deduct+'、補回 '+(row.refund+row.manualAdd)+'、預期剩餘 '+expected+'<br>'+
+        '推算：扣堂 '+row.deduct+'、補回 '+(row.refund+row.manualAdd)+'、預期剩餘 '+expected+(row.hasReconcile?'（已套用校準點）':'')+'<br>'+
         '預約：符合課程類型 '+row.bookedCount+' 筆；缺 slotId log '+row.missingLogCount+' 筆；歷史扣補堂缺 slotId '+row.weakLogCount+' 筆。'+
       '</div>'+issues+
     '</div>';
   }).join('');
 
-  const more=(risky.length?risky:rows).length>80?'<div class="health-desc" style="margin-top:10px">只顯示前 80 張票券。</div>':'';
-  result.innerHTML=summary+(sourceRows||'<div class="health-empty">目前沒有票券資料。</div>')+more;
+  const more=risky.length>80?'<div class="health-desc" style="margin-top:10px">只顯示前 80 張需檢查票券。</div>':'';
+  result.innerHTML=summary+(sourceRows||'<div class="health-empty">目前沒有需要處理的票券差異。</div>')+more;
+}
+function reconcileHistoricalTicketLogs(){
+  const rows=buildTicketRecalcRows();
+  const targets=rows.filter(r=>r.weakLogCount>0 && !r.issues.length && !r.hasReconcile);
+  if(!targets.length){
+    alert('目前沒有需要整理的歷史票券紀錄。');
+    return;
+  }
+  const examples=targets.slice(0,4).map(r=>
+    (r.student?dataHealthStudentLabel(r.student):'未知學員')+'｜'+(r.ticket.typeName||r.ticket.planName||r.ticket.id||'未命名票券')
+  );
+  const ok=confirm(
+    '確定要整理歷史票券紀錄嗎？\n\n'+
+    '將新增校準紀錄：'+targets.length+' 張票券\n\n'+
+    '校準方式：保留舊紀錄，不猜測缺少的 slotId；新增一筆 reconcile_balance，表示截至目前以票券現況 total/used/left 為準。\n\n'+
+    (examples.length?'範例：\n- '+examples.join('\n- ')+'\n\n':'')+
+    '這不會改變剩餘堂數，不會刪除預約、課程紀錄、收費或學員資料。'
+  );
+  if(!ok) return;
+
+  const targetIds=new Set(targets.map(r=>String(r.ticket.id)));
+  const now=new Date().toISOString();
+  const tickets=loadTickets();
+  let updated=0;
+  tickets.forEach(t=>{
+    if(!targetIds.has(String(t.id))) return;
+    const entry={
+      date:todayStr(),
+      action:'reconcile_balance',
+      total:Number(t.total||t.type||0),
+      used:Number(t.used||0),
+      left:Number(t.left||0),
+      note:'整理歷史票券紀錄：舊扣補堂缺 slotId，以目前堂數作為校準點',
+      ts:Date.now(),
+      createdAt:now
+    };
+    t.log=Array.isArray(t.log)?t.log:[];
+    t.logs=Array.isArray(t.logs)?t.logs:[];
+    t.log.push(entry);
+    t.logs.push(entry);
+    updated++;
+  });
+  saveTickets(tickets);
+  toast('已整理歷史票券紀錄：'+updated+' 張');
+  setTimeout(()=>renderTicketRecalcReport(),300);
 }
 function clearDataHealthReport(){
   window._lastDataHealthReport=null;

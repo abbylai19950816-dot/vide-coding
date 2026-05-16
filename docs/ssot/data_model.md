@@ -202,6 +202,7 @@ Displayed fields:
 - Matching bookings by student and course type.
 - Missing `slotIds` in ticket logs.
 - Same-student same-course active ticket count.
+- Whether a `reconcile_balance` checkpoint exists.
 
 Rules:
 
@@ -209,6 +210,24 @@ Rules:
 - If a ticket has manual `edit` logs, the report should mark it as requiring human review and must not show a deterministic expected-left value.
 - Missing `slotIds` means cancellation/refund matching is less reliable. The report must not compare the current `left` against a deterministic expected-left value.
 - Missing `slotIds` alone should not make a ticket appear as a problem when current arithmetic is coherent (`total = used + left`) and there are no matching bookings or missing booking logs. In that case, treat it as historical log incompleteness, not an action item for admins.
+
+#### Ticket history reconciliation checkpoint
+
+`整理歷史票券紀錄` is a maintenance repair for tickets whose current arithmetic is coherent but old ticket logs are incomplete.
+
+Behavior:
+
+- Source of truth: current ticket fields `total`, `used`, and `left`.
+- Target: `/data/tickets`.
+- Preserve old `log[]` / `logs[]`; do not guess missing `slotIds`.
+- Append a `reconcile_balance` entry to both `log[]` and `logs[]`.
+- Future ticket recalculation should use the latest `reconcile_balance` as a checkpoint and only interpret later logs.
+
+Rules:
+
+- This repair must not change `total`, `used`, `left`, bookings, students, payments, slots, classes, or course logs.
+- Use it only when the ticket is not otherwise risky: no current ticket issues, no matching bookings needing slot-log repair, and arithmetic is coherent.
+- The admin must confirm the affected ticket count before writing.
 - A same-course multi-ticket warning is not necessarily an error, but it should be reviewed before automatic refund or correction logic is trusted.
 
 #### Course log orphan member cleanup
