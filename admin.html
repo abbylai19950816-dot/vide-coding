@@ -5061,6 +5061,75 @@ function dataHealthFindCourseLog(logs,slot,student){
     return false;
   });
 }
+function dataHealthStable(value){
+  if(value==null || typeof value!=='object') return JSON.stringify(value);
+  if(Array.isArray(value)) return '['+value.map(dataHealthStable).join(',')+']';
+  return '{'+Object.keys(value).sort().map(k=>JSON.stringify(k)+':'+dataHealthStable(value[k])).join(',')+'}';
+}
+function dataHealthRemainingTotal(lookup){
+  const byType=lookup?.remainingByType||{};
+  const typedTotal=Object.values(byType).reduce((sum,v)=>sum+Math.max(0,Number(v||0)),0);
+  const unresolvedTotal=(lookup?.unresolvedTickets||[]).reduce((sum,t)=>sum+Math.max(0,Number(t?.left||0)),0);
+  return Math.max(Number(lookup?.totalRemaining||0), typedTotal, unresolvedTotal);
+}
+async function addPublicLookupHealthIssues(report){
+  if(!window._fb || !window._fb.getDocPath || typeof window.lowCostBuildLookupPayloads!=='function') return report;
+  const payloads=await window.lowCostBuildLookupPayloads();
+  const students=loadStudents();
+  const studentById=new Map(students.map(s=>[String(s.id),s]));
+  let reads=0;
+
+  for(const p of payloads){
+    const data=p.data||{};
+    const stu=studentById.get(String(data.studentId||''));
+    const label=dataHealthStudentLabel(stu||{name:data.name||'未知學員',phone:''});
+    const expectedRemaining=dataHealthRemainingTotal(data);
+    const unresolved=Array.isArray(data.unresolvedTickets)?data.unresolvedTickets:[];
+    const unresolvedTotal=unresolved.reduce((sum,t)=>sum+Math.max(0,Number(t?.left||0)),0);
+
+    if(unresolvedTotal>0){
+      const names=[...new Set(unresolved.map(t=>String(t.typeName||t.planName||t.typeId||'未命名方案')).filter(Boolean))].slice(0,3);
+      report.issues.push({
+        severity:'warn',
+        title:'票券課程類型無法對應課表',
+        body:'「'+label+'」有 '+unresolvedTotal+' 堂票券無法對應目前行事曆課程類型：'+(names.join('、')||'未命名方案')+'。學員端會顯示已購買但尚未有對應可預約時段。',
+        studentId:data.studentId
+      });
+    }
+
+    if(expectedRemaining<=0) continue;
+    reads++;
+    const current=await window._fb.getDocPath(['student_lookup',p.key]);
+    if(!current){
+      report.issues.push({
+        severity:'danger',
+        title:'學員查詢索引不存在',
+        body:'「'+label+'」管理員端有 '+expectedRemaining+' 堂可用方案，但 student_lookup 文件不存在。學員端會查不到這位學員的可用方案。',
+        studentId:data.studentId,
+        lookupKey:p.key,
+        repairAction:'forceRebuildLookup'
+      });
+      continue;
+    }
+
+    const expectedByType=data.remainingByType||{};
+    const currentByType=current.remainingByType||{};
+    if(Number(current.totalRemaining||0)!==Number(data.totalRemaining||0) || dataHealthStable(currentByType)!==dataHealthStable(expectedByType)){
+      report.issues.push({
+        severity:'warn',
+        title:'學員查詢索引不同步',
+        body:'「'+label+'」管理員端推算剩餘 '+Number(data.totalRemaining||0)+' 堂，但學生端 lookup 目前是 '+Number(current.totalRemaining||0)+' 堂。學員端可能看到過期或錯誤的剩餘方案。',
+        studentId:data.studentId,
+        lookupKey:p.key,
+        repairAction:'forceRebuildLookup'
+      });
+    }
+  }
+  report.counts.lookupChecks=reads;
+  report.danger=report.issues.filter(i=>i.severity==='danger').length;
+  report.warn=report.issues.filter(i=>i.severity==='warn').length;
+  return report;
+}
 function buildDataHealthReport(){
   const students=loadStudents();
   const tickets=loadTickets();
@@ -5248,6 +5317,18 @@ function dataHealthGuidance(issue){
     '課程日誌學員 ID 找不到學員':{
       meaning:'課程日誌還留著已不存在學員的 ID。這通常不會影響現在學員預約，但會讓歷史紀錄不乾淨。',
       next:'如果這是測試資料，可以等我們下一步做「清除孤兒日誌成員」工具；如果是真實學員，先確認學員是否被誤刪。'
+    },
+    '票券課程類型無法對應課表':{
+      meaning:'學員有剩餘票券，但目前公開課表沒有能對應的課程類型。學生端不會把它當成可直接預約的時段。',
+      next:'如果只是老師尚未開課，先新增對應課程時段即可；若課表已有時段，請檢查票券課程名稱/typeId 與課表課程類型是否一致，必要時再重建學員查詢。'
+    },
+    '學員查詢索引不存在':{
+      meaning:'管理員端資料裡有有效方案，但學生端查詢用的 student_lookup 文件不存在，所以學員輸入正確姓名與手機也會查不到。',
+      next:'按下本項下方的「重建學員查詢」；完成後請回學生頁重新查詢。'
+    },
+    '學員查詢索引不同步':{
+      meaning:'管理員端推算的剩餘堂數和學生端 lookup 文件不一致，學生端可能顯示舊堂數或錯誤方案。',
+      next:'按下本項下方的「重建學員查詢」，讓公開索引重新從管理員端資料產生。'
     }
   };
   return map[title] || {
@@ -5268,7 +5349,7 @@ function renderDataHealthReport(report){
       '<div class="health-metric"><div class="health-metric-num warn">'+report.warn+'</div><div class="health-metric-label">需檢查</div></div>'+
       '<div class="health-metric"><div class="health-metric-num">'+report.counts.students+'</div><div class="health-metric-label">學員</div></div>'+
     '</div>'+
-    '<div class="health-desc" style="margin-top:10px">檢查時間：'+report.generatedAt.toLocaleString('zh-TW')+'；資料量：票券 '+report.counts.tickets+'、收費 '+report.counts.payments+'、時段 '+report.counts.slots+'、出缺勤 '+report.counts.classes+'、日誌 '+report.counts.logs+'。</div>'+
+    '<div class="health-desc" style="margin-top:10px">檢查時間：'+report.generatedAt.toLocaleString('zh-TW')+'；資料量：票券 '+report.counts.tickets+'、收費 '+report.counts.payments+'、時段 '+report.counts.slots+'、出缺勤 '+report.counts.classes+'、日誌 '+report.counts.logs+'、學員查詢索引 '+(report.counts.lookupChecks||0)+' 筆。</div>'+
     '<div class="health-nextbox"><b>建議處理順序：</b><br>1. 先處理「嚴重」項目，這類通常會影響付款、堂數或預約。<br>2. 「需檢查」多半是歷史資料或顯示不同步，先確認是否為測試/舊資料。<br>3. 不確定時先不要刪資料，等修復工具逐項處理。</div>';
   if(!issueCount){
     result.innerHTML=summary+'<div class="health-empty">目前沒有發現收費、票券、預約、出缺勤之間的明顯不一致。</div>';
@@ -5278,18 +5359,26 @@ function renderDataHealthReport(report){
     const cls=issue.severity==='danger'?'danger':'warn';
     const label=issue.severity==='danger'?'嚴重':'需檢查';
     const guidance=dataHealthGuidance(issue);
+    const action=issue.repairAction==='forceRebuildLookup'
+      ? '<button class="health-btn muted" type="button" style="margin-top:10px;padding:7px 12px" onclick="forceRebuildStudentLookupIndex(\'data-health\')">重建學員查詢</button>'
+      : '';
     return '<div class="health-issue '+cls+'">'+
       '<div class="health-issue-top"><div class="health-issue-title">'+dataHealthHtml(issue.title)+'</div><span class="badge '+cls+'">'+label+'</span></div>'+
       '<div class="health-issue-body">'+dataHealthHtml(issue.body)+'</div>'+
       '<div class="health-issue-guidance"><b>這代表：</b>'+dataHealthHtml(guidance.meaning)+'<br><b>建議下一步：</b>'+dataHealthHtml(guidance.next)+'</div>'+
+      action+
     '</div>';
   }).join('');
   const more=report.issues.length>80?'<div class="health-desc" style="margin-top:10px">只顯示前 80 項，請先處理嚴重項目後再重新檢查。</div>':'';
   result.innerHTML=summary+rows+more;
 }
-function runDataHealthCheck(){
+async function runDataHealthCheck(){
   try{
-    const report=buildDataHealthReport();
+    const badge=document.getElementById('data-health-badge');
+    const result=document.getElementById('data-health-result');
+    if(badge){ badge.className='badge info'; badge.textContent='檢查中'; }
+    if(result) result.innerHTML='<div class="health-desc" style="margin-top:10px">正在檢查收費、票券、預約與學生端查詢索引...</div>';
+    const report=await addPublicLookupHealthIssues(buildDataHealthReport());
     window._lastDataHealthReport=report;
     renderDataHealthReport(report);
     if(report.issues.length) toast('資料健康檢查完成：發現 '+report.issues.length+' 項');
@@ -5615,7 +5704,7 @@ function clearDataHealthReport(){
     return {ok:true,writes,force};
   };
 
-  window.forceRebuildStudentLookupIndex = async function(){
+  window.forceRebuildStudentLookupIndex = async function(source='manual'){
     const ok=confirm(
       '確定要強制重建學員查詢索引嗎？\n\n'+
       '這會重新寫入 public_booking/state、student_lookup 與 phone_lookup，讓學員端用姓名＋手機查詢時重新取得最新方案。\n\n'+
@@ -5623,8 +5712,9 @@ function clearDataHealthReport(){
     );
     if(!ok) return;
     try{
-      const result=await window.lowCostSyncPublicMirror('force-rebuild-student-lookup',{force:true});
+      const result=await window.lowCostSyncPublicMirror('force-rebuild-student-lookup-'+source,{force:true});
       alert('學員查詢索引已重建完成。\n更新筆數：'+(result?.writes??0)+'\n\n請回學員頁重新查詢。');
+      if(source==='data-health' && typeof runDataHealthCheck==='function') setTimeout(()=>runDataHealthCheck(),300);
     }catch(err){
       console.error('[forceRebuildStudentLookupIndex]',err);
       alert('重建失敗：'+(err?.message||err));

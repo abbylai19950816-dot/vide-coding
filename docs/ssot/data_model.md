@@ -164,15 +164,19 @@ This workflow is not implemented yet. Do not reuse `delete payment` as the long-
 - 預約缺少含 `slotIds` 的票券扣堂紀錄。
 - 已發生預約沒有對應課程日誌。
 - 出缺勤或課程日誌成員找不到學員。
+- 管理員端有有效票券，但 `student_lookup/{hash}` 不存在。
+- `student_lookup/{hash}` 的剩餘堂數與管理員端推算結果不同步。
+- 有剩餘票券，但票券課程類型無法對應目前公開課表課程類型。
 
 Rules:
 
 - This tool must not write Firestore data.
-- This tool may read existing admin-side local cache loaded from `/data/*`; it must not add student-side reads.
+- This tool may read existing admin-side local cache loaded from `/data/*`; it may also read expected `student_lookup/{hash}` documents from the admin page for maintenance diagnostics. It must not add student-side reads.
 - Each issue should show admin-friendly guidance: what the issue means, likely impact, and the suggested next step.
 - `danger` issues should be treated first because they may affect paid sessions, remaining tickets, or active bookings.
 - `warn` issues may be historical/test-data inconsistencies, but still need review before production use.
 - Repair tools must remain separate from health check results. The admin should review severe issues before any automatic repair is introduced.
+- Lookup-related issues may show a scoped repair entry, such as `重建學員查詢`, which calls the same force rebuild workflow documented below.
 - Future repair actions must write their own worklog and clearly state which source of truth is used to rebuild derived data.
 
 #### Public lookup force rebuild
