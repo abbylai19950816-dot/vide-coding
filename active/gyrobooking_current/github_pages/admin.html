@@ -2117,129 +2117,261 @@ function removeStudentFromCourseLogs(logs, student, slotId){
   return changed;
 }
 
-function confirmMoveBooking(studentId, fromSlotId, toSlotId){
-  const sid=String(studentId);
-  const slots=loadSlots();
-  const students=loadStudents();
-  const classes=loadClasses();
-  const logs=loadLogs();
-  const tickets=loadTickets();
-  const stu=students.find(s=>String(s.id)===sid);
-  const fromIdx=slots.findIndex(s=>String(s.id)===String(fromSlotId));
-  const toIdx=slots.findIndex(s=>String(s.id)===String(toSlotId));
-  const fromSlot=fromIdx>=0?slots[fromIdx]:null;
-  const toSlot=toIdx>=0?slots[toIdx]:null;
-  if(!stu||!fromSlot||!toSlot){ toast('找不到預約或目標時段'); return; }
-  if(!isFutureSlot(fromSlot)||!isFutureSlot(toSlot)){ toast('只能更改尚未開始的課程'); return; }
-  if(String(fromSlot.typeId||'default')!==String(toSlot.typeId||'default')){ toast('目前僅支援更改到同課程類型'); return; }
-  if((toSlot.bookings||[]).length>=Number(toSlot.capacity||1)){ toast('目標時段已額滿'); return; }
-  if((toSlot.bookings||[]).some(b=>bookingMatchesStudent(b,stu,sid))){ toast('此學員已在目標時段'); return; }
+function createBookingCascadeState(){
+  return {
+    students:loadStudents(),
+    tickets:loadTickets(),
+    slots:loadSlots(),
+    classes:loadClasses(),
+    logs:loadLogs()
+  };
+}
 
-  const fromClassIdx=classes.findIndex(c=>String(c.slotId)===String(fromSlotId));
-  const fromClass=fromClassIdx>=0?classes[fromClassIdx]:null;
-  if(classHasLockedAttendance(fromClass, sid)){
-    toast('此預約已有出缺勤狀態，請先確認課程紀錄後再調整');
-    return;
+function persistBookingCascadeState(state, dirty, reason){
+  if(dirty.slots) saveSlots(state.slots);
+  if(dirty.students) saveStudents(state.students);
+  if(dirty.classes) saveClasses(state.classes);
+  if(dirty.logs) saveLogs(state.logs);
+  if(dirty.tickets) saveTickets(state.tickets);
+  if(typeof window.lowCostSyncPublicMirror==='function' && (dirty.slots||dirty.tickets||dirty.students)){
+    window.lowCostSyncPublicMirror(reason||'booking-cascade',{force:true}).catch(err=>console.warn('booking cascade mirror sync failed',err));
   }
+}
+
+function upsertAttendanceClassForSlotInState(state, slot){
+  if(!slot || !(slot.bookings||[]).length) return false;
+  const cfg=bkLoadCfg();
+  const type=cfg.classTypes?.find(t=>String(t.id)===String(slot.typeId));
+  const className=slotDisplayName(slot) || (type?(type.icon||'')+' '+type.name:'課程');
+  const existingIdx=state.classes.findIndex(c=>String(c.slotId)===String(slot.id));
+  const existingMembers=existingIdx>=0?(state.classes[existingIdx].members||[]):[];
+  const members=(slot.bookings||[]).map(b=>{
+    const stu=resolveBookingStudent(b,state.students);
+    const resolvedId=stu?stu.id:(b.studentId||('ext-'+String(b.name||'').replace(/\s/g,'-')));
+    const prev=existingMembers.find(m=>String(m.studentId)===String(resolvedId)) || existingMembers.find(m=>m.studentName===b.name&&String(m.studentId||'').startsWith('ext-'));
+    return {
+      studentId:resolvedId,
+      studentName:stu?stu.name:b.name,
+      color:stu?stu.color||'c0':'c0',
+      status:prev?prev.status:'pending'
+    };
+  });
+  if(existingIdx>=0){
+    state.classes[existingIdx]={...state.classes[existingIdx],members,name:className,date:slot.date,time:slot.time,location:slot.location||'',saved:true};
+  }else{
+    state.classes.push({id:'slot-'+slot.id,slotId:slot.id,date:slot.date,name:className,time:slot.time,location:slot.location||'',saved:true,members});
+  }
+  return true;
+}
+
+function addBookingCascade(state, request, slotId){
+  const slot=state.slots.find(s=>String(s.id)===String(slotId));
+  const studentId=String(request.studentId||'');
+  const stuIdx=state.students.findIndex(s=>String(s.id)===studentId);
+  if(!slot || stuIdx<0) return {ok:false,reason:'missing-slot-or-student'};
+  const bookings=Array.isArray(slot.bookings)?slot.bookings:[];
+  if(!isFutureSlot(slot)) return {ok:false,reason:'past-slot'};
+  if(bookings.length>=Number(slot.capacity||1)) return {ok:false,reason:'full-slot'};
+  if(bookings.some(b=>String(b.studentId)===studentId || String(b.lookupKey||'')===String(request.lookupKey||''))) return {ok:false,reason:'duplicate-booking'};
+  const ticket=findBookingTicket(state.tickets, studentId, slot, slotId);
+  if(!ticket) return {ok:false,reason:'missing-ticket'};
+
+  const rec={lookupKey:request.lookupKey||'',studentId, name:request.bookingName||state.students[stuIdx].name||'', typeId:request.typeId??slot.typeId??null, typeName:slot.typeName||slot.name||'', date:slot.date||'', time:slot.time||'', slotId:slot.id, requestId:request.id||'', ts:Date.now()};
+  slot.bookings=[...bookings,rec];
+  ticket.left=Number(ticket.left||0)-1;
+  ticket.used=Number(ticket.used||0)+1;
+  const deductLog={action:'booking_deduct',date:todayStr(),slotIds:[slot.id],requestId:request.id||'',note:'預約申請自動匯入扣堂',ts:Date.now()};
+  ticket.log=Array.isArray(ticket.log)?ticket.log:[];
+  ticket.logs=Array.isArray(ticket.logs)?ticket.logs:[];
+  ticket.log.push(deductLog);
+  ticket.logs.push(deductLog);
+
+  const stu={...state.students[stuIdx]};
+  const scheduled=Array.isArray(stu.scheduledBookings)?stu.scheduledBookings:[];
+  if(!scheduled.some(x=>String(x.slotId)===String(slot.id))){
+    scheduled.push({slotId:slot.id,date:slot.date,time:slot.time,typeId:slot.typeId,typeName:slot.typeName||slot.name||'',status:'booked',requestId:request.id||'',ts:Date.now()});
+  }
+  stu.scheduledBookings=scheduled;
+  stu.lastBookingAt=Date.now();
+  state.students[stuIdx]=stu;
+  upsertAttendanceClassForSlotInState(state, slot);
+  return {ok:true,studentId,slotId:slot.id};
+}
+
+function cancelBookingCascade(state, studentId, slotId, options={}){
+  const sid=String(studentId||'');
+  const slot=state.slots.find(s=>String(s.id)===String(slotId));
+  const stu=state.students.find(s=>String(s.id)===sid);
+  const dirty={slots:false,students:false,classes:false,logs:false,tickets:false};
+  if(slot){
+    const before=(slot.bookings||[]).length;
+    slot.bookings=(slot.bookings||[]).filter(b=>{
+      if(b.studentId!=null && String(b.studentId)!=='') return String(b.studentId)!==sid;
+      return !(stu && String(b.name||'').trim()===String(stu.name||'').trim());
+    });
+    dirty.slots=slot.bookings.length!==before;
+  }
+  if(stu){
+    const before=(stu.scheduledBookings||[]).length;
+    stu.scheduledBookings=(stu.scheduledBookings||[]).filter(b=>String(b.slotId)!==String(slotId));
+    dirty.students=stu.scheduledBookings.length!==before;
+  }
+  const ci=state.classes.findIndex(c=>String(c.slotId)===String(slotId));
+  if(ci>=0){
+    const before=(state.classes[ci].members||[]).length;
+    state.classes[ci].members=(state.classes[ci].members||[]).filter(m=>{
+      if(String(m.studentId||'')===sid) return false;
+      return !(stu && String(m.studentName||m.name||'').trim()===String(stu.name||'').trim());
+    });
+    if(state.classes[ci].members.length!==before) dirty.classes=true;
+    if(state.classes[ci]?.members?.length===0) state.classes.splice(ci,1);
+  }
+  if(stu && removeStudentFromCourseLogs(state.logs, stu, slotId)) dirty.logs=true;
+  let refundIdx=-1;
+  if(options.refund!==false){
+    refundIdx=findRefundTicketIndex(state.tickets, stu, {studentId:sid}, slot, slotId);
+    if(refundIdx>=0){
+      state.tickets[refundIdx].left=Number(state.tickets[refundIdx].left||0)+1;
+      state.tickets[refundIdx].used=Math.max(0,Number(state.tickets[refundIdx].used||0)-1);
+      const refundLog={date:todayStr(),action:'refund',slotIds:[slotId],note:options.note||'取消預約，補回1堂',ts:Date.now()};
+      state.tickets[refundIdx].log=Array.isArray(state.tickets[refundIdx].log)?state.tickets[refundIdx].log:[];
+      state.tickets[refundIdx].logs=Array.isArray(state.tickets[refundIdx].logs)?state.tickets[refundIdx].logs:[];
+      state.tickets[refundIdx].log.push(refundLog);
+      state.tickets[refundIdx].logs.push(refundLog);
+      dirty.tickets=true;
+    }
+  }
+  return {ok:true,dirty,refundIdx,studentId:sid,slotId:String(slotId)};
+}
+
+function mergeCascadeDirty(target, source){
+  Object.keys(source||{}).forEach(k=>{ if(source[k]) target[k]=true; });
+  return target;
+}
+
+function deleteSlotCascade(state, slotId){
+  const slot=state.slots.find(s=>String(s.id)===String(slotId));
+  const dirty={slots:false,students:false,classes:false,logs:false,tickets:false};
+  const bookings=[...(slot?.bookings||[])];
+  let refunds=0;
+  bookings.forEach(b=>{
+    const stu=resolveBookingStudent(b,state.students);
+    const result=cancelBookingCascade(state, stu?.id||b.studentId, slotId, {note:'時段被刪除：補回1堂'});
+    mergeCascadeDirty(dirty,result.dirty);
+    if(result.refundIdx>=0) refunds++;
+  });
+  const beforeSlots=state.slots.length;
+  state.slots=state.slots.filter(s=>String(s.id)!==String(slotId));
+  if(state.slots.length!==beforeSlots) dirty.slots=true;
+  const beforeClasses=state.classes.length;
+  state.classes=state.classes.filter(c=>String(c.slotId)!==String(slotId));
+  if(state.classes.length!==beforeClasses) dirty.classes=true;
+  return {dirty,bookings:bookings.length,refunds};
+}
+
+
+
+function moveBookingCascade(state, studentId, fromSlotId, toSlotId){
+  const sid=String(studentId);
+  const fromSlot=state.slots.find(s=>String(s.id)===String(fromSlotId));
+  const toSlot=state.slots.find(s=>String(s.id)===String(toSlotId));
+  const stu=state.students.find(s=>String(s.id)===sid);
+  const dirty={slots:false,students:false,classes:false,logs:false,tickets:false};
+  if(!stu||!fromSlot||!toSlot) return {ok:false,reason:'missing-booking-or-slot',dirty};
+  if(!isFutureSlot(fromSlot)||!isFutureSlot(toSlot)) return {ok:false,reason:'past-slot',dirty};
+  if(String(fromSlot.typeId||'default')!==String(toSlot.typeId||'default')) return {ok:false,reason:'different-type',dirty};
+  if((toSlot.bookings||[]).length>=Number(toSlot.capacity||1)) return {ok:false,reason:'full-slot',dirty};
+  if((toSlot.bookings||[]).some(b=>bookingMatchesStudent(b,stu,sid))) return {ok:false,reason:'duplicate-target',dirty};
+
+  const fromClass=state.classes.find(c=>String(c.slotId)===String(fromSlotId));
+  if(classHasLockedAttendance(fromClass, sid)) return {ok:false,reason:'locked-attendance',dirty};
 
   const bookingIdx=(fromSlot.bookings||[]).findIndex(b=>bookingMatchesStudent(b,stu,sid));
-  if(bookingIdx<0){ toast('原時段沒有找到這位學員的預約'); return; }
+  if(bookingIdx<0) return {ok:false,reason:'missing-source-booking',dirty};
+
   const oldBooking=fromSlot.bookings[bookingIdx];
   const now=Date.now();
   const movedBooking={...oldBooking,studentId:oldBooking.studentId||stu.id,name:oldBooking.name||stu.name,slotId:toSlot.id,date:toSlot.date,time:toSlot.time||'',typeId:toSlot.typeId??oldBooking.typeId??null,typeName:slotDisplayName(toSlot),movedFromSlotId:fromSlot.id,movedAt:now,movedBy:'admin'};
-  slots[fromIdx].bookings=(fromSlot.bookings||[]).filter((_,i)=>i!==bookingIdx);
-  slots[toIdx].bookings=[...(toSlot.bookings||[]),movedBooking];
+  fromSlot.bookings=(fromSlot.bookings||[]).filter((_,i)=>i!==bookingIdx);
+  toSlot.bookings=[...(toSlot.bookings||[]),movedBooking];
+  dirty.slots=true;
 
-  const sIdx=students.findIndex(s=>String(s.id)===sid);
-  const scheduled=Array.isArray(students[sIdx].scheduledBookings)?students[sIdx].scheduledBookings:[];
+  const sIdx=state.students.findIndex(s=>String(s.id)===sid);
+  const scheduled=Array.isArray(state.students[sIdx].scheduledBookings)?state.students[sIdx].scheduledBookings:[];
   const schedIdx=scheduled.findIndex(b=>String(b.slotId)===String(fromSlot.id));
   const nextScheduled={slotId:toSlot.id,date:toSlot.date,time:toSlot.time||'',typeId:toSlot.typeId,typeName:slotDisplayName(toSlot),status:'booked',movedFromSlotId:fromSlot.id,movedAt:now};
   if(schedIdx>=0) scheduled[schedIdx]={...scheduled[schedIdx],...nextScheduled};
   else scheduled.push(nextScheduled);
-  students[sIdx]={...students[sIdx],scheduledBookings:scheduled,lastBookingMoveAt:now};
+  state.students[sIdx]={...state.students[sIdx],scheduledBookings:scheduled,lastBookingMoveAt:now};
+  dirty.students=true;
 
+  const fromClassIdx=state.classes.findIndex(c=>String(c.slotId)===String(fromSlot.id));
   let movedMember=null;
   if(fromClassIdx>=0){
-    const mIdx=(classes[fromClassIdx].members||[]).findIndex(m=>String(m.studentId)===sid);
+    const mIdx=(state.classes[fromClassIdx].members||[]).findIndex(m=>String(m.studentId)===sid);
     if(mIdx>=0){
-      movedMember={...classes[fromClassIdx].members[mIdx],status:'pending'};
-      classes[fromClassIdx].members=classes[fromClassIdx].members.filter((_,i)=>i!==mIdx);
-      if(classes[fromClassIdx].members.length===0) classes.splice(fromClassIdx,1);
+      movedMember={...state.classes[fromClassIdx].members[mIdx],status:'pending'};
+      state.classes[fromClassIdx].members=state.classes[fromClassIdx].members.filter((_,i)=>i!==mIdx);
+      if(state.classes[fromClassIdx].members.length===0) state.classes.splice(fromClassIdx,1);
+      dirty.classes=true;
     }
   }
   if(!movedMember) movedMember={studentId:stu.id,studentName:stu.name,color:stu.color||'c0',status:'pending'};
-  const toClassIdx=classes.findIndex(c=>String(c.slotId)===String(toSlot.id));
+  const toClassIdx=state.classes.findIndex(c=>String(c.slotId)===String(toSlot.id));
   if(toClassIdx>=0){
-    classes[toClassIdx].date=toSlot.date;
-    classes[toClassIdx].name=slotDisplayName(toSlot);
-    classes[toClassIdx].time=toSlot.time||'';
-    classes[toClassIdx].location=toSlot.location||'';
-    classes[toClassIdx].saved=true;
-    if(!(classes[toClassIdx].members||[]).some(m=>String(m.studentId)===sid)) classes[toClassIdx].members=[...(classes[toClassIdx].members||[]),movedMember];
+    state.classes[toClassIdx].date=toSlot.date;
+    state.classes[toClassIdx].name=slotDisplayName(toSlot);
+    state.classes[toClassIdx].time=toSlot.time||'';
+    state.classes[toClassIdx].location=toSlot.location||'';
+    state.classes[toClassIdx].saved=true;
+    if(!(state.classes[toClassIdx].members||[]).some(m=>String(m.studentId)===sid)) state.classes[toClassIdx].members=[...(state.classes[toClassIdx].members||[]),movedMember];
   } else {
-    classes.push(buildAttendanceClassFromSlot(toSlot,[movedMember]));
+    state.classes.push(buildAttendanceClassFromSlot(toSlot,[movedMember]));
   }
+  dirty.classes=true;
 
-  const logsChanged=updateMovedCourseLogs(logs, stu, fromSlot, toSlot);
-  const ticketLogged=appendBookingMoveTicketLog(tickets, sid, fromSlot, toSlot);
-  saveSlots(slots);
-  saveStudents(students);
-  saveClasses(classes);
-  if(logsChanged) saveLogs(logs);
-  if(ticketLogged) saveTickets(tickets);
+  if(updateMovedCourseLogs(state.logs, stu, fromSlot, toSlot)) dirty.logs=true;
+  if(appendBookingMoveTicketLog(state.tickets, sid, fromSlot, toSlot)) dirty.tickets=true;
+  return {ok:true,dirty,studentId:sid,fromSlotId:String(fromSlotId),toSlotId:String(toSlotId)};
+}
+function confirmMoveBooking(studentId, fromSlotId, toSlotId){
+  const state=createBookingCascadeState();
+  const result=moveBookingCascade(state, studentId, fromSlotId, toSlotId);
+  if(!result.ok){
+    const messages={
+      'missing-booking-or-slot':'找不到預約或目標時段',
+      'past-slot':'只能更改尚未開始的課程',
+      'different-type':'目前僅支援更改到同課程類型',
+      'full-slot':'目標時段已額滿',
+      'duplicate-target':'此學員已在目標時段',
+      'locked-attendance':'此預約已有出缺勤狀態，請先確認課程紀錄後再調整',
+      'missing-source-booking':'原時段沒有找到這位學員的預約'
+    };
+    toast(messages[result.reason]||'無法更改預約時間');
+    return;
+  }
+  persistBookingCascadeState(state, result.dirty, 'booking-move');
   closeSubSheet('sheet-bookingMove');
   openStudentDetail(studentId);
   schRenderCalendar();
+  if(typeof renderAttendance==='function') renderAttendance();
   if(typeof renderLogs==='function') renderLogs();
   updateBadges();
   toast('已更改預約時間，日誌與出缺勤已同步');
 }
-
 function cancelStudentBooking(studentId, slotId, evt){
   if(evt) evt.stopPropagation();
   if(!confirm('確定要取消這筆預約並補回 1 堂嗎？')) return;
-  // Remove from slot bookings
-  const slots=loadSlots();
-  const si=slots.findIndex(s=>s.id===slotId);
-  const slot=si>=0?slots[si]:null;
-  const students=loadStudents();
-  const stu=students.find(s=>String(s.id)===String(studentId));
-  if(si>=0){
-    slots[si].bookings=(slots[si].bookings||[]).filter(b=>{
-      if(b.studentId!=null && String(b.studentId)!=='') return String(b.studentId)!==String(studentId);
-      return !(stu && String(b.name||'').trim()===String(stu.name||'').trim());
-    });
-    saveSlots(slots);
-    // Remove from attendance class
-    const classes=loadClasses();
-    const ci=classes.findIndex(c=>c.slotId===slotId);
-    if(ci>=0){
-      classes[ci].members=classes[ci].members.filter(m=>String(m.studentId)!==String(studentId));
-      if(classes[ci].members.length===0) classes.splice(ci,1);
-      saveClasses(classes);
-    }
-  }
-  // Remove from student scheduledBookings
-  if(stu){
-    stu.scheduledBookings=(stu.scheduledBookings||[]).filter(b=>b.slotId!==slotId);
-    saveStudents(students);
-  }
-  // Refund 1 session to ticket
-  const tickets=loadTickets();
-  const tIdx=tickets.findIndex(t=>String(t.studentId)===String(studentId)&&t.left>=0&&(!t.expireDate||t.expireDate>=todayStr()));
-  if(tIdx>=0){
-    tickets[tIdx].left+=1;
-    tickets[tIdx].log=tickets[tIdx].log||[];
-    tickets[tIdx].log.push({date:todayStr(),action:'refund',note:'管理員取消預約，補回1堂'});
-    saveTickets(tickets);
-  }
+  const state=createBookingCascadeState();
+  const result=cancelBookingCascade(state, studentId, slotId, {note:'取消預約，補回1堂'});
+  persistBookingCascadeState(state, result.dirty, 'booking-cancel');
   openStudentDetail(studentId);
   schRenderCalendar();
+  if(typeof renderAttendance==='function') renderAttendance();
+  if(typeof renderLogs==='function') renderLogs();
   updateBadges();
-  toast('✓ 已取消預約，補回 1 堂');
+  toast(result.refundIdx>=0?'已取消預約並補回 1 堂':'已取消預約；找不到可回補票券，請手動確認');
 }
-
-
 function adjustTicket(ticketId, delta){
   const tickets=loadTickets();
   const tIdx=tickets.findIndex(t=>t.id===ticketId);
@@ -3395,57 +3527,18 @@ window.openPayDetail=function(id){
 cancelStudentBooking = function(studentId, slotId, evt){
   if(evt) evt.stopPropagation();
   if(!confirm('確定要取消這筆預約並補回 1 堂嗎？')) return;
-  const slots=loadSlots();
-  const si=slots.findIndex(s=>String(s.id)===String(slotId));
-  const slot=si>=0?slots[si]:null;
-  const students=loadStudents();
-  const stu=students.find(s=>String(s.id)===String(studentId));
-  if(si>=0){
-    slots[si].bookings=(slots[si].bookings||[]).filter(b=>{
-      if(b.studentId!=null && String(b.studentId)!=='') return String(b.studentId)!==String(studentId);
-      return !(stu && String(b.name||'').trim()===String(stu.name||'').trim());
-    });
-    saveSlots(slots);
-  }
-  const classes=loadClasses();
-  const ci=classes.findIndex(c=>String(c.slotId)===String(slotId));
-  if(ci>=0){
-    classes[ci].members=(classes[ci].members||[]).filter(m=>{
-      if(String(m.studentId||'')===String(studentId)) return false;
-      return !(stu && String(m.studentName||m.name||'').trim()===String(stu.name||'').trim());
-    });
-    if(classes[ci].members.length===0) classes.splice(ci,1);
-    saveClasses(classes);
-  }
-  if(stu){
-    stu.scheduledBookings=(stu.scheduledBookings||[]).filter(b=>String(b.slotId)!==String(slotId));
-    saveStudents(students);
-  }
-  const logs=loadLogs();
-  const logsChanged=stu ? removeStudentFromCourseLogs(logs, stu, slotId) : false;
-  if(logsChanged) saveLogs(logs);
-  const tickets=loadTickets();
-  const refundIdx=findRefundTicketIndex(tickets, stu, {studentId}, slot, slotId);
-  if(refundIdx>=0){
-    tickets[refundIdx].left=Number(tickets[refundIdx].left||0)+1;
-    tickets[refundIdx].used=Math.max(0,Number(tickets[refundIdx].used||0)-1);
-    const refundLog={date:todayStr(),action:'refund',slotIds:[slotId],note:'取消預約，補回1堂'};
-    tickets[refundIdx].log=Array.isArray(tickets[refundIdx].log)?tickets[refundIdx].log:[];
-    tickets[refundIdx].logs=Array.isArray(tickets[refundIdx].logs)?tickets[refundIdx].logs:[];
-    tickets[refundIdx].log.push(refundLog);
-    tickets[refundIdx].logs.push(refundLog);
-    saveTickets(tickets);
-  }
-  if(typeof window.lowCostSyncPublicMirror==='function') {
-    window.lowCostSyncPublicMirror('booking-cancel',{force:true}).catch(err=>console.warn('booking cancel mirror sync failed',err));
-  }
+  const state=createBookingCascadeState();
+  const result=cancelBookingCascade(state, studentId, slotId, {note:'取消預約，補回1堂'});
+  persistBookingCascadeState(state, result.dirty, 'booking-cancel');
   openStudentDetail(studentId);
   schRenderCalendar();
   if(typeof renderAttendance==='function') renderAttendance();
   if(typeof renderLogs==='function') renderLogs();
   updateBadges();
-  toast(refundIdx>=0?'已取消預約並補回 1 堂':'已取消預約；找不到可回補票券，請手動確認');
+  toast(result.refundIdx>=0?'已取消預約並補回 1 堂':'已取消預約；找不到可回補票券，請手動確認');
 };
+
+
 
 createTicketFromPayment = function(p){
   if(!p||p.status!=='paid') return;
@@ -4589,50 +4682,21 @@ function schSaveSlot(){
 
 function schDeleteSlot(){
   const editId=document.getElementById("slot-edit-id").value;
-  if(!editId||!confirm("確定要刪除此時段嗎？")) return;
-  const slot=loadSlots().find(s=>String(s.id)===String(editId));
-  const bookings=slot?.bookings||[];
-  // Refund one session back to each booked student's ticket
-  if(bookings.length>0){
-    const tickets=loadTickets();
-    const students=loadStudents();
-    bookings.forEach(b=>{
-      const stu=resolveBookingStudent(b,students);
-      const tIdx=findRefundTicketIndex(tickets,stu,b,slot,editId);
-      if(tIdx>=0){
-        tickets[tIdx].left+=1;
-        tickets[tIdx].used=Math.max(0,Number(tickets[tIdx].used||0)-1);
-        tickets[tIdx].log=tickets[tIdx].log||[];
-        tickets[tIdx].logs=Array.isArray(tickets[tIdx].logs)?tickets[tIdx].logs:[];
-        const refundLog={date:todayStr(),action:'refund',slotIds:[editId],note:'時段被刪除：補回1堂'};
-        tickets[tIdx].log.push(refundLog);
-        tickets[tIdx].logs.push(refundLog);
-      }
-    });
-    saveTickets(tickets);
-    // Also remove from student scheduledBookings
-    bookings.forEach(b=>{
-      const stu=resolveBookingStudent(b,students);
-      const si=stu?students.findIndex(s=>String(s.id)===String(stu.id)):-1;
-      if(si>=0){
-        students[si].scheduledBookings=(students[si].scheduledBookings||[]).filter(sb=>String(sb.slotId)!==String(editId));
-      }
-    });
-    saveStudents(students);
-  }
-  saveSlots(loadSlots().filter(s=>String(s.id)!==String(editId)));
-  saveClasses(loadClasses().filter(c=>String(c.slotId)!==String(editId)));
+  if(!editId||!confirm("確定要刪除此時段嗎？若已有預約，系統會同步移除預約、出缺勤與課程紀錄，並嘗試補回堂數。")) return;
+  const state=createBookingCascadeState();
+  const result=deleteSlotCascade(state, editId);
+  persistBookingCascadeState(state, result.dirty, 'slot-delete');
   closeSheets();
   schRenderCalendar();
   renderStudents();
+  if(typeof renderAttendance==='function') renderAttendance();
+  if(typeof renderLogs==='function') renderLogs();
   updateBadges();
-  const msg=bookings.length>0
-    ?`已刪除時段，已為 ${bookings.length} 位學員補回 1 堂`
-    :"已刪除時段及對應課堂";
+  const msg=result.bookings>0
+    ?'已刪除時段，並替 '+result.refunds+'/'+result.bookings+' 位學生補回 1 堂'
+    :"已刪除時段";
   toast(msg);
 }
-
-
 /* ══════════════════════════════════
    INIT
 ══════════════════════════════════ */
@@ -4869,9 +4933,7 @@ async function importBookingRequests(){
   if(!window._fb?.listCollection) return 0;
   const requests=await window._fb.listCollection(['booking_requests'],{throwOnError:true});
   if(!requests.length) return 0;
-  let students=loadStudents();
-  let tickets=loadTickets();
-  let slots=loadSlots();
+  const state=createBookingCascadeState();
   let imported=0;
 
   for(const item of requests){
@@ -4879,53 +4941,37 @@ async function importBookingRequests(){
     if(r.status && r.status!=='pending') continue;
     const slotIds=Array.isArray(r.slotIds)?r.slotIds:[];
     const studentId=String(r.studentId||'');
-    const stuIdx=students.findIndex(s=>String(s.id)===studentId);
+    const stuIdx=state.students.findIndex(s=>String(s.id)===studentId);
     if(!slotIds.length || stuIdx<0) continue;
 
     let canImport=true;
     for(const slotId of slotIds){
-      const slot=slots.find(s=>String(s.id)===String(slotId));
+      const slot=state.slots.find(s=>String(s.id)===String(slotId));
       const bookings=Array.isArray(slot?.bookings)?slot.bookings:[];
       if(!slot || !isFutureSlot(slot) || bookings.length>=Number(slot.capacity||1)) { canImport=false; break; }
       if(bookings.some(b=>String(b.studentId)===studentId || String(b.lookupKey||'')===String(r.lookupKey||''))) { canImport=false; break; }
-      if(!findBookingTicket(tickets, studentId, slot, slotId)) { canImport=false; break; }
+      if(!findBookingTicket(state.tickets, studentId, slot, slotId)) { canImport=false; break; }
     }
     if(!canImport) continue;
 
+    let addedAll=true;
     for(const slotId of slotIds){
-      const slot=slots.find(s=>String(s.id)===String(slotId));
-      const rec={lookupKey:r.lookupKey||'',studentId,name:r.bookingName||students[stuIdx].name||'',typeId:r.typeId??slot.typeId??null,typeName:slot.typeName||slot.name||'',date:slot.date||'',time:slot.time||'',slotId:slot.id,requestId:r.id,ts:Date.now()};
-      slot.bookings=[...(slot.bookings||[]),rec];
-      const ticket=findBookingTicket(tickets, studentId, slot, slotId);
-      ticket.left=Number(ticket.left||0)-1;
-      ticket.used=Number(ticket.used||0)+1;
-      const deductLog={action:'booking_deduct',date:todayStr(),slotIds:[slot.id],requestId:r.id,note:'預約申請自動匯入扣堂',ts:Date.now()};
-      ticket.log=Array.isArray(ticket.log)?ticket.log:[];
-      ticket.logs=Array.isArray(ticket.logs)?ticket.logs:[];
-      ticket.log.push(deductLog);
-      ticket.logs.push(deductLog);
-      const stu={...students[stuIdx]};
-      const scheduled=Array.isArray(stu.scheduledBookings)?stu.scheduledBookings:[];
-      if(!scheduled.some(x=>String(x.slotId)===String(slot.id))){
-        scheduled.push({slotId:slot.id,date:slot.date,time:slot.time,typeId:slot.typeId,typeName:slot.typeName||slot.name||'',status:'booked',requestId:r.id,ts:Date.now()});
-      }
-      stu.scheduledBookings=scheduled;
-      stu.lastBookingAt=Date.now();
-      students[stuIdx]=stu;
-      syncSlotToAttendance(slot);
+      const result=addBookingCascade(state, {...r, studentId}, slotId);
+      if(!result.ok){ addedAll=false; break; }
     }
+    if(!addedAll) continue;
     await window._fb.deleteDocPath(['booking_requests',item.id]);
     imported++;
   }
   if(imported>0){
-    await persistDataKey('students',students);
-    await persistDataKey('tickets',tickets);
-    await persistDataKey('slots',slots);
+    await persistDataKey('students',state.students);
+    await persistDataKey('tickets',state.tickets);
+    await persistDataKey('slots',state.slots);
+    await persistDataKey('classes',state.classes);
     if(typeof window.lowCostSyncPublicMirror==='function') await window.lowCostSyncPublicMirror('request-import');
   }
   return imported;
 }
-
 async function importPendingRequests(reason='manual'){
   if(_requestImportRunning) return;
   _requestImportRunning=true;
