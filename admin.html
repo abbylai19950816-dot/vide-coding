@@ -125,6 +125,9 @@ body{font-family:'Chiron GoRound TC',sans-serif;background:var(--sand);color:var
 .health-issue-top{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:5px}
 .health-issue-title{font-size:13px;font-weight:700;color:var(--ink)}
 .health-issue-body{font-size:12px;color:var(--ink-mid);line-height:1.6}
+.health-issue-guidance{margin-top:8px;border-top:1px solid var(--sand-dark);padding-top:8px;font-size:12px;line-height:1.6;color:var(--ink)}
+.health-issue-guidance b{font-weight:700;color:var(--ink)}
+.health-nextbox{background:var(--sage-light);border-radius:var(--radius-sm);padding:12px;margin-top:10px;font-size:12px;line-height:1.7;color:var(--sage-deep)}
 .health-empty{font-size:13px;color:var(--sage);background:var(--sage-light);border-radius:var(--radius-sm);padding:12px;text-align:center;margin-top:10px}
 
 /* ── Progress ── */
@@ -924,12 +927,12 @@ onAuthStateChanged(auth, (user) => {
       </div>
 
       <!-- Data health -->
-      <div class="section-label" style="margin-top:16px">資料健康檢查</div>
+      <div class="section-label" style="margin-top:16px">測試與維運工具</div>
       <div class="health-panel">
         <div class="health-head">
           <div>
             <div class="health-title">資料一致性檢查</div>
-            <div class="health-desc">檢查收費、票券、預約、行事曆與出缺勤是否同步。第一版只產生報告，不會自動修改資料。</div>
+            <div class="health-desc">測試期、資料清理或維運時使用；正式上線後應收合或只開放給平台維運者。第一版只產生報告，不會自動修改資料。</div>
           </div>
           <span class="badge info" id="data-health-badge">未檢查</span>
         </div>
@@ -5074,6 +5077,83 @@ function buildDataHealthReport(){
     issues
   };
 }
+function dataHealthGuidance(issue){
+  const title=String(issue?.title||'');
+  const map={
+    '重複手機號碼':{
+      meaning:'系統可能無法分辨兩位學員，學員查詢或購課時可能對到錯的人。',
+      next:'先到「學員管理」確認是否真的同一人。若是不同人，請改成不同手機或等未來身份流程升級後再合併處理。'
+    },
+    '收費紀錄找不到學員':{
+      meaning:'這筆收費指向的學員資料已不存在，收費頁與學員頁會對不起來。',
+      next:'若是測試資料，可之後用清理工具移除；若是真實收費，先不要刪，請確認學員是否被誤刪。'
+    },
+    '已收款但沒有票券':{
+      meaning:'管理員已標記收款，但學員沒有可用堂數，所以學員端可能顯示沒有可預約方案。',
+      next:'這類優先處理。下一步應使用「已收款補開票券」修復工具，或先回收費紀錄確認方案與堂數是否正確。'
+    },
+    '同一筆收費產生多張票券':{
+      meaning:'同一筆付款可能讓學員多拿堂數，會造成剩餘堂數偏多。',
+      next:'先不要手動扣堂。下一步應用重複票券檢查工具，比對哪一張是多出來的票券。'
+    },
+    '已收款但堂數不明':{
+      meaning:'收費紀錄缺少堂數資訊，未來若要自動重算票券會不知道要產生幾堂。',
+      next:'到收費詳情確認課程方案是否完整；若是舊資料，之後可用資料補齊工具補 sessions。'
+    },
+    '票券找不到學員':{
+      meaning:'有票券留在系統裡，但對應學員已不存在，可能是刪除學員後留下的舊資料。',
+      next:'若是測試資料，可之後用孤兒票券清理工具移除；若是真實資料，先確認學員是否被誤刪。'
+    },
+    '票券剩餘堂數為負數':{
+      meaning:'堂數已經扣超過，學員剩餘堂數不可信。',
+      next:'這類優先處理。先查看該學員最近預約、取消與出缺勤紀錄，再用票券重算或手動修正。'
+    },
+    '票券剩餘堂數超過總堂數':{
+      meaning:'票券被補回太多堂，學員剩餘堂數可能偏多。',
+      next:'先查看是否有重複取消、刪課補堂或手動加堂紀錄，再決定是否修正。'
+    },
+    '票券 used + left 與 total 不一致':{
+      meaning:'票券統計欄位不同步，但實際可預約通常以 left 為主。',
+      next:'暫時不是第一優先；等預約與收費問題穩定後，再做票券統計欄位重算。'
+    },
+    '行事曆預約找不到學員':{
+      meaning:'行事曆時段有預約名單，但對不到學員資料，可能是學員被刪或舊資料缺少手機/id。',
+      next:'若時段尚未發生，先不要讓學員端繼續使用這筆名單；下一步用預約孤兒資料清理工具處理。'
+    },
+    '行事曆有預約，但學員資料沒有 scheduledBookings':{
+      meaning:'行事曆看得到預約，但學員詳細頁可能看不到，所以總覽與細節會不一致。',
+      next:'這類可用「行事曆預約回填學員 scheduledBookings」修復工具處理。'
+    },
+    '預約缺少票券扣堂紀錄':{
+      meaning:'預約可能已扣堂，但票券 log 沒有記 slotId，之後取消或刪課時比較容易補錯票券。',
+      next:'先保留不要手動刪。下一步應補上 booking-to-ticket log 或用票券重算工具處理。'
+    },
+    '已發生預約沒有課程日誌':{
+      meaning:'課已經過了，但課程日誌沒有對應紀錄，學員上課紀錄可能不完整。',
+      next:'若這堂課確實有上課，請到課程日誌補記；若是測試預約，之後可清理。'
+    },
+    '學員預約指向不存在的時段':{
+      meaning:'學員資料裡還留著預約，但行事曆時段已不存在，學員詳細頁可能顯示殘留資料。',
+      next:'下一步用 scheduledBookings 清理工具移除不存在的時段引用。'
+    },
+    '學員資料有預約，但行事曆沒有名單':{
+      meaning:'學員詳細頁有預約，但行事曆名單沒有他，兩邊顯示會不一致。',
+      next:'先確認哪邊是正確來源。若行事曆才是準的，就清掉學員 scheduledBookings；若學員資料才是準的，就回填行事曆名單。'
+    },
+    '出缺勤成員找不到學員':{
+      meaning:'出缺勤紀錄裡有一位已不存在的學員，通常是測試或刪除學員後留下的歷史資料。',
+      next:'若是測試資料，可之後用孤兒出缺勤成員清理工具移除；若是真實紀錄，先確認學員是否被誤刪。'
+    },
+    '課程日誌學員 ID 找不到學員':{
+      meaning:'課程日誌還留著已不存在學員的 ID。這通常不會影響現在學員預約，但會讓歷史紀錄不乾淨。',
+      next:'如果這是測試資料，可以等我們下一步做「清除孤兒日誌成員」工具；如果是真實學員，先確認學員是否被誤刪。'
+    }
+  };
+  return map[title] || {
+    meaning:'這筆資料和其他資料表對不起來，需要人工確認哪一邊才是正確來源。',
+    next:'先不要直接刪資料。請截圖或記下項目，優先處理嚴重項目，再處理需檢查項目。'
+  };
+}
 function renderDataHealthReport(report){
   const result=document.getElementById('data-health-result');
   const badge=document.getElementById('data-health-badge');
@@ -5087,7 +5167,8 @@ function renderDataHealthReport(report){
       '<div class="health-metric"><div class="health-metric-num warn">'+report.warn+'</div><div class="health-metric-label">需檢查</div></div>'+
       '<div class="health-metric"><div class="health-metric-num">'+report.counts.students+'</div><div class="health-metric-label">學員</div></div>'+
     '</div>'+
-    '<div class="health-desc" style="margin-top:10px">檢查時間：'+report.generatedAt.toLocaleString('zh-TW')+'；資料量：票券 '+report.counts.tickets+'、收費 '+report.counts.payments+'、時段 '+report.counts.slots+'、出缺勤 '+report.counts.classes+'、日誌 '+report.counts.logs+'。</div>';
+    '<div class="health-desc" style="margin-top:10px">檢查時間：'+report.generatedAt.toLocaleString('zh-TW')+'；資料量：票券 '+report.counts.tickets+'、收費 '+report.counts.payments+'、時段 '+report.counts.slots+'、出缺勤 '+report.counts.classes+'、日誌 '+report.counts.logs+'。</div>'+
+    '<div class="health-nextbox"><b>建議處理順序：</b><br>1. 先處理「嚴重」項目，這類通常會影響付款、堂數或預約。<br>2. 「需檢查」多半是歷史資料或顯示不同步，先確認是否為測試/舊資料。<br>3. 不確定時先不要刪資料，等修復工具逐項處理。</div>';
   if(!issueCount){
     result.innerHTML=summary+'<div class="health-empty">目前沒有發現收費、票券、預約、出缺勤之間的明顯不一致。</div>';
     return;
@@ -5095,9 +5176,11 @@ function renderDataHealthReport(report){
   const rows=report.issues.slice(0,80).map(issue=>{
     const cls=issue.severity==='danger'?'danger':'warn';
     const label=issue.severity==='danger'?'嚴重':'需檢查';
+    const guidance=dataHealthGuidance(issue);
     return '<div class="health-issue '+cls+'">'+
       '<div class="health-issue-top"><div class="health-issue-title">'+dataHealthHtml(issue.title)+'</div><span class="badge '+cls+'">'+label+'</span></div>'+
       '<div class="health-issue-body">'+dataHealthHtml(issue.body)+'</div>'+
+      '<div class="health-issue-guidance"><b>這代表：</b>'+dataHealthHtml(guidance.meaning)+'<br><b>建議下一步：</b>'+dataHealthHtml(guidance.next)+'</div>'+
     '</div>';
   }).join('');
   const more=report.issues.length>80?'<div class="health-desc" style="margin-top:10px">只顯示前 80 項，請先處理嚴重項目後再重新檢查。</div>':'';

@@ -139,7 +139,14 @@ This workflow is not implemented yet. Do not reuse `delete payment` as the long-
 
 #### Data health check
 
-管理員端設定頁提供 `資料一致性檢查`。這是 read-only 工具，用來找出收費、票券、預約、行事曆、出缺勤與課程日誌之間的不同步狀況。
+管理員端設定頁提供 `資料一致性檢查`。這是 read-only 測試/維運工具，用來找出收費、票券、預約、行事曆、出缺勤與課程日誌之間的不同步狀況。
+
+定位：
+
+- 測試期、資料清理、資料遷移、客服維運時使用。
+- 正式上線後不應作為一般老師每天操作的日常功能。
+- 多老師 SaaS 版本中，應改為只開放給平台維運者或 tenant owner 的進階診斷工具。
+- 若系統資料流穩定，正式 UI 可以收合、隱藏或放入維運模式。
 
 第一版檢查範圍：
 
@@ -160,6 +167,9 @@ Rules:
 
 - This tool must not write Firestore data.
 - This tool may read existing admin-side local cache loaded from `/data/*`; it must not add student-side reads.
+- Each issue should show admin-friendly guidance: what the issue means, likely impact, and the suggested next step.
+- `danger` issues should be treated first because they may affect paid sessions, remaining tickets, or active bookings.
+- `warn` issues may be historical/test-data inconsistencies, but still need review before production use.
 - Repair tools must remain separate from health check results. The admin should review severe issues before any automatic repair is introduced.
 - Future repair actions must write their own worklog and clearly state which source of truth is used to rebuild derived data.
 
