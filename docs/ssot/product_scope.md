@@ -23,6 +23,8 @@ Gyrobooking is a low-cost Pilates booking system for:
 - Student phone validation should be friendly and strict: purchase and booking lookup forms accept exactly 10 digits and require the number to start with `09`; Firebase permission errors must not be shown to students as raw English messages.
 - After a student submits a purchase request, the success/contact-teacher context should remain available while they move to the schedule page. This state may be stored in `sessionStorage` only and must not add Firestore reads or writes.
 - 管理員學員搜尋可用姓名或手機查詢；手機搜尋必須支援含分隔符與純數字輸入，例如 `0928-964-118` 與 `0928964118` 都能找到同一位學員。
+- 管理員學員詳細頁應優先讓老師判斷目前狀態：剩餘堂數、未來預約、上課紀錄。詳細資訊排序以「狀態總覽 → 未來預約 → 方案紀錄 → 上課統計 → 最近上課 → 聯絡資訊 → 維護/刪除」為主。
+- 學員詳細頁中的票券扣堂、加堂、修改、刪除屬於維護操作，不應與日常查看資訊同等醒目；正式 UI 應以收合或二階段操作降低誤觸。
 - Course plans may be marked `oncePerStudent` for trial classes; once used, the same student cannot purchase that plan again from the student page.
 - Course plans may set `allowRecurring: false`; student-side loop booking should be hidden and blocked for those active plans.
 - 學員若同時擁有多個有效課程類型，例如一對一與一對二，預約頁查詢方案後必須讓學員切換課程類型；不得只自動顯示其中一種，避免誤以為其他方案消失。

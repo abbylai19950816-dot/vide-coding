@@ -316,6 +316,34 @@ body{font-family:'Chiron GoRound TC',sans-serif;background:var(--sand);color:var
 .detail-avatar{margin:0 auto 10px}
 .detail-name{text-align:center;font-size:20px;font-weight:700;margin-bottom:4px}
 .detail-meta-text{text-align:center;font-size:13px;color:var(--ink-mid);margin-bottom:20px}
+.student-status-summary{background:var(--sage-light);border-radius:var(--radius);padding:14px 16px;margin-bottom:16px}
+.student-status-line{font-size:15px;font-weight:700;color:var(--sage-deep);line-height:1.45;margin-bottom:10px}
+.student-status-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.student-status-item{background:rgba(255,255,255,.58);border-radius:var(--radius-sm);padding:9px 6px;text-align:center}
+.student-status-value{font-size:17px;font-weight:700;color:var(--ink);line-height:1.1}
+.student-status-label{font-size:10px;color:var(--ink-mid);margin-top:4px;white-space:nowrap}
+.student-detail-actions{display:flex;gap:8px;margin-bottom:16px}
+.student-detail-actions button{flex:1;border:none;border-radius:99px;padding:10px;font-size:13px;font-weight:500;font-family:inherit;cursor:pointer}
+.student-detail-actions .secondary{background:var(--sage-light);color:var(--sage)}
+.student-detail-actions .primary{background:var(--sage);color:#fff}
+.student-section-title{font-size:13px;font-weight:700;color:var(--ink);margin:18px 0 8px}
+.student-section-title.first{margin-top:0}
+.student-empty{font-size:12px;color:var(--ink-light);background:var(--sand);border-radius:var(--radius-sm);padding:11px 14px;line-height:1.6;margin-bottom:8px}
+.student-stat-panel{background:var(--sand);border-radius:var(--radius-sm);padding:12px 14px;margin-bottom:8px;display:flex;gap:16px}
+.student-stat-cell{text-align:center;flex:1}
+.student-stat-num{font-size:20px;font-weight:700;color:var(--sage)}
+.student-stat-num.warn{color:var(--absent)}
+.student-stat-label{font-size:11px;color:var(--ink-mid)}
+.ticket-adjust{margin-top:8px}
+.ticket-adjust summary{display:inline-flex;align-items:center;border:none;border-radius:99px;background:var(--sand-dark);color:var(--ink-mid);padding:4px 11px;font-size:11px;font-weight:500;cursor:pointer;list-style:none}
+.ticket-adjust summary::-webkit-details-marker{display:none}
+.ticket-adjust[open] summary{background:var(--sage-light);color:var(--sage)}
+.ticket-adjust-actions{display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-start;margin-top:8px}
+.ticket-adjust-actions button{font-size:11px;border:none;border-radius:99px;padding:4px 10px;cursor:pointer;font-family:inherit}
+.ticket-adjust-actions .deduct{background:var(--warn-bg);color:var(--warn)}
+.ticket-adjust-actions .add{background:var(--sage-light);color:var(--sage)}
+.ticket-adjust-actions .edit{background:var(--sand-dark);color:var(--ink-mid)}
+.ticket-adjust-actions .delete{background:var(--warn-bg);color:var(--warn)}
 .info-row{display:flex;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--sand-dark);gap:10px}
 .info-row:last-child{border-bottom:none}
 .form-section .info-row{padding-left:14px;padding-right:14px}
@@ -1687,21 +1715,40 @@ function openStudentDetail(id){
   const allTkts = loadTickets();
   const allMyTkts = allTkts.filter(function(t){return String(t.studentId)===sid;});
   const STATUS_LBL = {present:'到課',absent:'缺席',leave:'請假',makeup:'補課'};
-  const tktRows = allMyTkts.sort((a,b)=>b.boughtDate.localeCompare(a.boughtDate)).map(function(t){
+  const _slots=loadSlots();
+  const futureBooked=(s.scheduledBookings||[])
+    .filter(function(b){return isFutureScheduledBooking(b,_slots);})
+    .sort(function(a,b){return scheduledBookingDateTimeKey(a,_slots).localeCompare(scheduledBookingDateTimeKey(b,_slots));});
+  const validTkts=allMyTkts.filter(function(t){return !isTicketExpired(t)&&Number(t.left||0)>0;});
+  const totalLeft=validTkts.reduce(function(sum,t){return sum+Number(t.left||0);},0);
+  const lowTicketCount=validTkts.filter(function(t){return Number(t.left||0)<=3;}).length;
+  const nextBooking=futureBooked[0]||null;
+  const nextSlot=nextBooking?_slots.find(sl=>String(sl.id)===String(nextBooking.slotId)):null;
+  const nextDate=nextSlot?nextSlot.date:(nextBooking?nextBooking.date:'');
+  const nextTime=nextSlot?nextSlot.time:(nextBooking?nextBooking.time:'');
+  const summaryLine = totalLeft>0
+    ? '目前可預約：剩 '+totalLeft+' 堂'+(futureBooked.length?'，已有 '+futureBooked.length+' 筆未來預約':'')
+    : '目前沒有可用方案，學員需先購課或完成收款';
+  const nextLabel = nextBooking ? ((nextDate||'未定日期')+' '+(nextTime||'')) : '無未來預約';
+  const recentLabel = '待確認';
+  const tktRows = allMyTkts.sort((a,b)=>String(b.boughtDate||b.buyDate||'').localeCompare(String(a.boughtDate||a.buyDate||''))).map(function(t){
     const exp=isTicketExpired(t),low=isTicketLow(t);
     const cls=exp?'expired':(low?'warn':'ok');
     const statusTxt=exp?(t.left<=0?'已用完':'已過期'):('剩 '+t.left+' 堂');
     const pct=t.total>0?Math.round((t.total-t.left)/t.total*100):0;
     const ctrlBtns=!exp
-      ? '<div style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end;margin-top:4px">'
-        +'<button onclick="event.stopPropagation();adjustTicket('+t.id+',-1)" style="font-size:11px;background:var(--warn-bg);color:var(--warn);border:none;border-radius:99px;padding:3px 10px;cursor:pointer;font-family:inherit">− 扣堂</button>'
-        +'<button onclick="event.stopPropagation();adjustTicket('+t.id+',1)" style="font-size:11px;background:var(--sage-light);color:var(--sage);border:none;border-radius:99px;padding:3px 10px;cursor:pointer;font-family:inherit">＋ 加堂</button>'
-        +'<button onclick="event.stopPropagation();editTicketTotal('+t.id+')" style="font-size:11px;background:var(--sand-dark);color:var(--ink-mid);border:none;border-radius:99px;padding:3px 10px;cursor:pointer;font-family:inherit">修改</button>'
-        +'<button onclick="event.stopPropagation();deleteTicketFromDetail('+t.id+','+id+')" style="font-size:11px;background:var(--warn-bg);color:var(--warn);border:none;border-radius:99px;padding:3px 10px;cursor:pointer;font-family:inherit">刪除</button>'
+      ? '<details class="ticket-adjust" onclick="event.stopPropagation()">'
+        +'<summary>調整</summary>'
+        +'<div class="ticket-adjust-actions">'
+          +'<button class="deduct" onclick="event.stopPropagation();adjustTicket('+t.id+',-1)">扣堂</button>'
+          +'<button class="add" onclick="event.stopPropagation();adjustTicket('+t.id+',1)">加堂</button>'
+          +'<button class="edit" onclick="event.stopPropagation();editTicketTotal('+t.id+')">修改</button>'
+          +'<button class="delete" onclick="event.stopPropagation();deleteTicketFromDetail('+t.id+','+id+')">刪除</button>'
         +'</div>'
+      +'</details>'
       : '';
-    return '<div class="card" style="margin-bottom:6px;cursor:default;'+(exp?'opacity:.6':'')+'"><div style="flex:1"><div class="card-name" style="font-size:14px">'+(t.typeName||t.planName||t.total+'堂方案')+'</div><div class="card-meta">購買：'+t.boughtDate+' · NT$ '+(t.price||0).toLocaleString()+'</div>'+(t.total>1?'<div style="margin-top:6px"><div class="progress-track"><div class="progress-fill '+(low?'warn':'')+'" style="width:'+pct+'%"></div></div></div>':'')+'<div style="display:flex;align-items:center;justify-content:space-between;margin-top:6px"><span class="badge '+cls+'">'+statusTxt+'</span>'+ctrlBtns+'</div></div></div>';
-  }).join('') || '<div style="font-size:13px;color:var(--ink-mid);padding:8px 0">無方案紀錄</div>';
+    return '<div class="card" style="margin-bottom:8px;cursor:default;'+(exp?'opacity:.6':'')+'"><div style="flex:1"><div class="card-name" style="font-size:14px">'+(t.typeName||t.planName||t.total+'堂方案')+'</div><div class="card-meta">購買：'+(t.boughtDate||t.buyDate||'未記錄')+' · NT$ '+(t.price||0).toLocaleString()+'</div>'+(t.total>1?'<div style="margin-top:7px"><div class="progress-track"><div class="progress-fill '+(low?'warn':'')+'" style="width:'+pct+'%"></div></div></div>':'')+'<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:8px"><span class="badge '+cls+'">'+statusTxt+'</span>'+ctrlBtns+'</div></div></div>';
+  }).join('') || '<div class="student-empty">目前沒有方案紀錄。若學員已付款，請先確認收費紀錄是否已標記為已收款。</div>';
   const classes = loadClasses().filter(function(c){return c.members.some(function(m){return String(m.studentId)===sid||(String(m.studentId).startsWith("ext-")&&m.studentName===s.name);});});
   const attCounts={present:0,absent:0,leave:0,makeup:0};
   classes.forEach(function(c){const m=c.members.find(function(m){return String(m.studentId)===sid||(String(m.studentId).startsWith("ext-")&&m.studentName===s.name);});if(m)attCounts[m.status]=(attCounts[m.status]||0)+1;});
@@ -1710,64 +1757,68 @@ function openStudentDetail(id){
   const allStudClasses=loadClasses().filter(function(c){return c.members.some(function(m){return String(m.studentId)===sid||(String(m.studentId).startsWith("ext-")&&m.studentName===s.name);});});
   const recentClasses=allStudClasses.filter(isPastOrStartedClass).sort((a,b)=>classDateTimeKey(b).localeCompare(classDateTimeKey(a))).slice(0,3);
   const SCH_D=['日','一','二','三','四','五','六'];
+  const bookingRows = futureBooked.length
+    ? futureBooked.map(function(b){
+        const currentSlot=_slots.find(sl=>String(sl.id)===String(b.slotId));
+        const displayTime=currentSlot?currentSlot.time:b.time;
+        const displayDate=currentSlot?currentSlot.date:b.date;
+        const displayTypeName=stripCourseIcon((b.typeName||'').trim() || (currentSlot?slotDisplayName(currentSlot):''));
+        const d=new Date(displayDate+'T00:00:00');
+        const changeBtn='<button onclick="openBookingChange('+id+',\''+b.slotId+'\',event)" style="font-size:11px;background:var(--sand-dark);color:var(--ink-mid);border:none;border-radius:99px;padding:2px 10px;cursor:pointer;font-family:inherit">變更</button>';
+        const noteBtn='<button onclick="openClassNote(\''+b.slotId+'\','+sid+',event)" style="font-size:11px;background:var(--sage-light);color:var(--sage-deep);border:none;border-radius:99px;padding:2px 10px;cursor:pointer;font-family:inherit">課程紀錄</button>';
+        return '<div class="info-row" style="display:grid;grid-template-columns:68px 38px minmax(120px,1fr) auto auto;gap:5px;align-items:center;padding:9px 0">'+
+          '<span class="info-label" style="min-width:0;white-space:nowrap">'+(d.getMonth()+1)+'/'+d.getDate()+'（'+SCH_D[d.getDay()]+'）</span>'+
+          '<span class="info-val" style="white-space:nowrap">'+displayTime+'</span>'+
+          '<span class="info-val" style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+displayTypeName+'</span>'+
+          noteBtn+changeBtn+
+        '</div>';
+      }).join('')
+    : '<div class="student-empty">目前沒有未來預約。若學員已有可用方案，可請學員從預約頁選時段，或由管理員從行事曆確認。</div>';
+  const recentRows = recentClasses.length?recentClasses.map(function(cl){
+    const m=cl.members.find(function(m){return String(m.studentId)===sid;});
+    const slotRef=cl.slotId||cl.id;
+    return '<div class="info-row"><span class="info-label">'+cl.date+'</span>'+
+      '<span class="info-val" style="display:flex;align-items:center;gap:6px">'+
+        '<span style="font-size:13px">'+cl.name+'</span>'+
+        '<span class="hist-status '+(m?m.status:'')+'" style="font-size:11px;font-weight:500">'+(STATUS_LBL[m?m.status:'']||'')+'</span>'+
+        '<button onclick="openClassNote(\''+slotRef+'\','+sid+',event)" style="font-size:11px;background:var(--sage-light);color:var(--sage-deep);border:none;border-radius:99px;padding:2px 8px;cursor:pointer;font-family:inherit">課程紀錄</button>'+
+      '</span></div>';
+  }).join(''):'<div class="student-empty">還沒有上課紀錄。若課程已完成，可從課程日誌補記。</div>';
   document.getElementById('sheet-stuDetail-body').innerHTML=
     '<div class="avatar av72 '+s.color+'" style="display:flex">'+s.name.slice(0,1)+'</div>'+
     '<div class="detail-name">'+s.name+'</div>'+
     '<div class="detail-meta-text">加入日期：'+(s.joined||'未記錄')+'</div>'+
-    '<div style="font-size:13px;font-weight:500;color:var(--ink-mid);margin-bottom:8px">聯絡資訊</div>'+
+    '<div class="student-status-summary">'+
+      '<div class="student-status-line">'+summaryLine+(lowTicketCount?'，有方案即將用完':'')+'</div>'+
+      '<div class="student-status-grid">'+
+        '<div class="student-status-item"><div class="student-status-value">'+totalLeft+'</div><div class="student-status-label">剩餘堂數</div></div>'+
+        '<div class="student-status-item"><div class="student-status-value">'+futureBooked.length+'</div><div class="student-status-label">未來預約</div></div>'+
+        '<div class="student-status-item"><div class="student-status-value">'+attTotal+'</div><div class="student-status-label">上課紀錄</div></div>'+
+      '</div>'+
+    '</div>'+
+    '<div class="student-detail-actions">'+
+      '<button class="secondary" onclick="openStudentEdit('+s.id+')">編輯資料</button>'+
+      '<button class="primary" onclick="openTicketAdd('+s.id+')">新增方案</button>'+
+    '</div>'+
+    '<div class="student-section-title first">未來預約</div>'+bookingRows+
+    '<div class="student-section-title">有效方案與方案紀錄</div>'+tktRows+
+    '<div class="student-section-title">上課統計</div>'+
+    '<div class="student-stat-panel">'+
+      '<div class="student-stat-cell"><div class="student-stat-num">'+attTotal+'</div><div class="student-stat-label">總堂數</div></div>'+
+      '<div class="student-stat-cell"><div class="student-stat-num">'+attRate+'%</div><div class="student-stat-label">到課率</div></div>'+
+      '<div class="student-stat-cell"><div class="student-stat-num warn">'+(absentCount||0)+'</div><div class="student-stat-label">缺席（含請假）</div></div>'+
+    '</div>'+
+    '<div style="display:flex;align-items:center;justify-content:space-between;margin:18px 0 8px">'+
+      '<div class="student-section-title" style="margin:0">最近上課</div>'+
+      '<button data-sid="'+id+'" onclick="openStudentAllHistory(this.dataset.sid)" style="font-size:11px;color:var(--sage);background:none;border:none;cursor:pointer;font-family:inherit;padding:0">查看全部 →</button>'+
+    '</div>'+recentRows+
+    '<div class="student-section-title">聯絡資訊</div>'+
     '<div class="form-section" style="margin-bottom:16px">'+
       '<div class="info-row"><span class="info-label">電話</span><span class="info-val">'+(s.phone||'未記錄')+'</span></div>'+
       '<div class="info-row"><span class="info-label">Line ID</span><span class="info-val">'+(s.line||'—')+'</span></div>'+
       '<div class="info-row"><span class="info-label">緊急聯絡</span><span class="info-val">'+(s.ecName?s.ecName+'（'+(s.ecRel||'')+'）'+(s.ecPhone?'<br>'+s.ecPhone:''):'未填寫')+'</span></div>'+
       '<div class="info-row"><span class="info-label">身體備註</span><span class="info-val">'+(s.notes||'無')+'</span></div>'+
     '</div>'+
-    '<div style="display:flex;gap:8px;margin-bottom:16px">'+
-      '<button onclick="openStudentEdit('+s.id+')" style="flex:1;background:var(--sage-light);color:var(--sage);border:none;border-radius:99px;padding:10px;font-size:13px;font-weight:500;font-family:inherit;cursor:pointer">✏️ 編輯資料</button>'+
-      '<button onclick="openTicketAdd('+s.id+')" style="flex:1;background:var(--sage);color:#fff;border:none;border-radius:99px;padding:10px;font-size:13px;font-weight:500;font-family:inherit;cursor:pointer">＋ 新增方案</button>'+
-    '</div>'+
-    '<div style="font-size:13px;font-weight:500;color:var(--ink-mid);margin-bottom:8px">方案紀錄</div>'+tktRows+
-    '<div style="font-size:13px;font-weight:500;color:var(--ink-mid);margin:16px 0 8px">上課統計</div>'+
-    '<div style="background:var(--sand);border-radius:var(--radius-sm);padding:12px 14px;margin-bottom:8px;display:flex;gap:16px">'+
-      '<div style="text-align:center;flex:1"><div style="font-size:20px;font-weight:700;color:var(--sage)">'+attTotal+'</div><div style="font-size:11px;color:var(--ink-mid)">總堂數</div></div>'+
-      '<div style="text-align:center;flex:1"><div style="font-size:20px;font-weight:700;color:var(--sage)">'+attRate+'%</div><div style="font-size:11px;color:var(--ink-mid)">到課率</div></div>'+
-      '<div style="text-align:center;flex:1"><div style="font-size:20px;font-weight:700;color:var(--absent)">'+(absentCount||0)+'</div><div style="font-size:11px;color:var(--ink-mid)">缺席（含請假）</div></div>'+
-    '</div>'+
-    '<div style="display:flex;align-items:center;justify-content:space-between;margin:16px 0 8px">'+
-      '<div style="font-size:13px;font-weight:500;color:var(--ink-mid)">最近上課</div>'+
-      '<button data-sid="'+id+'" onclick="openStudentAllHistory(this.dataset.sid)" style="font-size:11px;color:var(--sage);background:none;border:none;cursor:pointer;font-family:inherit;padding:0">查看全部 →</button>'+
-    '</div>'+
-    (recentClasses.length?recentClasses.map(function(cl){
-      const m=cl.members.find(function(m){return String(m.studentId)===sid;});
-      const slotRef=cl.slotId||cl.id;
-      return '<div class="info-row"><span class="info-label">'+cl.date+'</span>'+
-        '<span class="info-val" style="display:flex;align-items:center;gap:6px">'+
-          '<span style="font-size:13px">'+cl.name+'</span>'+
-          '<span class="hist-status '+(m?m.status:'')+'" style="font-size:11px;font-weight:500">'+(STATUS_LBL[m?m.status:'']||'')+'</span>'+
-          '<button onclick="openClassNote(\''+slotRef+'\','+sid+',event)" style="font-size:11px;background:var(--sage-light);color:var(--sage-deep);border:none;border-radius:99px;padding:2px 8px;cursor:pointer;font-family:inherit">課程紀錄</button>'+
-        '</span></div>';
-    }).join(''):'<div style="font-size:12px;color:var(--ink-light);padding:4px 0 8px">還沒有上課紀錄</div>')+
-    (function(){
-      const _slots=loadSlots();
-      const futureBooked=(s.scheduledBookings||[]).filter(function(b){return isFutureScheduledBooking(b,_slots);}).sort(function(a,b){return scheduledBookingDateTimeKey(a,_slots).localeCompare(scheduledBookingDateTimeKey(b,_slots));});
-      if(!futureBooked.length) return '<div style="font-size:13px;font-weight:500;color:var(--ink-mid);margin:16px 0 8px">預約課程時段</div><div style="font-size:12px;color:var(--ink-light);padding:4px 0 8px">目前沒有未來的預約</div>';
-      return '<div style="font-size:13px;font-weight:500;color:var(--ink-mid);margin:16px 0 8px">預約課程時段</div>'+
-        futureBooked.map(function(b){
-          // Use current slot time (may have changed)
-          const currentSlot=_slots.find(sl=>String(sl.id)===String(b.slotId));
-          const displayTime=currentSlot?currentSlot.time:b.time;
-          const displayDate=currentSlot?currentSlot.date:b.date;
-          const displayTypeName=stripCourseIcon((b.typeName||'').trim() || (currentSlot?slotDisplayName(currentSlot):''));
-          const d=new Date(displayDate+'T00:00:00');
-          const changeBtn='<button onclick="openBookingChange('+id+',\''+b.slotId+'\',event)" style="font-size:11px;background:var(--sand-dark);color:var(--ink-mid);border:none;border-radius:99px;padding:2px 10px;cursor:pointer;font-family:inherit">變更</button>';
-          const noteBtn='<button onclick="openClassNote(\''+b.slotId+'\','+sid+',event)" style="font-size:11px;background:var(--sage-light);color:var(--sage-deep);border:none;border-radius:99px;padding:2px 10px;cursor:pointer;font-family:inherit">課程紀錄</button>';
-          return '<div class="info-row" style="display:grid;grid-template-columns:68px 38px minmax(120px,1fr) auto auto;gap:5px;align-items:center;padding:9px 0">'+
-            '<span class="info-label" style="min-width:0;white-space:nowrap">'+(d.getMonth()+1)+'/'+d.getDate()+'（'+SCH_D[d.getDay()]+'）</span>'+
-            '<span class="info-val" style="white-space:nowrap">'+displayTime+'</span>'+
-            '<span class="info-val" style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+displayTypeName+'</span>'+
-            noteBtn+changeBtn+
-          '</div>';
-        }).join('');
-    })()+
     '<button class="btn-danger" onclick="deleteStudent('+s.id+')">刪除學員</button>';
   openSheet('sheet-stuDetail');
 }
