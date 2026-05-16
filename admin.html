@@ -2667,7 +2667,7 @@ function openTicketAdd(preStudentId){
   ctypeSel.innerHTML=types.length?types.map(function(t){return '<option value="'+t.id+'">'+(t.icon||'')+' '+t.name+'</option>';}).join(''):'<option value="">（尚未設定課程類型）</option>';
   document.getElementById('ft-bought').value=todayStr();
   document.getElementById('ft-method').value='現金';
-  document.getElementById('ft-status').value='unpaid';
+  document.getElementById('ft-status').value=preStudentId?'paid':'unpaid';
   tktCtypeChange();
   openSheet('sheet-tktAdd');
 }
