@@ -22,6 +22,7 @@
 - `cancelBookingCascade(state, studentId, slotId, options)`: 取消預約，移除行事曆、學員預約、出缺勤、課程日誌，並補回正確票券。
 - `moveBookingCascade(state, studentId, fromSlotId, toSlotId)`: 改期預約，不重新扣堂，只搬移行事曆、學員預約、出缺勤與課程日誌。
 - `deleteSlotCascade(state, slotId)`: 刪除課程時段，對該時段所有預約執行取消 cascade，再刪除時段本身。
+- `repairExistingBookingCascade(state, slot, booking)`: 維修舊資料中已存在於 `slots[].bookings` 的預約，補齊 `students[].scheduledBookings`、票券扣堂 log 與 `classes`，但不重複新增 booking。
 
 後續新增「批次取消、批次改期、老師端刪課、資料修復」時，不要複製貼上各自版本的扣堂、補堂、刪除 scheduledBookings 邏輯，應呼叫這些共用函式或擴充它們。
 
@@ -141,6 +142,7 @@
 
 - 檢查工具第一版只產生報告，不自動修資料。
 - 修復工具要分成小而明確的動作，例如「清除孤兒日誌成員」、「重建學員查詢索引」。
+- 舊預約修復工具必須呼叫 `repairExistingBookingCascade()`，不可自行手動改 `students`、`tickets`、`classes`。
 - 正常營運流程應靠 cascade 函式避免資料錯位，而不是依賴事後修復。
 
 ## Firestore 成本與安全

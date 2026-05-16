@@ -2198,6 +2198,67 @@ function addBookingCascade(state, request, slotId){
   return {ok:true,studentId,slotId:slot.id};
 }
 
+function ticketHasSlotLog(ticket, slotId){
+  const sid=String(slotId);
+  const logs=[...(Array.isArray(ticket?.logs)?ticket.logs:[]),...(Array.isArray(ticket?.log)?ticket.log:[])];
+  return logs.some(l=>{
+    if(String(l?.slotId||'')===sid) return true;
+    return Array.isArray(l?.slotIds) && l.slotIds.map(String).includes(sid);
+  });
+}
+
+function repairExistingBookingCascade(state, slot, booking){
+  const studentId=String(booking?.studentId||'');
+  const stuIdx=state.students.findIndex(s=>String(s.id)===studentId);
+  const dirty={slots:false,students:false,classes:false,logs:false,tickets:false};
+  const summary={scheduled:0,deducted:0,classes:0};
+  if(!slot || !booking || stuIdx<0) return {ok:false,reason:'missing-slot-booking-or-student',dirty,summary};
+
+  const stu={...state.students[stuIdx]};
+  const scheduled=Array.isArray(stu.scheduledBookings)?stu.scheduledBookings:[];
+  if(!scheduled.some(x=>String(x.slotId)===String(slot.id))){
+    scheduled.push({
+      slotId:slot.id,
+      date:slot.date||booking.date||'',
+      time:slot.time||booking.time||'',
+      typeId:slot.typeId||booking.typeId||null,
+      typeName:slot.typeName||slot.name||booking.typeName||'',
+      status:'booked',
+      ts:booking.ts||Date.now()
+    });
+    stu.scheduledBookings=scheduled;
+    state.students[stuIdx]=stu;
+    dirty.students=true;
+    summary.scheduled++;
+  }
+
+  const alreadyLogged=state.tickets.some(t=>String(t.studentId)===studentId && ticketHasSlotLog(t, slot.id));
+  if(!alreadyLogged){
+    const ticket=findBookingTicket(state.tickets, studentId, slot, slot.id);
+    if(ticket){
+      ticket.left=Number(ticket.left||0)-1;
+      ticket.used=Number(ticket.used||0)+1;
+      const repairLog={action:'repair_booking_deduct',date:todayStr(),slotIds:[slot.id],note:'修復既有預約扣堂',ts:Date.now()};
+      ticket.log=Array.isArray(ticket.log)?ticket.log:[];
+      ticket.logs=Array.isArray(ticket.logs)?ticket.logs:[];
+      ticket.log.push(repairLog);
+      ticket.logs.push(repairLog);
+      dirty.tickets=true;
+      summary.deducted++;
+    }
+  }
+
+  const beforeClassState=JSON.stringify(state.classes.filter(c=>String(c.slotId)===String(slot.id)));
+  if(upsertAttendanceClassForSlotInState(state, slot)){
+    const afterClassState=JSON.stringify(state.classes.filter(c=>String(c.slotId)===String(slot.id)));
+    if(beforeClassState!==afterClassState){
+    dirty.classes=true;
+    summary.classes++;
+    }
+  }
+  return {ok:true,dirty,summary};
+}
+
 function cancelBookingCascade(state, studentId, slotId, options={}){
   const sid=String(studentId||'');
   const slot=state.slots.find(s=>String(s.id)===String(slotId));
@@ -6287,64 +6348,26 @@ window.reconcilePaidPaymentsToTickets = async function(){
     repairBookingsToStudentRecords()
 */
 window.repairBookingsToStudentRecords = async function(){
-  function arr(key){ try{return JSON.parse(localStorage.getItem('pilates_'+key)||'[]');}catch{return [];} }
-  function save(key,val){ localStorage.setItem('pilates_'+key,JSON.stringify(val)); return window._fb?.set ? window._fb.set(key,val) : Promise.resolve(); }
+  const state=createBookingCascadeState();
+  const dirty={slots:false,students:false,classes:false,logs:false,tickets:false};
+  let repairedBookings=0, addedBookings=0, deducted=0, classSynced=0, skipped=0;
 
-  let students=arr('students');
-  let tickets=arr('tickets');
-  const slots=arr('slots');
-  const today=todayStr();
-  let addedBookings=0, deducted=0;
-
-  for(const slot of slots){
+  for(const slot of state.slots){
     const bookings=Array.isArray(slot.bookings)?slot.bookings:[];
     for(const b of bookings){
-      const sid=String(b.studentId||'');
-      if(!sid) continue;
-      const stuIdx=students.findIndex(s=>String(s.id)===sid);
-      if(stuIdx<0) continue;
-
-      const stu={...students[stuIdx]};
-      const scheduled=Array.isArray(stu.scheduledBookings)?stu.scheduledBookings:[];
-      if(!scheduled.some(x=>String(x.slotId)===String(slot.id))){
-        scheduled.push({
-          slotId:slot.id,
-          date:slot.date||b.date||'',
-          time:slot.time||b.time||'',
-          typeId:slot.typeId||b.typeId||null,
-          typeName:slot.typeName||slot.name||b.typeName||'',
-          status:'booked',
-          ts:b.ts||Date.now()
-        });
-        addedBookings++;
-      }
-      stu.scheduledBookings=scheduled;
-      students[stuIdx]=stu;
-
-      const alreadyLog=tickets.some(t=>String(t.studentId)===sid && Array.isArray(t.logs) && t.logs.some(l=>Array.isArray(l.slotIds)&&l.slotIds.map(String).includes(String(slot.id))));
-      if(alreadyLog) continue;
-
-      const t=tickets.find(t=>{
-        if(String(t.studentId)!==sid) return false;
-        if(Number(t.left||0)<=0) return false;
-        if(t.expireDate && String(t.expireDate)<today) return false;
-        if(slot.typeId && t.typeId && String(t.typeId)!==String(slot.typeId)) return false;
-        return true;
-      });
-      if(t){
-        t.left=Number(t.left||0)-1;
-        t.used=Number(t.used||0)+1;
-        t.logs=Array.isArray(t.logs)?t.logs:[];
-        t.logs.push({action:'repair_booking_deduct',date:today,slotIds:[slot.id],note:'修復預約扣堂',ts:Date.now()});
-        deducted++;
-      }
+      const result=repairExistingBookingCascade(state, slot, b);
+      if(!result.ok){ skipped++; continue; }
+      mergeCascadeDirty(dirty,result.dirty);
+      if(result.summary.scheduled || result.summary.deducted || result.summary.classes) repairedBookings++;
+      addedBookings+=result.summary.scheduled;
+      deducted+=result.summary.deducted;
+      classSynced+=result.summary.classes;
     }
   }
 
-  await save('students',students);
-  await save('tickets',tickets);
-  if(typeof window.lowCostSyncPublicMirror==='function') await window.lowCostSyncPublicMirror('repair-bookings');
-  alert('修復完成：預約寫入學生資料 '+addedBookings+' 筆，補扣票券 '+deducted+' 堂。請重新整理管理員頁。');
+  persistBookingCascadeState(state, dirty, 'repair-bookings');
+  if(typeof window.lowCostSyncPublicMirror==='function') await window.lowCostSyncPublicMirror('repair-bookings',{force:true});
+  alert('修復完成：處理既有預約 '+repairedBookings+' 筆，補寫學員預約 '+addedBookings+' 筆，補扣票券 '+deducted+' 堂，同步出缺勤 '+classSynced+' 筆，略過 '+skipped+' 筆。請重新整理管理員頁。');
 };
 </script>
 
