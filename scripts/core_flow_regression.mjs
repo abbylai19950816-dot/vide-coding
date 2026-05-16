@@ -199,6 +199,50 @@ test('repair existing booking restores scheduled record ticket deduction and cla
   assert.deepEqual(secondSummary, { scheduled: 0, deducted: 0, classes: 0 });
 });
 
+test('repair existing booking only restores missing scheduled record', () => {
+  const state = makeState();
+  addAdminPlan(state, 's1', 'private', 1);
+  addBooking(state, 's1', 'slot-a');
+  state.students[0].scheduledBookings = [];
+  const summary = repairExistingBooking(state, 'slot-a', 's1');
+  assert.deepEqual(summary, { scheduled: 1, deducted: 0, classes: 0 });
+  assert.equal(state.tickets[0].left, 0);
+  assert.equal(state.tickets[0].used, 1);
+});
+
+test('repair existing booking only restores missing class record', () => {
+  const state = makeState();
+  addAdminPlan(state, 's1', 'private', 1);
+  addBooking(state, 's1', 'slot-a');
+  state.classes = [];
+  const summary = repairExistingBooking(state, 'slot-a', 's1');
+  assert.deepEqual(summary, { scheduled: 0, deducted: 0, classes: 1 });
+  assert.equal(state.tickets[0].left, 0);
+  assert.equal(state.tickets[0].used, 1);
+});
+
+test('repair existing booking deducts ticket when slot booking exists without ticket log', () => {
+  const state = makeState();
+  addAdminPlan(state, 's1', 'private', 1);
+  const slot = state.slots.find((item) => item.id === 'slot-a');
+  slot.bookings.push({ studentId: 's1', name: 'Student One', slotId: 'slot-a', typeId: 'private', date: slot.date, time: slot.time });
+  state.students[0].scheduledBookings.push({ slotId: 'slot-a', date: slot.date, time: slot.time, typeId: 'private', status: 'booked' });
+  state.classes.push({ id: 'class-slot-a', slotId: 'slot-a', date: slot.date, time: slot.time, members: [{ studentId: 's1', studentName: 'Student One', status: 'pending' }] });
+  const summary = repairExistingBooking(state, 'slot-a', 's1');
+  assert.deepEqual(summary, { scheduled: 0, deducted: 1, classes: 0 });
+  assert.equal(state.tickets[0].left, 0);
+  assert.equal(state.tickets[0].used, 1);
+});
+
+test('repair existing booking does not hard deduct when no usable ticket exists', () => {
+  const state = makeState();
+  const slot = state.slots.find((item) => item.id === 'slot-a');
+  slot.bookings.push({ studentId: 's1', name: 'Student One', slotId: 'slot-a', typeId: 'private', date: slot.date, time: slot.time });
+  const summary = repairExistingBooking(state, 'slot-a', 's1');
+  assert.deepEqual(summary, { scheduled: 1, deducted: 0, classes: 1 });
+  assert.equal(state.tickets.length, 0);
+});
+
 test('delete student removes all related private records', () => {
   const state = makeState();
   addAdminPlan(state, 's1', 'private', 1);

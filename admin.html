@@ -2143,11 +2143,12 @@ function persistBookingCascadeState(state, dirty, reason){
 }
 
 function upsertAttendanceClassForSlotInState(state, slot){
-  if(!slot || !(slot.bookings||[]).length) return false;
+  if(!slot || !(slot.bookings||[]).length) return {changed:false,reason:'empty-slot'};
   const cfg=bkLoadCfg();
   const type=cfg.classTypes?.find(t=>String(t.id)===String(slot.typeId));
   const className=slotDisplayName(slot) || (type?(type.icon||'')+' '+type.name:'課程');
   const existingIdx=state.classes.findIndex(c=>String(c.slotId)===String(slot.id));
+  const before=existingIdx>=0?JSON.stringify(state.classes[existingIdx]):'';
   const existingMembers=existingIdx>=0?(state.classes[existingIdx].members||[]):[];
   const members=(slot.bookings||[]).map(b=>{
     const stu=resolveBookingStudent(b,state.students);
@@ -2165,7 +2166,8 @@ function upsertAttendanceClassForSlotInState(state, slot){
   }else{
     state.classes.push({id:'slot-'+slot.id,slotId:slot.id,date:slot.date,name:className,time:slot.time,location:slot.location||'',saved:true,members});
   }
-  return true;
+  const after=existingIdx>=0?JSON.stringify(state.classes[existingIdx]):JSON.stringify(state.classes[state.classes.length-1]);
+  return {changed:existingIdx<0||before!==after,reason:existingIdx<0?'created':'updated'};
 }
 
 function addBookingCascade(state, request, slotId){
@@ -2252,13 +2254,10 @@ function repairExistingBookingCascade(state, slot, booking){
     }
   }
 
-  const beforeClassState=JSON.stringify(state.classes.filter(c=>String(c.slotId)===String(slot.id)));
-  if(upsertAttendanceClassForSlotInState(state, slot)){
-    const afterClassState=JSON.stringify(state.classes.filter(c=>String(c.slotId)===String(slot.id)));
-    if(beforeClassState!==afterClassState){
+  const classResult=upsertAttendanceClassForSlotInState(state, slot);
+  if(classResult.changed){
     dirty.classes=true;
     summary.classes++;
-    }
   }
   return {ok:true,dirty,summary};
 }
