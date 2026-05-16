@@ -2086,6 +2086,37 @@ function appendBookingMoveTicketLog(tickets, studentId, fromSlot, toSlot){
   return true;
 }
 
+function removeStudentFromCourseLogs(logs, student, slotId){
+  const sid=String(student?.id||'');
+  const name=String(student?.name||'').trim();
+  let changed=false;
+  for(let i=logs.length-1;i>=0;i--){
+    const log=logs[i];
+    if(String(log?.slotId||'')!==String(slotId)) continue;
+    const ids=Array.isArray(log.studentIds)?log.studentIds.map(v=>String(v)):[];
+    const names=Array.isArray(log.studentNames)?log.studentNames.map(v=>String(v).trim()):[];
+    const keepIdx=[];
+    let removed=false;
+    const maxLen=Math.max(ids.length,names.length);
+    for(let j=0;j<maxLen;j++){
+      const match=(sid && ids[j]===sid) || (name && names[j]===name);
+      if(match) removed=true;
+      else keepIdx.push(j);
+    }
+    if(!removed) continue;
+    if(keepIdx.length===0){
+      logs.splice(i,1);
+    }else{
+      log.studentIds=keepIdx.map(j=>log.studentIds?.[j]).filter(v=>v!=null);
+      log.studentNames=keepIdx.map(j=>log.studentNames?.[j]).filter(v=>v!=null);
+      log.attendance=Math.max(0,Number(log.attendance||0)-1);
+      log.updatedAt=new Date().toISOString();
+    }
+    changed=true;
+  }
+  return changed;
+}
+
 function confirmMoveBooking(studentId, fromSlotId, toSlotId){
   const sid=String(studentId);
   const slots=loadSlots();
@@ -3375,18 +3406,24 @@ cancelStudentBooking = function(studentId, slotId, evt){
       return !(stu && String(b.name||'').trim()===String(stu.name||'').trim());
     });
     saveSlots(slots);
-    const classes=loadClasses();
-    const ci=classes.findIndex(c=>String(c.slotId)===String(slotId));
-    if(ci>=0){
-      classes[ci].members=(classes[ci].members||[]).filter(m=>String(m.studentId)!==String(studentId));
-      if(classes[ci].members.length===0) classes.splice(ci,1);
-      saveClasses(classes);
-    }
+  }
+  const classes=loadClasses();
+  const ci=classes.findIndex(c=>String(c.slotId)===String(slotId));
+  if(ci>=0){
+    classes[ci].members=(classes[ci].members||[]).filter(m=>{
+      if(String(m.studentId||'')===String(studentId)) return false;
+      return !(stu && String(m.studentName||m.name||'').trim()===String(stu.name||'').trim());
+    });
+    if(classes[ci].members.length===0) classes.splice(ci,1);
+    saveClasses(classes);
   }
   if(stu){
     stu.scheduledBookings=(stu.scheduledBookings||[]).filter(b=>String(b.slotId)!==String(slotId));
     saveStudents(students);
   }
+  const logs=loadLogs();
+  const logsChanged=stu ? removeStudentFromCourseLogs(logs, stu, slotId) : false;
+  if(logsChanged) saveLogs(logs);
   const tickets=loadTickets();
   const refundIdx=findRefundTicketIndex(tickets, stu, {studentId}, slot, slotId);
   if(refundIdx>=0){
@@ -3399,8 +3436,13 @@ cancelStudentBooking = function(studentId, slotId, evt){
     tickets[refundIdx].logs.push(refundLog);
     saveTickets(tickets);
   }
+  if(typeof window.lowCostSyncPublicMirror==='function') {
+    window.lowCostSyncPublicMirror('booking-cancel',{force:true}).catch(err=>console.warn('booking cancel mirror sync failed',err));
+  }
   openStudentDetail(studentId);
   schRenderCalendar();
+  if(typeof renderAttendance==='function') renderAttendance();
+  if(typeof renderLogs==='function') renderLogs();
   updateBadges();
   toast(refundIdx>=0?'已取消預約並補回 1 堂':'已取消預約；找不到可回補票券，請手動確認');
 };
@@ -5887,6 +5929,7 @@ function cleanOrphanCourseLogMembers(){
       const usedOncePlanIds=[];
       const usedOncePlanKeys=[];
       const noRecurringTypeIds=[];
+      const releasedSlotIds=[];
 
       tickets.forEach(t=>{
         if(String(t.studentId)!==String(s.id)) return;
@@ -5905,6 +5948,14 @@ function cleanOrphanCourseLogMembers(){
         if(noRecurring && Number(t.left||0)>0 && (!t.expireDate||t.expireDate>=today) && typeId && !noRecurringTypeIds.includes(typeId)){
           noRecurringTypeIds.push(typeId);
         }
+        [...(Array.isArray(t.log)?t.log:[]), ...(Array.isArray(t.logs)?t.logs:[])].forEach(item=>{
+          const action=String(item?.action||'').toLowerCase();
+          if(action!=='refund' && action!=='cancel_refund') return;
+          (Array.isArray(item.slotIds)?item.slotIds:[]).forEach(slotId=>{
+            const key=String(slotId||'');
+            if(key && !releasedSlotIds.includes(key)) releasedSlotIds.push(key);
+          });
+        });
       });
 
       tickets.forEach(t=>{
@@ -5940,6 +5991,7 @@ function cleanOrphanCourseLogMembers(){
           usedOncePlanIds,
           usedOncePlanKeys,
           noRecurringTypeIds,
+          releasedSlotIds:releasedSlotIds.slice(-30),
           unresolvedTickets,
           strictTypeMode:true,
           typeMappingMode:'normalized-type-v9',

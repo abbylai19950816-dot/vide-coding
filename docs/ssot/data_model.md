@@ -29,6 +29,7 @@ Expected data:
 - `usedOncePlanIds`
 - `usedOncePlanKeys`
 - `noRecurringTypeIds`
+- `releasedSlotIds`
 - `unresolvedTickets`
 - `updatedAt`
 
@@ -37,6 +38,7 @@ Rules:
 - Student page may get one document.
 - Student page must not list this collection.
 - Admin sync owns writes.
+- `releasedSlotIds` is a small recent list of slot ids that were refunded/cancelled from ticket logs. It lets the student page clear same-device pending booking UI after an admin cancellation without adding reads.
 - 若管理員端看得到票券，但學生端用姓名＋手機查不到方案，優先檢查 `student_lookup/{hash}` 是否存在。設定頁的「強制重建學員查詢」可略過本機 hash cache，重新寫入 `public_booking/state`、`student_lookup` 與 `phone_lookup`。
 
 ### `phone_lookup/{hash}`
@@ -333,6 +335,7 @@ Expected behavior:
 - `getRemainingTickets()` subtracts same-device pending slot count from `student_lookup.remainingByType`.
 - Selected slots already pending on the same device should render as unavailable and should not be selectable again.
 - When a later lookup shows cloud remaining count is already at or below `remainingAfterSubmit`, the local pending entry is considered imported/reconciled and may be removed.
+- When a later lookup includes the pending `slotIds` in `releasedSlotIds`, the local pending entry is considered cancelled/refunded and may be removed.
 
 Rules:
 

@@ -1679,13 +1679,16 @@ function pendingMatchesCurrentBooking(item,typeKey){
 function reconcileLocalPendingBookings(lookup){
   if(!lookup) return;
   const byType=lookup.remainingByType||{};
+  const releasedSlotIds=new Set((lookup.releasedSlotIds||[]).map(id=>String(id)));
   let changed=false;
   const next=readLocalPendingBookings().filter(item=>{
     if(String(item.lookupKey||'')!==String(lookup.key||'')) return true;
     const typeKey=String(item.typeKey||'default');
     const cloudLeft=Number(byType[typeKey]||0);
     const remainingAfter=Number(item.remainingAfterSubmit||0);
-    if(cloudLeft<=remainingAfter){
+    const slotIds=(item.slotIds||[]).map(id=>String(id));
+    const wasReleased=slotIds.length>0 && slotIds.every(id=>releasedSlotIds.has(id));
+    if(cloudLeft<=remainingAfter || wasReleased){
       changed=true;
       return false;
     }
