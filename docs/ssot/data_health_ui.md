@@ -27,11 +27,24 @@
 
 目前允許在報告卡片內直接顯示的修復動作：
 
-- `forceRebuildStudentLookupIndex('data-health')`：重建學員查詢索引。
-- `cleanOrphanCourseLogMembers()`：清除課程日誌內不存在的學員成員。
+- `previewStudentLookupRebuild('data-health')`：先預覽重建學員查詢索引，再由管理員確認執行。
+- `previewCleanOrphanCourseLogMembers()`：先預覽課程日誌內不存在的學員成員，再由管理員確認清除。
 - `renderTicketRecalcReport()`：查看票券重算報告。
+- `previewReconcileHistoricalTicketLogs()`：先預覽歷史票券紀錄校準，再由管理員確認新增校準點。
 
 這些按鈕只應出現在對應問題卡片內，避免管理員不知道下一步要做什麼。
+
+## 正式維運修復規則
+
+正式上線後，資料修復工具仍應保留，但定位是管理員或平台維運工具，不是日常操作功能。
+
+所有會寫入或刪除資料的修復動作都必須符合：
+
+- 先 dry-run / preview，列出會影響的資料量與範例。
+- 說明「會改什麼」與「不會改什麼」。
+- 管理員按下確認後才執行。
+- 執行完成後要重新跑資料一致性檢查或更新報告。
+- 高風險修復不可放在學生端，也不可在一般 render 流程自動執行。
 
 ## 成本與安全
 

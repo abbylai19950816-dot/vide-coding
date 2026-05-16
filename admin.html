@@ -986,7 +986,7 @@ onAuthStateChanged(auth, (user) => {
           <button class="health-btn primary" type="button" onclick="runDataHealthCheck()">開始檢查</button>
           <button class="health-btn muted" type="button" onclick="renderTicketRecalcReport()">票券重算報告</button>
           <button class="health-btn muted" type="button" onclick="clearDataHealthReport()">清除結果</button>
-          <button class="health-btn warn" type="button" onclick="forceRebuildStudentLookupIndex()">強制重建學員查詢</button>
+          <button class="health-btn warn" type="button" onclick="previewStudentLookupRebuild()">預覽重建學員查詢</button>
         </div>
         <div id="data-health-result"></div>
       </div>
@@ -5757,10 +5757,10 @@ function dataHealthGuidance(issue){
 }
 function dataHealthIssueActionHtml(issue){
   if(issue.repairAction==='forceRebuildLookup'){
-    return '<div class="health-issue-action"><button class="health-btn muted" type="button" onclick="forceRebuildStudentLookupIndex(\'data-health\')">重建學員查詢</button></div>';
+    return '<div class="health-issue-action"><button class="health-btn muted" type="button" onclick="previewStudentLookupRebuild(\'data-health\')">預覽重建學員查詢</button></div>';
   }
   if(issue.repairAction==='cleanOrphanLogMembers'){
-    return '<div class="health-issue-action"><button class="health-btn muted" type="button" onclick="cleanOrphanCourseLogMembers()">清除孤兒日誌成員</button></div>';
+    return '<div class="health-issue-action"><button class="health-btn muted" type="button" onclick="previewCleanOrphanCourseLogMembers()">預覽清除孤兒日誌成員</button></div>';
   }
   if(issue.repairAction==='showTicketRecalcReport'){
     return '<div class="health-issue-action"><button class="health-btn muted" type="button" onclick="renderTicketRecalcReport()">查看票券重算報告</button></div>';
@@ -5865,7 +5865,7 @@ function renderTicketRecalcReport(){
       '<div class="health-metric"><div class="health-metric-num">'+humanReview+'</div><div class="health-metric-label">人工判讀</div></div>'+
     '</div>'+
     '<div class="health-nextbox"><b>票券重算報告預設只顯示需處理項目。</b><br>目前不會自動修改票券。若只有歷史 log 缺 slotId、但現況堂數正確，可用校準工具整理歷史紀錄。'
-      +(historicalOnly.length?'<br><button class="health-btn muted" type="button" style="margin-top:10px;padding:7px 12px" onclick="reconcileHistoricalTicketLogs()">整理歷史票券紀錄（'+historicalOnly.length+'）</button>':'')+
+      +(historicalOnly.length?'<br><button class="health-btn muted" type="button" style="margin-top:10px;padding:7px 12px" onclick="previewReconcileHistoricalTicketLogs()">預覽整理歷史票券紀錄（'+historicalOnly.length+'）</button>':'')+
     '</div>';
 
   const sourceRows=risky.slice(0,80).map(row=>{
@@ -5889,9 +5889,25 @@ function renderTicketRecalcReport(){
   const more=risky.length>80?'<div class="health-desc" style="margin-top:10px">只顯示前 80 張需檢查票券。</div>':'';
   result.innerHTML=summary+(sourceRows||'<div class="health-empty">目前沒有需要處理的票券差異。</div>')+more;
 }
-function reconcileHistoricalTicketLogs(){
+function renderMaintenancePreview(title, body, actionLabel, actionJs, examples=[]){
+  const result=document.getElementById('data-health-result');
+  const badge=document.getElementById('data-health-badge');
+  if(badge){ badge.className='badge warn'; badge.textContent='待確認'; }
+  if(!result) return;
+  const exampleHtml=examples.length
+    ? '<div class="health-issue-guidance"><b>範例：</b><br>'+examples.map(item=>'- '+dataHealthHtml(item)).join('<br>')+'</div>'
+    : '';
+  result.innerHTML=
+    '<div class="health-nextbox"><b>'+dataHealthHtml(title)+'</b><br>'+body+'</div>'+
+    exampleHtml+
+    '<div class="health-issue-action"><button class="health-btn primary" type="button" onclick="'+actionJs+'">'+dataHealthHtml(actionLabel)+'</button><button class="health-btn muted" type="button" onclick="runDataHealthCheck()">重新檢查</button></div>';
+}
+function getHistoricalTicketReconcileTargets(){
   const rows=buildTicketRecalcRows();
-  const targets=rows.filter(r=>r.weakLogCount>0 && !r.issues.length && !r.hasReconcile);
+  return rows.filter(r=>r.weakLogCount>0 && !r.issues.length && !r.hasReconcile);
+}
+function previewReconcileHistoricalTicketLogs(){
+  const targets=getHistoricalTicketReconcileTargets();
   if(!targets.length){
     alert('目前沒有需要整理的歷史票券紀錄。');
     return;
@@ -5899,14 +5915,24 @@ function reconcileHistoricalTicketLogs(){
   const examples=targets.slice(0,4).map(r=>
     (r.student?dataHealthStudentLabel(r.student):'未知學員')+'｜'+(r.ticket.typeName||r.ticket.planName||r.ticket.id||'未命名票券')
   );
-  const ok=confirm(
-    '確定要整理歷史票券紀錄嗎？\n\n'+
-    '將新增校準紀錄：'+targets.length+' 張票券\n\n'+
-    '校準方式：保留舊紀錄，不猜測缺少的 slotId；新增一筆 reconcile_balance，表示截至目前以票券現況 total/used/left 為準。\n\n'+
-    (examples.length?'範例：\n- '+examples.join('\n- ')+'\n\n':'')+
-    '這不會改變剩餘堂數，不會刪除預約、課程紀錄、收費或學員資料。'
+  renderMaintenancePreview(
+    '整理歷史票券紀錄預覽',
+    '將新增校準紀錄：'+targets.length+' 張票券。<br>校準方式：保留舊紀錄，不猜測缺少的 slotId；新增一筆 reconcile_balance，表示截至目前以票券現況 total/used/left 為準。<br><b>不會改變剩餘堂數，不會刪除預約、課程紀錄、收費或學員資料。</b>',
+    '確認整理歷史票券紀錄',
+    'reconcileHistoricalTicketLogs({confirmed:true})',
+    examples
   );
-  if(!ok) return;
+}
+function reconcileHistoricalTicketLogs(options={}){
+  const targets=getHistoricalTicketReconcileTargets();
+  if(!targets.length){
+    alert('目前沒有需要整理的歷史票券紀錄。');
+    return;
+  }
+  if(!options.confirmed){
+    previewReconcileHistoricalTicketLogs();
+    return;
+  }
 
   const targetIds=new Set(targets.map(r=>String(r.ticket.id)));
   const now=new Date().toISOString();
@@ -5941,7 +5967,7 @@ function clearDataHealthReport(){
   if(badge){ badge.className='badge info'; badge.textContent='未檢查'; }
   if(result) result.innerHTML='';
 }
-function cleanOrphanCourseLogMembers(){
+function buildOrphanCourseLogMemberCleanup(){
   const students=loadStudents();
   const validIds=new Set(students.map(s=>String(s.id)));
   const logs=loadLogs();
@@ -5977,25 +6003,39 @@ function cleanOrphanCourseLogMembers(){
     return next;
   });
 
-  if(!removedMembers){
+  return {nextLogs,affectedLogs,removedMembers,examples};
+}
+function previewCleanOrphanCourseLogMembers(){
+  const plan=buildOrphanCourseLogMemberCleanup();
+  if(!plan.removedMembers){
+    alert('目前沒有需要清除的孤兒日誌成員。');
+    return;
+  }
+  renderMaintenancePreview(
+    '清除孤兒日誌成員預覽',
+    '將處理課程日誌：'+plan.affectedLogs+' 筆<br>將移除不存在學員 ID：'+plan.removedMembers+' 筆<br><b>只會移除課程日誌中已不存在的 studentId 與對應姓名，不會刪除任何學員、票券、收費或預約。</b>',
+    '確認清除孤兒日誌成員',
+    'cleanOrphanCourseLogMembers({confirmed:true})',
+    plan.examples
+  );
+}
+function cleanOrphanCourseLogMembers(options={}){
+  const plan=buildOrphanCourseLogMemberCleanup();
+  if(!plan.removedMembers){
     alert('目前沒有需要清除的孤兒日誌成員。');
     return;
   }
 
-  const ok=confirm(
-    '確定要清除孤兒日誌成員嗎？\n\n'+
-    '將處理課程日誌：'+affectedLogs+' 筆\n'+
-    '將移除不存在學員 ID：'+removedMembers+' 筆\n\n'+
-    (examples.length?'範例：\n- '+examples.join('\n- ')+'\n\n':'')+
-    '這只會移除課程日誌中已不存在的 studentId 與對應姓名，不會刪除任何學員、票券、收費或預約。'
-  );
-  if(!ok) return;
+  if(!options.confirmed){
+    previewCleanOrphanCourseLogMembers();
+    return;
+  }
 
-  saveLogs(nextLogs);
+  saveLogs(plan.nextLogs);
   if(typeof renderLogs==='function') renderLogs();
   if(typeof renderStudents==='function') renderStudents();
   if(typeof updateBadges==='function') updateBadges();
-  toast('已清除孤兒日誌成員：'+removedMembers+' 筆');
+  toast('已清除孤兒日誌成員：'+plan.removedMembers+' 筆');
   setTimeout(()=>runDataHealthCheck(),300);
 }
 
@@ -6364,13 +6404,45 @@ function cleanOrphanCourseLogMembers(){
     return {ok:true,writes,force,pruned};
   };
 
-  window.forceRebuildStudentLookupIndex = async function(source='manual'){
-    const ok=confirm(
-      '確定要強制重建學員查詢索引嗎？\n\n'+
-      '這會重新寫入 public_booking/state、student_lookup 與 phone_lookup，讓學員端用姓名＋手機查詢時重新取得最新方案。\n\n'+
-      '這是管理員維運工具，只有資料不同步或測試資料重置後需要使用。'
-    );
-    if(!ok) return;
+  window.previewStudentLookupRebuild = async function(source='manual'){
+    try{
+      if(!window._fb || !window._fb.listCollection) {
+        alert('Firebase 尚未完成初始化，請稍後再試。');
+        return;
+      }
+      const studentPayloads=await window.lowCostBuildLookupPayloads();
+      const phonePayloads=await window.lowCostBuildPhoneLookupPayloads();
+      const keepStudents=new Set(studentPayloads.map(p=>String(p.key)));
+      const keepPhones=new Set(phonePayloads.map(p=>String(p.key)));
+      const studentDocs=await window._fb.listCollection(['student_lookup']);
+      const phoneDocs=await window._fb.listCollection(['phone_lookup']);
+      const staleStudents=studentDocs.filter(item=>!keepStudents.has(String(item.id)));
+      const stalePhones=phoneDocs.filter(item=>!keepPhones.has(String(item.id)));
+      const examples=[
+        '將重寫現有學員索引：'+studentPayloads.length+' 筆',
+        '將重寫手機索引：'+phonePayloads.length+' 筆',
+        '將清除舊 student_lookup：'+staleStudents.length+' 筆',
+        '將清除舊 phone_lookup：'+stalePhones.length+' 筆'
+      ];
+      renderMaintenancePreview(
+        '重建學員查詢索引預覽',
+        '這會重新寫入 `public_booking/state`、`student_lookup` 與 `phone_lookup`，並清除已不存在學員留下的舊 lookup。<br><b>學生端讀取次數不會增加；這是管理員端維運操作。</b>',
+        '確認重建學員查詢',
+        'forceRebuildStudentLookupIndex(\''+String(source).replace(/'/g,'')+'\',{confirmed:true})',
+        examples
+      );
+    }catch(err){
+      console.error('[previewStudentLookupRebuild]',err);
+      alert('預覽失敗：'+(err?.message||err));
+      if(typeof setPublicSyncStatus==='function') setPublicSyncStatus('公開課表：重建失敗','error');
+    }
+  };
+
+  window.forceRebuildStudentLookupIndex = async function(source='manual', options={}){
+    if(!options.confirmed){
+      previewStudentLookupRebuild(source);
+      return;
+    }
     try{
       const result=await window.lowCostSyncPublicMirror('force-rebuild-student-lookup-'+source,{force:true,pruneStale:true});
       const pruned=(result?.pruned?.studentDeleted||0)+(result?.pruned?.phoneDeleted||0);
