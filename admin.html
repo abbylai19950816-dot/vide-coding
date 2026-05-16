@@ -2715,17 +2715,16 @@ function saveTicket(){
   const expDate=new Date(boughtDate+'T00:00:00');
   expDate.setDate(expDate.getDate()+validDays);
   const expireDate=localDateStr(expDate);
-  const tickets=loadTickets();
   const tktId=Date.now();
-  tickets.push({id:tktId,studentId:studentId,studentName:student.name,color:student.color||'c0',typeId:type?.id||null,typeName:type?.name||'',planId:plan?.id||null,planName:plan?.name||'',oncePerStudent:!!plan.oncePerStudent,allowRecurring:plan.allowRecurring!==false,type:sessions,total:sessions,left:sessions,price:price,boughtDate:boughtDate,expireDate:expireDate,log:[{date:boughtDate,action:'buy'}]});
-  saveTickets(tickets);
   const payments=loadPayments();
-  payments.push({id:tktId+1,studentId:studentId,studentName:student.name,phone:student.phone||'',color:student.color||'c0',item:(type?.name||'')+(plan?'・'+plan.name:''),typeId:type?.id||null,typeName:type?.name||'',planId:plan?.id||null,planName:plan?.name||'',oncePerStudent:!!plan.oncePerStudent,allowRecurring:plan.allowRecurring!==false,originalAmount:price,discountAmount:0,discountReason:'',amount:price,date:boughtDate,method:method,status:status,note:''});
+  const payment={id:tktId+1,studentId:studentId,studentName:student.name,phone:student.phone||'',color:student.color||'c0',item:(type?.name||'')+(plan?'・'+plan.name:''),typeId:type?.id||null,typeName:type?.name||'',planId:plan?.id||null,planName:plan?.name||'',sessions:sessions,oncePerStudent:!!plan.oncePerStudent,allowRecurring:plan.allowRecurring!==false,originalAmount:price,discountAmount:0,discountReason:'',amount:price,date:boughtDate,method:method,status:status,note:''};
+  payments.push(payment);
   savePayments(payments);
+  if(status==='paid') createTicketFromPayment(payment);
   renderStudents(); updateBadges();
   closeSubSheet('sheet-tktAdd');
   openStudentDetail(studentId);  // return to student detail
-  toast('已為 '+student.name+' 新增方案，收費紀錄已建立');
+  toast(status==='paid'?'已為 '+student.name+' 新增方案，票券與收費紀錄已建立':'已為 '+student.name+' 建立待收款紀錄，收款後才會產生可預約堂數');
 }
 function openTicketDetail(id){ const t=loadTickets().find(function(t){return t.id===id;}); if(t) openStudentDetail(t.studentId); }
 function deductTicket(id){ quickDeduct(id); }
@@ -3593,6 +3592,27 @@ createTicketFromPayment = function(p){
     (sourceId && String(t.sourcePaymentId||'')===sourceId)
   );
   if(dup) return;
+  const sessions=Number(p.sessions||plan.sessions||plan.count||0);
+  if(!sessions) return;
+  const legacyIdx=tickets.findIndex(t=>
+    !t.paymentId &&
+    !t.sourcePaymentId &&
+    String(t.studentId)===String(studentId) &&
+    String(t.typeId||'')===String(type.id||'') &&
+    String(t.planId||'')===String(plan.id||p.planId||'') &&
+    String(t.boughtDate||'')===String(p.date||todayStr()) &&
+    Number(t.total||t.type||0)===sessions
+  );
+  if(legacyIdx>=0 && sourceId){
+    tickets[legacyIdx]={...tickets[legacyIdx],paymentId:p.id,sourcePaymentId:p.id};
+    tickets[legacyIdx].log=Array.isArray(tickets[legacyIdx].log)?tickets[legacyIdx].log:[];
+    tickets[legacyIdx].logs=Array.isArray(tickets[legacyIdx].logs)?tickets[legacyIdx].logs:[];
+    const linkedLog={date:p.date||todayStr(),action:'link_payment',paymentId:p.id,note:'連結既有手動新增票券，避免重複開票'};
+    tickets[legacyIdx].log.push(linkedLog);
+    tickets[legacyIdx].logs.push(linkedLog);
+    saveTickets(tickets);
+    return;
+  }
   if(plan.oncePerStudent || p.oncePerStudent){
     const used=tickets.some(t=>
       String(t.studentId)===String(studentId) &&
@@ -3606,8 +3626,6 @@ createTicketFromPayment = function(p){
       return;
     }
   }
-  const sessions=Number(p.sessions||plan.sessions||plan.count||0);
-  if(!sessions) return;
   const validDays=plan.validDays||180;
   const boughtDate=p.date||todayStr();
   const expDate=new Date(boughtDate+'T00:00:00');
