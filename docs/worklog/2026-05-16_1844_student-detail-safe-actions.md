@@ -39,7 +39,9 @@
 - 已確認 active 與 root `admin.html` hash 一致。
 - 已用 Node 解析 classic script blocks，4 個 script blocks 語法檢查通過。
 - 已確認 active/root 都包含 `close-label`、`這會直接更新學員可預約的剩餘堂數` 與 `將移除：`。
-- 待完成：commit / push 後檢查線上 `admin.html`。
+- 已 commit / push 到 `main`，commit `b71e778 Improve student detail safe actions`。
+- GitHub Pages build 狀態為 `built`，commit `b71e778084225d921eb9fa876379623301717057`。
+- 已檢查線上 `admin.html?codex_check=1844`，HTTP 200，且包含 `close-label` / `返回`、`這會直接更新學員可預約的剩餘堂數` 與 `將移除：`。
 
 ## 後續風險
 
