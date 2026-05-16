@@ -130,4 +130,6 @@
 node scripts/core_flow_regression.mjs
 ```
 
-這個腳本只使用本機假資料，不連 Firebase，因此不會增加 Firestore 讀取或寫入。它用來快速驗證核心資料流的預期狀態；真正上線前仍要用瀏覽器手動跑一次管理員與學員流程。
+這個腳本只使用本機假資料，不連 Firebase，因此不會增加 Firestore 讀取或寫入。它會呼叫 `scripts/core_flow_engine.mjs` 內的共用純函式，用來快速驗證核心資料流的預期狀態；真正上線前仍要用瀏覽器手動跑一次管理員與學員流程。
+
+目前 `scripts/core_flow_engine.mjs` 是測試用核心流程引擎，下一步才會逐步讓 `admin.html` 的正式 cascade 函式對齊或引用同一組邏輯。正式前端改動仍必須同步跑瀏覽器測試。
