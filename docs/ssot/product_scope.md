@@ -20,6 +20,8 @@ Gyrobooking is a low-cost Pilates booking system for:
 - Keep booking correctness inside Firestore transaction boundaries.
 - Use docs as SSOT when code behavior changes.
 - A phone number can belong to only one registered student. Public duplicate checks use `phone_lookup/{hash}` and must not expose private student data.
+- Student phone validation should be friendly and strict: purchase and booking lookup forms accept exactly 10 digits and require the number to start with `09`; Firebase permission errors must not be shown to students as raw English messages.
+- After a student submits a purchase request, the success/contact-teacher context should remain available while they move to the schedule page. This state may be stored in `sessionStorage` only and must not add Firestore reads or writes.
 - 管理員學員搜尋可用姓名或手機查詢；手機搜尋必須支援含分隔符與純數字輸入，例如 `0928-964-118` 與 `0928964118` 都能找到同一位學員。
 - Course plans may be marked `oncePerStudent` for trial classes; once used, the same student cannot purchase that plan again from the student page.
 - Course plans may set `allowRecurring: false`; student-side loop booking should be hidden and blocked for those active plans.

@@ -139,6 +139,13 @@ footer{text-align:center;padding:14px 20px 30px;font-size:12px;color:var(--ink-l
 .sch-page-header{padding:48px 20px 12px;background:var(--white);border-bottom:1px solid var(--sand-dark);text-align:center}
 .sch-page-title{font-family:"Chiron GoRound TC",sans-serif;font-size:20px;font-weight:500;margin-bottom:4px}
 .sch-page-sub{font-size:13px;color:var(--ink-mid)}
+.sch-post-purchase-card{margin:12px 20px 0;background:var(--sage-light);border:1px solid rgba(107,143,113,.18);border-radius:var(--radius-sm);padding:12px 14px;display:none}
+.sch-post-purchase-title{font-size:13px;font-weight:600;color:var(--sage-deep);margin-bottom:4px}
+.sch-post-purchase-text{font-size:12px;color:var(--ink-mid);line-height:1.6;margin-bottom:10px}
+.sch-post-purchase-actions{display:flex;gap:8px}
+.sch-post-purchase-actions button{flex:1;border:none;border-radius:99px;padding:9px 10px;font-size:12px;font-weight:500;font-family:inherit;cursor:pointer}
+.sch-post-purchase-line{background:var(--sage);color:#fff}
+.sch-post-purchase-back{background:var(--white);color:var(--sage-deep)}
 .sch-filter{display:flex;gap:6px;flex-wrap:wrap;padding:12px 20px 8px}
 .sch-filter-btn{background:var(--sand);border:1.5px solid var(--sand-dark);border-radius:99px;padding:6px 14px;font-size:12px;font-family:inherit;cursor:pointer;color:var(--ink-mid);transition:all .15s}
 .sch-filter-btn.active{background:var(--sage);border-color:var(--sage);color:#fff}
@@ -667,6 +674,14 @@ window.showVerifyError = window.__lowCostDisplayMessage;
     <div class="sch-page-title">預約課程時間</div>
     <div class="sch-page-sub" id="sch-page-sub">繳費後選擇你方便的時段</div>
   </div>
+  <div class="sch-post-purchase-card" id="schPostPurchaseCard">
+    <div class="sch-post-purchase-title">購課申請已送出</div>
+    <div class="sch-post-purchase-text" id="schPostPurchaseText">請記得私訊老師確認付款與預約。</div>
+    <div class="sch-post-purchase-actions">
+      <button type="button" class="sch-post-purchase-line" onclick="openLineFromSchedule()">傳送訊息給老師</button>
+      <button type="button" class="sch-post-purchase-back" onclick="reopenPurchaseSuccess()">返回完成畫面</button>
+    </div>
+  </div>
   <!-- Name verification bar -->
   <div id="sch-verify-bar" style="background:var(--sage-light);padding:12px 20px;border-bottom:1px solid var(--sage-mid)">
     <div style="font-size:12px;color:var(--sage-deep);margin-bottom:6px;font-weight:500">請輸入姓名以確認繳費資格</div>
@@ -800,7 +815,10 @@ function switchTab(tab){
   document.querySelectorAll(".tab-btn").forEach(b=>b.classList.remove("active"));
   document.getElementById("page-"+tab).classList.add("active");
   document.getElementById("tab-"+tab).classList.add("active");
-  if(tab==="schedule")renderSchedule();
+  if(tab==="schedule"){
+    renderPostPurchaseCard();
+    renderSchedule();
+  }
 }
 
 function renderPurchase(){
@@ -911,6 +929,95 @@ function formatPhone(raw){
   return raw; // return as-is if doesn't match
 }
 
+function validateMobileNumber(raw){
+  const digits=String(raw||"").replace(/\D/g,"");
+  if(!digits) return {ok:false,digits,msg:"請填寫手機號碼"};
+  if(digits.length!==10) return {ok:false,digits,msg:"手機號碼請填寫 10 碼，例如 0912345678"};
+  if(!digits.startsWith("09")) return {ok:false,digits,msg:"手機號碼需以 09 開頭，例如 0912345678"};
+  return {ok:true,digits};
+}
+
+function friendlyErrorMessage(error, fallback){
+  const msg=String(error?.message||error||"");
+  if(/permission|insufficient|Missing or insufficient/i.test(msg)){
+    return "資料驗證失敗，請確認姓名與手機號碼是否正確，或聯絡老師協助。";
+  }
+  return msg||fallback;
+}
+
+function escapeHtml(value){
+  return String(value||'').replace(/[&<>"']/g,function(ch){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch];
+  });
+}
+
+const POST_PURCHASE_KEY='gyrobooking_post_purchase';
+
+function compactPurchaseData(data){
+  if(!data) return null;
+  return {
+    name:data.name||'',
+    phone:data.phone||'',
+    social:data.social||'',
+    note:data.note||'',
+    requestId:data.requestId||'',
+    type:data.type?{id:data.type.id,name:data.type.name,icon:data.type.icon||''}:null,
+    plan:data.plan?{id:data.plan.id,name:data.plan.name,price:Number(data.plan.price||0)}:null,
+    savedAt:Date.now()
+  };
+}
+
+function savePostPurchaseState(data){
+  try{
+    const compact=compactPurchaseData(data);
+    if(compact) sessionStorage.setItem(POST_PURCHASE_KEY,JSON.stringify(compact));
+  }catch(e){}
+}
+
+function loadPostPurchaseState(){
+  try{return JSON.parse(sessionStorage.getItem(POST_PURCHASE_KEY)||'null');}
+  catch(e){return null;}
+}
+
+function restoreBookingDataFromSession(){
+  if(bookingData) return bookingData;
+  const data=loadPostPurchaseState();
+  if(data) bookingData=data;
+  return bookingData;
+}
+
+function renderPostPurchaseCard(){
+  const card=document.getElementById('schPostPurchaseCard');
+  if(!card) return;
+  const data=loadPostPurchaseState();
+  if(!data){card.style.display='none';return;}
+  const text=document.getElementById('schPostPurchaseText');
+  const planName=data.plan?.name||'課程方案';
+  if(text) text.textContent='你已送出 '+planName+' 申請。請記得私訊老師確認付款與預約。';
+  const lineBtn=card.querySelector('.sch-post-purchase-line');
+  if(lineBtn) lineBtn.style.display=cfg.lineId?'':'none';
+  card.style.display='block';
+}
+
+function reopenPurchaseSuccess(){
+  const data=restoreBookingDataFromSession();
+  if(!data) return;
+  fillSuccessDetail(data);
+  document.getElementById("lineBtn").style.display=cfg.lineId?"flex":"none";
+  document.getElementById("successOverlay").classList.add("show");
+}
+
+function openLineFromSchedule(){
+  restoreBookingDataFromSession();
+  openLine();
+}
+
+function fillSuccessDetail(data){
+  const type=data.type||{};
+  const plan=data.plan||{};
+  document.getElementById("successDetail").innerHTML=`<div class="sc-row"><span class="sc-label">姓名</span><span class="sc-val">${escapeHtml(data.name)}</span></div><div class="sc-row"><span class="sc-label">類型</span><span class="sc-val">${escapeHtml(type.icon||"")} ${escapeHtml(type.name||"")}</span></div><div class="sc-row"><span class="sc-label">方案</span><span class="sc-val">${escapeHtml(plan.name||"")}</span></div><div class="sc-row"><span class="sc-label">金額</span><span class="sc-val">NT$ ${Number(plan.price||0).toLocaleString()}</span></div>${data.phone?`<div class="sc-row"><span class="sc-label">電話</span><span class="sc-val">${escapeHtml(data.phone)}</span></div>`:""}`;
+}
+
 function submitPurchase(){
   const name=(document.getElementById("f-name")?.value||document.getElementById("fname")?.value||"").trim();
   const phoneRaw=(document.getElementById("f-phone")?.value||document.getElementById("fphone")?.value||"").trim();
@@ -919,9 +1026,10 @@ function submitPurchase(){
 
   if(!name){alert("請填寫姓名");document.getElementById("fname")?.focus();return;}
   if(!phoneRaw){alert("請填寫手機號碼");document.getElementById("fphone")?.focus();return;}
-  const phoneDigits=phoneRaw.replace(/\D/g,"");
-  if(phoneDigits.length < 10){alert("手機號碼請填寫完整 10 碼");document.getElementById("fphone")?.focus();return;}
-  if(!phoneDigits.startsWith("09")){alert("手機號碼需以 09 開頭（例如 0912345678）");document.getElementById("fphone")?.focus();return;}
+  const phoneCheck=validateMobileNumber(phoneRaw);
+  const phoneInput=document.getElementById("f-phone")||document.getElementById("fphone");
+  if(!phoneCheck.ok){alert(phoneCheck.msg);phoneInput?.focus();return;}
+  const phoneDigits=phoneCheck.digits;
 
   const _fields = loadCfg().formFields || [];
   const _socialField = _fields.find(f=>f.id==='social');
@@ -996,14 +1104,15 @@ function submitPurchase(){
     .then(()=>window._fb.createPurchaseRequest(payload))
     .then((res)=>{
       bookingData={name,phone,social,note,type,plan,requestId:res?.id||''};
-      document.getElementById("successDetail").innerHTML=`<div class="sc-row"><span class="sc-label">姓名</span><span class="sc-val">${name}</span></div><div class="sc-row"><span class="sc-label">類型</span><span class="sc-val">${type.icon||""} ${type.name}</span></div><div class="sc-row"><span class="sc-label">方案</span><span class="sc-val">${plan.name}</span></div><div class="sc-row"><span class="sc-label">金額</span><span class="sc-val">NT$ ${plan.price.toLocaleString()}</span></div>${phone?`<div class="sc-row"><span class="sc-label">電話</span><span class="sc-val">${phone}</span></div>`:""}`;
+      savePostPurchaseState(bookingData);
+      fillSuccessDetail(bookingData);
       document.getElementById("lineBtn").style.display=cfg.lineId?"flex":"none";
       document.getElementById("successOverlay").classList.add("show");
       window.scrollTo({top:0,behavior:"smooth"});
     })
     .catch((e)=>{
       console.error('[PURCHASE_REQUEST] failed',e);
-      alert(e.message||'送出失敗，請稍後再試或直接聯絡老師');
+      alert(friendlyErrorMessage(e,'送出失敗，請稍後再試或直接聯絡老師'));
     })
     .finally(()=>{
       if(submitBtn){submitBtn.disabled=false;submitBtn.textContent=oldText||'送出報名';submitBtn.style.opacity='1';}
@@ -1011,9 +1120,10 @@ function submitPurchase(){
 }
 
 function openLine(){
+  restoreBookingDataFromSession();
   if(!bookingData)return;
   const {name,phone,note,type,plan}=bookingData;
-  const msg=`【嬋柔課程預約申請】\n姓名：${name}\n類型：${type.icon||""} ${type.name}\n方案：${plan.name}（NT$${plan.price.toLocaleString()}）${phone?"\n電話："+phone:""}${note?"\n備註："+note:""}\n\n請老師確認，謝謝！`;
+  const msg=`【嬋柔課程預約申請】\n姓名：${name}\n類型：${type?.icon||""} ${type?.name||""}\n方案：${plan?.name||""}（NT$${Number(plan?.price||0).toLocaleString()}）${phone?"\n電話："+phone:""}${note?"\n備註："+note:""}\n\n請老師確認，謝謝！`;
   const lid=cfg.lineId;
   if(lid.startsWith("@"))window.open(`https://line.me/R/ti/p/%40${lid.slice(1)}?text=${encodeURIComponent(msg)}`,"_blank");
   else window.open(`https://line.me/ti/p/~${lid}?text=${encodeURIComponent(msg)}`,"_blank");
@@ -1028,10 +1138,12 @@ function goToSchedule(){
   const phone = bookingData?.phone;
   switchTab("schedule");
   if(name) autoVerifyAfterPurchase(name, typeId, studentId, phone);
+  renderPostPurchaseCard();
 }
 
 function resetPurchase(){
   selTypeId=null;selPlanId=null;bookingData=null;
+  try{sessionStorage.removeItem(POST_PURCHASE_KEY);}catch(e){}
   document.getElementById("successOverlay").classList.remove("show");
   document.getElementById("fname").value="";
   document.getElementById("fphone").value="";
@@ -1052,8 +1164,10 @@ let verifiedStudentId = null; // unique student ID to avoid same-name confusion 
 function verifyAndLoadSchedule(){
   const name = (document.getElementById("sch-name-input")?.value||"").trim();
   const phoneRaw = (document.getElementById("sch-phone-input")?.value||"").trim();
-  const phoneDigits = phoneRaw.replace(/\D/g,"");
   if(!name){ showSchMsg("請填寫姓名"); return; }
+  const phoneCheck=validateMobileNumber(phoneRaw);
+  if(!phoneCheck.ok){ showSchMsg(phoneCheck.msg); document.getElementById("sch-phone-input")?.focus(); return; }
+  const phoneDigits = phoneCheck.digits;
 
   const payments = loadPayments();
   const students = loadStudents();
@@ -1588,6 +1702,8 @@ async function verifyAndLoadSchedule(){
   const btn=document.querySelector('#sch-verify-bar button');
   const oldText=btn?btn.textContent:'';
   if(!name || !phone){ lowCostShowMsg('請輸入姓名與手機號碼'); return; }
+  const phoneCheck=validateMobileNumber(phone);
+  if(!phoneCheck.ok){ lowCostShowMsg(phoneCheck.msg); document.getElementById("sch-phone-input")?.focus(); return; }
   if(!window._fb || !window._fb.getStudentLookup){ lowCostShowMsg('系統尚未載入完成，請稍後再試'); return; }
 
   try{
@@ -1635,7 +1751,7 @@ async function verifyAndLoadSchedule(){
     if(typeof renderSchedule==='function') renderSchedule();
   }catch(e){
     console.warn('low-cost verify failed',e);
-    lowCostShowMsg(e.message||'查詢失敗，請稍後再試');
+    lowCostShowMsg(friendlyErrorMessage(e,'查詢失敗，請稍後再試'));
   }finally{
     if(btn){ btn.disabled=false; btn.textContent=oldText||'確認'; btn.style.opacity='1'; }
   }
@@ -1677,7 +1793,7 @@ async function batchSubmitBooking(){
     if(typeof renderSlotList==='function') renderSlotList();
   }catch(e){
     console.warn('booking request failed',e);
-    alert(e.message||'預約失敗，請重新整理後再試');
+    alert(friendlyErrorMessage(e,'預約失敗，請重新整理後再試'));
   }
 }
 
@@ -1729,7 +1845,7 @@ batchSubmitBooking = async function(){
     if(typeof renderSlotList==='function') renderSlotList();
   }catch(e){
     console.warn('booking request failed',e);
-    alert(e.message||'預約申請送出失敗，請稍後再試或聯絡老師');
+    alert(friendlyErrorMessage(e,'預約申請送出失敗，請稍後再試或聯絡老師'));
   }
 };
 window.verifyAndLoadSchedule = verifyAndLoadSchedule;
