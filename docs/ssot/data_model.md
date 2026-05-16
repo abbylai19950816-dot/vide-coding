@@ -177,7 +177,27 @@ Rules:
 - `warn` issues may be historical/test-data inconsistencies, but still need review before production use.
 - Repair tools must remain separate from health check results. The admin should review severe issues before any automatic repair is introduced.
 - Lookup-related issues may show a scoped repair entry, such as `重建學員查詢`, which calls the same force rebuild workflow documented below.
+- Course-log orphan member issues may show a scoped repair entry, `清除孤兒日誌成員`, which removes only missing `studentIds` and their same-index `studentNames` from `/data/course_logs`.
 - Future repair actions must write their own worklog and clearly state which source of truth is used to rebuild derived data.
+
+#### Course log orphan member cleanup
+
+`清除孤兒日誌成員` is a maintenance repair for test-data cleanup or deleted-student residue.
+
+Behavior:
+
+- Source of truth: `/data/students` current student ids.
+- Target: `/data/course_logs`.
+- Remove each `studentIds[]` entry that does not exist in `/data/students`.
+- Remove the same index from `studentNames[]` so ids and names do not become misaligned.
+- Decrease `attendance` by the number of removed members when `attendance` is numeric.
+- Keep the course log row even if no students remain; empty historical logs can be reviewed or deleted separately.
+
+Rules:
+
+- This repair must not delete students, tickets, payments, slots, or classes.
+- The admin must confirm the affected log/member count before writing.
+- After cleanup, rerun `資料一致性檢查`.
 
 #### Public lookup force rebuild
 

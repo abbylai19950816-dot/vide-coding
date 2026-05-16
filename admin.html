@@ -5235,7 +5235,7 @@ function buildDataHealthReport(){
 
   logs.forEach(log=>{
     (log.studentIds||[]).forEach(sid=>{
-      if(!studentById.has(String(sid))) addIssue('warn','課程日誌學員 ID 找不到學員','「'+(log.date||'')+' '+(log.classTypeName||'課程日誌')+'」含有 studentId='+sid+'，但學員資料不存在。',{studentId:sid,logId:log.id});
+      if(!studentById.has(String(sid))) addIssue('warn','課程日誌學員 ID 找不到學員','「'+(log.date||'')+' '+(log.classTypeName||'課程日誌')+'」含有 studentId='+sid+'，但學員資料不存在。',{studentId:sid,logId:log.id,repairAction:'cleanOrphanLogMembers'});
     });
   });
 
@@ -5316,7 +5316,7 @@ function dataHealthGuidance(issue){
     },
     '課程日誌學員 ID 找不到學員':{
       meaning:'課程日誌還留著已不存在學員的 ID。這通常不會影響現在學員預約，但會讓歷史紀錄不乾淨。',
-      next:'如果這是測試資料，可以等我們下一步做「清除孤兒日誌成員」工具；如果是真實學員，先確認學員是否被誤刪。'
+      next:'如果這是測試資料，可按下本項下方的「清除孤兒日誌成員」。如果是真實學員，先確認學員是否被誤刪。'
     },
     '票券課程類型無法對應課表':{
       meaning:'學員有剩餘票券，但目前公開課表沒有能對應的課程類型。學生端不會把它當成可直接預約的時段。',
@@ -5359,9 +5359,12 @@ function renderDataHealthReport(report){
     const cls=issue.severity==='danger'?'danger':'warn';
     const label=issue.severity==='danger'?'嚴重':'需檢查';
     const guidance=dataHealthGuidance(issue);
-    const action=issue.repairAction==='forceRebuildLookup'
-      ? '<button class="health-btn muted" type="button" style="margin-top:10px;padding:7px 12px" onclick="forceRebuildStudentLookupIndex(\'data-health\')">重建學員查詢</button>'
-      : '';
+    let action='';
+    if(issue.repairAction==='forceRebuildLookup'){
+      action='<button class="health-btn muted" type="button" style="margin-top:10px;padding:7px 12px" onclick="forceRebuildStudentLookupIndex(\'data-health\')">重建學員查詢</button>';
+    }else if(issue.repairAction==='cleanOrphanLogMembers'){
+      action='<button class="health-btn muted" type="button" style="margin-top:10px;padding:7px 12px" onclick="cleanOrphanCourseLogMembers()">清除孤兒日誌成員</button>';
+    }
     return '<div class="health-issue '+cls+'">'+
       '<div class="health-issue-top"><div class="health-issue-title">'+dataHealthHtml(issue.title)+'</div><span class="badge '+cls+'">'+label+'</span></div>'+
       '<div class="health-issue-body">'+dataHealthHtml(issue.body)+'</div>'+
@@ -5397,6 +5400,63 @@ function clearDataHealthReport(){
   const result=document.getElementById('data-health-result');
   if(badge){ badge.className='badge info'; badge.textContent='未檢查'; }
   if(result) result.innerHTML='';
+}
+function cleanOrphanCourseLogMembers(){
+  const students=loadStudents();
+  const validIds=new Set(students.map(s=>String(s.id)));
+  const logs=loadLogs();
+  let affectedLogs=0;
+  let removedMembers=0;
+  const examples=[];
+
+  const nextLogs=logs.map(log=>{
+    const ids=Array.isArray(log.studentIds)?log.studentIds:[];
+    const names=Array.isArray(log.studentNames)?log.studentNames:[];
+    if(!ids.length) return log;
+
+    const keepIdx=[];
+    const removeIdx=[];
+    ids.forEach((sid,i)=>{
+      if(validIds.has(String(sid))) keepIdx.push(i);
+      else removeIdx.push(i);
+    });
+    if(!removeIdx.length) return log;
+
+    affectedLogs++;
+    removedMembers+=removeIdx.length;
+    if(examples.length<3){
+      examples.push((log.date||'未填日期')+' '+(log.classTypeName||'課程日誌')+'：'+removeIdx.map(i=>String(ids[i])).join('、'));
+    }
+
+    const next={...log};
+    next.studentIds=keepIdx.map(i=>ids[i]).filter(v=>v!=null);
+    next.studentNames=keepIdx.map(i=>names[i]).filter(v=>v!=null);
+    if(Number.isFinite(Number(log.attendance))) next.attendance=Math.max(0,Number(log.attendance||0)-removeIdx.length);
+    next.orphanMembersCleanedAt=new Date().toISOString();
+    next.updatedAt=new Date().toISOString();
+    return next;
+  });
+
+  if(!removedMembers){
+    alert('目前沒有需要清除的孤兒日誌成員。');
+    return;
+  }
+
+  const ok=confirm(
+    '確定要清除孤兒日誌成員嗎？\n\n'+
+    '將處理課程日誌：'+affectedLogs+' 筆\n'+
+    '將移除不存在學員 ID：'+removedMembers+' 筆\n\n'+
+    (examples.length?'範例：\n- '+examples.join('\n- ')+'\n\n':'')+
+    '這只會移除課程日誌中已不存在的 studentId 與對應姓名，不會刪除任何學員、票券、收費或預約。'
+  );
+  if(!ok) return;
+
+  saveLogs(nextLogs);
+  if(typeof renderLogs==='function') renderLogs();
+  if(typeof renderStudents==='function') renderStudents();
+  if(typeof updateBadges==='function') updateBadges();
+  toast('已清除孤兒日誌成員：'+removedMembers+' 筆');
+  setTimeout(()=>runDataHealthCheck(),300);
 }
 
 </script>
