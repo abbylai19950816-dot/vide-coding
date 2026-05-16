@@ -27,3 +27,13 @@ Gyrobooking is a low-cost Pilates booking system for:
 - Course plans may set `allowRecurring: false`; student-side loop booking should be hidden and blocked for those active plans.
 - 學員若同時擁有多個有效課程類型，例如一對一與一對二，預約頁查詢方案後必須讓學員切換課程類型；不得只自動顯示其中一種，避免誤以為其他方案消失。
 - 日期與時間判斷以使用者裝置當地時間為準；不要在前端硬加固定 UTC+8。
+
+## Future Identity Direction
+
+- LINE Login is the preferred long-term identity upgrade because it can identify the same student by LINE user id instead of asking students to remember an extra lookup code.
+- LINE Login should be treated as an identity-system upgrade, not a small UI change.
+- The future student experience should prioritize `使用 LINE 登入` for lookup, purchase, and booking, while keeping a fallback path for students who cannot or do not want to use LINE.
+- Fallback identity may remain `姓名 + 手機` or another teacher-assisted verification path; do not make lookup code the only fallback unless the workflow is redesigned with the teacher.
+- The system must not expose raw LINE user id to public documents. Store only a hash or backend-owned mapping such as `line_lookup/{lineUserIdHash}`.
+- Purchase requests and booking requests may later include `lineUserIdHash` so admin import can safely attach purchases and bookings to the same student.
+- Before implementing LINE Login, define backend callback handling, Firestore rules, budget alerts, and rollback/fallback behavior in SSOT.

@@ -359,3 +359,29 @@ service cloud.firestore {
 - B 老師登入後不能讀寫 A tenant。
 - 管理員更新課表後，學員端重新載入或 listener 可看到最新公開 mirror。
 - 公開 mirror 不包含電話、LINE、IG、備註、收費、票券明細。
+
+## 未來規劃：LINE Login 身分系統
+
+LINE Login 可作為長期身份辨識升級，降低學員記查詢碼或提供手機的負擔。此功能尚未實作，未來處理前必須先完成規格與成本防護。
+
+原則：
+
+- LINE Login 回傳的 LINE user id 可作為同一位學員的穩定識別來源。
+- 不得在純 GitHub Pages 前端保存 LINE channel secret。
+- LINE Login callback / token 驗證應由安全後端處理，例如 Firebase Functions、Cloud Run，或其他可保管 secret 的後端。
+- Firestore 公開文件不得存 raw LINE user id；應使用 hash 或後端擁有的 mapping，例如 `line_lookup/{lineUserIdHash}`。
+- 學員購課與預約 request 可在未來附上 `lineUserIdHash`，讓管理員匯入時安全歸戶。
+- 仍需保留 fallback 流程，避免學員無法或不願使用 LINE Login 時完全無法預約。
+
+成本與部署注意：
+
+- 若使用 Firebase Functions，Firebase 專案通常需要升級 Blaze pay-as-you-go 才能部署 Functions。
+- 小流量情境可能落在 no-cost quota 內，但因為 Blaze 需綁定計費帳戶，必須先設定 budget alert、用量監控與必要的防濫用限制。
+- 在完成預算防護前，不應把 LINE Login 設為唯一登入方式。
+
+未來資料模型草案：
+
+- `line_lookup/{lineUserIdHash}`：LINE 身分到學員的查詢 mapping。
+- `student_lookup/{hash}`：可保留作為備用查詢方式。
+- `purchase_requests/{requestId}`：可新增 `lineUserIdHash`。
+- `booking_requests/{requestId}`：可新增 `lineUserIdHash`。
