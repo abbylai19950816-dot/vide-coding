@@ -37,6 +37,7 @@ Rules:
 - Student page may get one document.
 - Student page must not list this collection.
 - Admin sync owns writes.
+- 若管理員端看得到票券，但學生端用姓名＋手機查不到方案，優先檢查 `student_lookup/{hash}` 是否存在。設定頁的「強制重建學員查詢」可略過本機 hash cache，重新寫入 `public_booking/state`、`student_lookup` 與 `phone_lookup`。
 
 ### `phone_lookup/{hash}`
 
@@ -54,6 +55,7 @@ Rules:
 - Student page must not list this collection.
 - This document must not expose student name, full phone, payments, tickets, or private notes.
 - Admin sync owns writes.
+- 測試資料清空或跨裝置手動清理索引後，必須同步清除/略過本機 `low_cost_phone_lookup_hash_*` cache，否則管理員端可能誤判雲端索引已存在。
 
 ### `/data/{key}`
 
@@ -172,6 +174,21 @@ Rules:
 - `warn` issues may be historical/test-data inconsistencies, but still need review before production use.
 - Repair tools must remain separate from health check results. The admin should review severe issues before any automatic repair is introduced.
 - Future repair actions must write their own worklog and clearly state which source of truth is used to rebuild derived data.
+
+#### Public lookup force rebuild
+
+管理員端設定頁提供「強制重建學員查詢」。這是維運工具，用於以下情境：
+
+- 管理員端學員資料與票券顯示正常，但學生端用姓名＋手機查不到可用方案。
+- 測試資料清空、手動刪除 `student_lookup` / `phone_lookup`、或跨裝置操作後，本機 hash cache 與雲端公開索引不一致。
+- 課程方案或課表曾大量調整，需要重新產生學生端查詢索引。
+
+Rules:
+
+- 此工具會重新寫入 `public_booking/state`、所有可產生的 `student_lookup/{hash}` 與 `phone_lookup/{hash}`。
+- 此工具只應由管理員在設定頁手動執行，不應放到學生端。
+- 此工具不增加學生端讀取；學生端仍只讀 `public_booking/state`、`web_config/flags` 與單筆 `student_lookup/{hash}`。
+- 正常資料變更仍應使用 hash/diff 同步，避免每次儲存都重寫所有公開索引。
 
 ### `purchase_requests/{requestId}`
 
