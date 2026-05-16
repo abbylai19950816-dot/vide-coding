@@ -109,6 +109,20 @@ When deleting a payment, the system must remove data derived from that payment:
 
 This delete path intentionally erases history. It should be used for incorrect or test records, not normal refunds.
 
+#### Booking ticket deduction and refund logs
+
+When a booking consumes a ticket, the ticket log should include the related slot id:
+
+- `log[]` / `logs[]`: append an item with `action`, `date`, `slotIds`, optional request/source fields, and `note`.
+- `slotIds`: array of `/data/slots` ids affected by that ticket change.
+
+Rules:
+
+- Canceling one booking or deleting a calendar slot must first find the original ticket by matching `studentId` and `slotIds`.
+- If old data does not have `slotIds`, fallback may use the same student plus matching `typeId` / course type.
+- Do not refund by student name alone except as a legacy last resort when the booking has no `studentId` and no phone.
+- When deleting a calendar slot, remove the same booking from the student's `scheduledBookings` using the resolved student id and exact slot id.
+
 #### Future refund / void workflow
 
 正式營運需要另一個行為：「退款 / 作廢方案」。

@@ -1763,7 +1763,71 @@ function bookingMatchesStudent(booking, student, studentId){
   if(!booking) return false;
   const sid=String(studentId);
   if(booking.studentId!=null && String(booking.studentId)!=='') return String(booking.studentId)===sid;
-  return !!(student && String(booking.name||'').trim()===String(student.name||'').trim());
+  if(student && booking.phone){
+    const bookingPhone=String(booking.phone||'').replace(/\D/g,'');
+    const studentPhone=String(student.phone||'').replace(/\D/g,'');
+    if(bookingPhone && studentPhone) return bookingPhone===studentPhone;
+  }
+  return !!(student && String(booking.name||'').trim()===String(student.name||'').trim() && !booking.phone);
+}
+
+function ticketSlotLogs(ticket){
+  return []
+    .concat(Array.isArray(ticket?.log)?ticket.log:[])
+    .concat(Array.isArray(ticket?.logs)?ticket.logs:[]);
+}
+
+function ticketHasSlotLog(ticket, slotId){
+  const slotKey=String(slotId);
+  return ticketSlotLogs(ticket).some(l=>
+    Array.isArray(l?.slotIds) &&
+    l.slotIds.map(String).includes(slotKey) &&
+    String(l.action||'')!=='refund'
+  );
+}
+
+function resolveBookingStudent(booking, students){
+  if(!booking) return null;
+  const sid=String(booking.studentId||'');
+  if(sid){
+    const byId=students.find(s=>String(s.id)===sid);
+    if(byId) return byId;
+  }
+  const phone=String(booking.phone||'').replace(/\D/g,'');
+  if(phone){
+    const byPhone=students.find(s=>String(s.phone||'').replace(/\D/g,'')===phone);
+    if(byPhone) return byPhone;
+  }
+  const line=String(booking.line||'').trim().toLowerCase();
+  if(line){
+    const byLine=students.find(s=>String(s.line||'').trim().toLowerCase()===line);
+    if(byLine) return byLine;
+  }
+  const name=String(booking.name||'').trim();
+  if(name && !sid && !phone){
+    return students.find(s=>String(s.name||'').trim()===name)||null;
+  }
+  return null;
+}
+
+function findRefundTicketIndex(tickets, student, booking, slot, slotId){
+  const sid=String(student?.id||booking?.studentId||'');
+  const phone=String(student?.phone||booking?.phone||'').replace(/\D/g,'');
+  const name=String(student?.name||booking?.name||'').trim();
+  const candidates=tickets.map((ticket,index)=>({ticket,index})).filter(({ticket})=>{
+    if(sid) return String(ticket.studentId)===sid;
+    if(phone) return String(ticket.phone||'').replace(/\D/g,'')===phone;
+    return name && String(ticket.studentName||'').trim()===name;
+  });
+  const bySlotLog=candidates.find(({ticket})=>ticketHasSlotLog(ticket, slotId));
+  if(bySlotLog) return bySlotLog.index;
+  const typeId=slot?.typeId ?? booking?.typeId ?? null;
+  const byType=candidates.find(({ticket})=>
+    Number(ticket.total||0)>0 &&
+    (typeId==null || ticket.typeId==null || String(ticket.typeId)===String(typeId)) &&
+    (!ticket.expireDate || ticket.expireDate>=todayStr())
+  );
+  return byType?byType.index:-1;
 }
 
 function slotDisplayName(slot){
@@ -3177,20 +3241,7 @@ cancelStudentBooking = function(studentId, slotId, evt){
     saveStudents(students);
   }
   const tickets=loadTickets();
-  const sid=String(studentId);
-  const slotKey=String(slotId);
-  const logMatchIdx=tickets.findIndex(t=>
-    String(t.studentId)===sid &&
-    Array.isArray(t.logs) &&
-    t.logs.some(l=>Array.isArray(l.slotIds)&&l.slotIds.map(String).includes(slotKey))
-  );
-  const fallbackIdx=tickets.findIndex(t=>
-    String(t.studentId)===sid &&
-    (slot?.typeId==null || t.typeId==null || String(t.typeId)===String(slot.typeId)) &&
-    Number(t.left||0)>=0 &&
-    (!t.expireDate||t.expireDate>=todayStr())
-  );
-  const refundIdx=logMatchIdx>=0?logMatchIdx:fallbackIdx;
+  const refundIdx=findRefundTicketIndex(tickets, stu, {studentId}, slot, slotId);
   if(refundIdx>=0){
     tickets[refundIdx].left=Number(tickets[refundIdx].left||0)+1;
     tickets[refundIdx].used=Math.max(0,Number(tickets[refundIdx].used||0)-1);
@@ -4350,36 +4401,38 @@ function schSaveSlot(){
 function schDeleteSlot(){
   const editId=document.getElementById("slot-edit-id").value;
   if(!editId||!confirm("確定要刪除此時段嗎？")) return;
-  const slot=loadSlots().find(s=>s.id===editId);
+  const slot=loadSlots().find(s=>String(s.id)===String(editId));
   const bookings=slot?.bookings||[];
   // Refund one session back to each booked student's ticket
   if(bookings.length>0){
     const tickets=loadTickets();
+    const students=loadStudents();
     bookings.forEach(b=>{
-      const tIdx=tickets.findIndex(t=>
-        t.studentName&&t.studentName.trim()===b.name.trim()&&
-        t.total>0
-      );
+      const stu=resolveBookingStudent(b,students);
+      const tIdx=findRefundTicketIndex(tickets,stu,b,slot,editId);
       if(tIdx>=0){
         tickets[tIdx].left+=1;
         tickets[tIdx].used=Math.max(0,Number(tickets[tIdx].used||0)-1);
         tickets[tIdx].log=tickets[tIdx].log||[];
-        tickets[tIdx].log.push({date:todayStr(),action:'refund',note:'時段被刪除：補回1堂'});
+        tickets[tIdx].logs=Array.isArray(tickets[tIdx].logs)?tickets[tIdx].logs:[];
+        const refundLog={date:todayStr(),action:'refund',slotIds:[editId],note:'時段被刪除：補回1堂'};
+        tickets[tIdx].log.push(refundLog);
+        tickets[tIdx].logs.push(refundLog);
       }
     });
     saveTickets(tickets);
     // Also remove from student scheduledBookings
-    const students=loadStudents();
     bookings.forEach(b=>{
-      const si=students.findIndex(s=>s.name.trim()===b.name.trim());
+      const stu=resolveBookingStudent(b,students);
+      const si=stu?students.findIndex(s=>String(s.id)===String(stu.id)):-1;
       if(si>=0){
-        students[si].scheduledBookings=(students[si].scheduledBookings||[]).filter(sb=>sb.slotId!==editId);
+        students[si].scheduledBookings=(students[si].scheduledBookings||[]).filter(sb=>String(sb.slotId)!==String(editId));
       }
     });
     saveStudents(students);
   }
-  saveSlots(loadSlots().filter(s=>s.id!==editId));
-  saveClasses(loadClasses().filter(c=>c.slotId!==editId));
+  saveSlots(loadSlots().filter(s=>String(s.id)!==String(editId)));
+  saveClasses(loadClasses().filter(c=>String(c.slotId)!==String(editId)));
   closeSheets();
   schRenderCalendar();
   renderStudents();
