@@ -36,7 +36,9 @@
 - 已確認 active 與 root `admin.html` hash 一致。
 - 已確認 active/root 都包含 `runDataHealthCheck`、`buildDataHealthReport` 與「資料健康檢查」UI。
 - 已用 Node 解析 classic script blocks，4 個 script blocks 語法檢查通過。
-- 待完成：commit / push 後檢查 GitHub Pages 線上檔案包含 `runDataHealthCheck`。
+- 已 commit / push 到 `main`。
+- GitHub Pages build 狀態為 `built`，commit `836230834cb67c3b4c977f8deda4018ee891189a`。
+- 已檢查線上 `admin.html?codex_check=1724`，HTTP 200，且包含 `runDataHealthCheck`、`buildDataHealthReport` 與「資料健康檢查」。
 
 ## 後續風險
 
