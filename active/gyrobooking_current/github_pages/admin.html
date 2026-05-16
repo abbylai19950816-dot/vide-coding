@@ -1913,7 +1913,7 @@ function resolveBookingStudent(booking, students){
   return null;
 }
 
-function findRefundTicketIndex(tickets, student, booking, slot, slotId){
+function findRefundTicketForCancelledBooking(tickets, student, booking, slot, slotId){
   const sid=String(student?.id||booking?.studentId||'');
   const phone=String(student?.phone||booking?.phone||'').replace(/\D/g,'');
   const name=String(student?.name||booking?.name||'').trim();
@@ -1930,7 +1930,11 @@ function findRefundTicketIndex(tickets, student, booking, slot, slotId){
     (typeId==null || ticket.typeId==null || String(ticket.typeId)===String(typeId)) &&
     (!ticket.expireDate || ticket.expireDate>=todayStr())
   );
-  return byType?byType.index:-1;
+  return byType||null;
+}
+function findRefundTicketIndex(tickets, student, booking, slot, slotId){
+  const match=findRefundTicketForCancelledBooking(tickets, student, booking, slot, slotId);
+  return match?match.index:-1;
 }
 
 function slotDisplayName(slot){
@@ -2289,8 +2293,10 @@ function cancelBookingCascade(state, studentId, slotId, options={}){
   }
   if(stu && removeStudentFromCourseLogs(state.logs, stu, slotId)) dirty.logs=true;
   let refundIdx=-1;
-  if(options.refund!==false){
-    refundIdx=findRefundTicketIndex(state.tickets, stu, {studentId:sid}, slot, slotId);
+  const removedArtifacts=dirty.slots||dirty.students||dirty.classes||dirty.logs;
+  if(options.refund!==false && (removedArtifacts||options.forceRefund)){
+    const refundTarget=findRefundTicketForCancelledBooking(state.tickets, stu, {studentId:sid}, slot, slotId);
+    refundIdx=refundTarget?refundTarget.index:-1;
     if(refundIdx>=0){
       state.tickets[refundIdx].left=Number(state.tickets[refundIdx].left||0)+1;
       state.tickets[refundIdx].used=Math.max(0,Number(state.tickets[refundIdx].used||0)-1);

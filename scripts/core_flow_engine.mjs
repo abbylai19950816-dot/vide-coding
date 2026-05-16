@@ -205,19 +205,27 @@ export function cancelBooking(state, studentId, slotId, { refund = true } = {}) 
     `missing slot ${slotId}`
   );
 
+  const beforeBookings = slot.bookings.length;
   slot.bookings = slot.bookings.filter((booking) => booking.studentId !== studentId);
+  const removedBooking = slot.bookings.length !== beforeBookings;
+  const beforeScheduled = student.scheduledBookings.length;
   student.scheduledBookings = student.scheduledBookings.filter((booking) => booking.slotId !== slotId);
+  const removedScheduled = student.scheduledBookings.length !== beforeScheduled;
+  const beforeClasses = JSON.stringify(state.classes);
   state.classes = state.classes
     .map((klass) => klass.slotId === slotId
       ? { ...klass, members: klass.members.filter((member) => member.studentId !== studentId) }
       : klass)
     .filter((klass) => klass.members.length > 0);
+  const removedClass = JSON.stringify(state.classes) !== beforeClasses;
+  const beforeLogs = JSON.stringify(state.logs);
   state.logs = state.logs
     .map((log) => log.slotId === slotId
       ? { ...log, studentIds: (log.studentIds || []).filter((id) => id !== studentId) }
       : log)
     .filter((log) => (log.studentIds || []).length > 0);
-  if (refund) refundTicketForSlot(state, studentId, slot);
+  const removedLog = JSON.stringify(state.logs) !== beforeLogs;
+  if (refund && (removedBooking || removedScheduled || removedClass || removedLog)) refundTicketForSlot(state, studentId, slot);
 }
 
 export function repairExistingBooking(state, slotId, studentId) {

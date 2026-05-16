@@ -90,6 +90,30 @@ test('cancel removes booking artifacts and refunds original ticket', () => {
   assert.equal(state.logs.length, 0);
 });
 
+test('cancel is idempotent and does not refund twice after artifacts are gone', () => {
+  const state = makeState();
+  addAdminPlan(state, 's1', 'private', 1);
+  addBooking(state, 's1', 'slot-a');
+  cancelBooking(state, 's1', 'slot-a');
+  cancelBooking(state, 's1', 'slot-a');
+  assert.equal(state.tickets[0].left, 1);
+  assert.equal(state.tickets[0].used, 0);
+});
+
+test('cancel refunds matching class type ticket when student has multiple ticket types', () => {
+  const state = makeState();
+  addAdminPlan(state, 's1', 'private', 1);
+  addAdminPlan(state, 's1', 'group', 1);
+  addBooking(state, 's1', 'slot-a');
+  cancelBooking(state, 's1', 'slot-a');
+  const privateTicket = state.tickets.find((ticket) => ticket.typeId === 'private');
+  const groupTicket = state.tickets.find((ticket) => ticket.typeId === 'group');
+  assert.equal(privateTicket.left, 1);
+  assert.equal(privateTicket.used, 0);
+  assert.equal(groupTicket.left, 1);
+  assert.equal(groupTicket.used, 0);
+});
+
 test('move transfers booking without changing ticket counts', () => {
   const state = makeState();
   addAdminPlan(state, 's1', 'private', 1);
