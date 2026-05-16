@@ -42,7 +42,9 @@
 - 已確認 active 與 root `admin.html` hash 一致。
 - 已用 Node 解析 classic script blocks，4 個 script blocks 語法檢查通過。
 - 已確認 active/root 都包含 `student-status-summary`、`ticket-adjust` 與「有效方案與方案紀錄」。
-- 待完成：commit / push 後檢查線上 `admin.html`。
+- 已 commit / push 到 `main`，commit `518be41 Improve admin student detail UX`。
+- 已檢查 GitHub Pages 線上 `admin.html?codex_check=1818`，HTTP 200，且包含 `student-status-summary`、`ticket-adjust` 與「有效方案與方案紀錄」。
+- GitHub Pages API 回報最新 build 狀態為 `built`；API 回傳 commit 仍顯示前一筆，但線上檔案內容已包含本次功能字串。
 
 ## 後續風險
 
