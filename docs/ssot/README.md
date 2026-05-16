@@ -17,6 +17,7 @@ This folder is the single source of truth for product, data, deployment, and ope
 - `product_scope.md`: product goals, user roles, booking rules.
 - `data_model.md`: Firestore documents, localStorage cache keys, ownership of each data field.
 - `core_data_flows.md`: source-of-truth flow for purchase, payment, booking, cancel, move, slot delete, attendance, logs, public mirror, and cascade rules.
+- `admin_cascade_alignment.md`: alignment plan between production `admin.html` cascade functions and the local `scripts/core_flow_engine.mjs` regression engine.
 - `security_and_tenancy_plan.md`: Firestore rules, student privacy, public mirror, and future multi-teacher tenant isolation plan.
 - `multi_tenant_saas_plan.md`: future multi-teacher SaaS architecture, tenant isolation, routing, auth, migration, and action items.
 - `cost_model.md`: future cost items, free-tier guardrails, backend/LINE cost risks, and commercialization budget checks.
