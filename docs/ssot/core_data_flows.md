@@ -23,6 +23,7 @@
 - `moveBookingCascade(state, studentId, fromSlotId, toSlotId)`: 改期預約，不重新扣堂，只搬移行事曆、學員預約、出缺勤與課程日誌。
 - `deleteSlotCascade(state, slotId)`: 刪除課程時段，對該時段所有預約執行取消 cascade，再刪除時段本身。
 - `repairExistingBookingCascade(state, slot, booking)`: 維修舊資料中已存在於 `slots[].bookings` 的預約，補齊 `students[].scheduledBookings`、票券扣堂 log 與 `classes`，但不重複新增 booking。
+- `deleteStudentCascade(studentId, options)`: 刪除學員時，集中移除學員、收費、票券、行事曆預約、出缺勤與課程日誌關聯，並同步公開鏡像。
 
 後續新增「批次取消、批次改期、老師端刪課、資料修復」時，不要複製貼上各自版本的扣堂、補堂、刪除 scheduledBookings 邏輯，應呼叫這些共用函式或擴充它們。
 
@@ -144,6 +145,22 @@
 - 修復工具要分成小而明確的動作，例如「清除孤兒日誌成員」、「重建學員查詢索引」。
 - 舊預約修復工具必須呼叫 `repairExistingBookingCascade()`，不可自行手動改 `students`、`tickets`、`classes`。
 - 正常營運流程應靠 cascade 函式避免資料錯位，而不是依賴事後修復。
+
+## 刪除學員
+
+刪除學員必須使用 `deleteStudentCascade()`。
+
+同步項目：
+
+- 從 `students` 移除該學員。
+- 移除該學員相關 `tickets`。
+- 移除該學員相關 `payments`。
+- 從 `slots[].bookings` 移除該學員預約。
+- 從 `classes[].members` 移除該學員出缺勤成員；若課堂沒有成員，可移除該 class。
+- 從 `course_logs` 移除該學員歷史關聯。
+- 強制同步 `public_booking/state` 與 `student_lookup`，避免學員端仍查到舊資料。
+
+正式營運後，優先考慮「停用 / 封存學員」，直接刪除應保留二段確認與清楚影響說明。
 
 ## Firestore 成本與安全
 

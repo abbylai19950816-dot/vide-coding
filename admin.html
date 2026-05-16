@@ -2330,6 +2330,78 @@ function deleteSlotCascade(state, slotId){
   return {dirty,bookings:bookings.length,refunds};
 }
 
+function studentRecordMatches(record, studentId, student){
+  const sid=String(studentId||'');
+  const name=String(student?.name||'').trim();
+  const phone=String(student?.phone||'').replace(/\D/g,'');
+  const recId=record?.studentId!=null?String(record.studentId):String(record?.id||'');
+  const recName=String(record?.studentName||record?.name||'').trim();
+  const recPhone=String(record?.phone||'').replace(/\D/g,'');
+  return (sid && recId===sid) || (phone && recPhone===phone) || (name && recName===name);
+}
+
+function deleteStudentCascade(studentId, options={}){
+  const sid=String(studentId);
+  const state=createBookingCascadeState();
+  const payments=loadPayments();
+  const student=state.students.find(s=>String(s.id)===sid);
+  const dirty={slots:false,students:false,classes:false,logs:false,tickets:false,payments:false};
+  const summary={bookings:0,scheduled:0,classes:0,logs:0,tickets:0,payments:0};
+  if(!student) return {ok:false,reason:'missing-student',summary,dirty};
+
+  state.slots.forEach(slot=>{
+    const before=(slot.bookings||[]).length;
+    slot.bookings=(slot.bookings||[]).filter(b=>!studentRecordMatches(b,sid,student));
+    const removed=before-slot.bookings.length;
+    if(removed){ summary.bookings+=removed; dirty.slots=true; }
+  });
+
+  state.classes.forEach(cls=>{
+    const before=(cls.members||[]).length;
+    cls.members=(cls.members||[]).filter(m=>!studentRecordMatches(m,sid,student));
+    const removed=before-cls.members.length;
+    if(removed){ summary.classes+=removed; dirty.classes=true; }
+  });
+  const beforeClassCount=state.classes.length;
+  state.classes=state.classes.filter(c=>(c.members||[]).length>0||!c.slotId);
+  if(state.classes.length!==beforeClassCount) dirty.classes=true;
+
+  const countLogRefs=(logs)=>logs.reduce((sum,log)=>{
+    const ids=Array.isArray(log.studentIds)?log.studentIds.map(v=>String(v)):[];
+    const names=Array.isArray(log.studentNames)?log.studentNames.map(v=>String(v).trim()):[];
+    const single=studentRecordMatches({studentId:log.studentId,studentName:log.studentName||log.name,phone:log.phone},sid,student)?1:0;
+    const list=Math.max(ids.filter(id=>id===sid).length,names.filter(name=>name===String(student.name||'').trim()).length);
+    return sum+single+list;
+  },0);
+  const beforeLogState=JSON.stringify(state.logs);
+  const beforeLogRefs=countLogRefs(state.logs);
+  [...new Set(state.logs.map(log=>String(log?.slotId||'')))].forEach(slotId=>removeStudentFromCourseLogs(state.logs, student, slotId));
+  if(JSON.stringify(state.logs)!==beforeLogState){
+    summary.logs=Math.max(1,beforeLogRefs-countLogRefs(state.logs));
+    dirty.logs=true;
+  }
+
+  const beforeTickets=state.tickets.length;
+  state.tickets=state.tickets.filter(t=>!studentRecordMatches(t,sid,student));
+  summary.tickets=beforeTickets-state.tickets.length;
+  if(summary.tickets) dirty.tickets=true;
+
+  const nextPayments=payments.filter(p=>!studentRecordMatches(p,sid,student));
+  summary.payments=payments.length-nextPayments.length;
+  if(summary.payments) dirty.payments=true;
+
+  const beforeStudents=state.students.length;
+  state.students=state.students.filter(s=>String(s.id)!==sid);
+  dirty.students=state.students.length!==beforeStudents;
+
+  persistBookingCascadeState(state, dirty, 'student-delete');
+  if(dirty.payments) savePayments(nextPayments);
+  if(typeof window.lowCostSyncPublicMirror==='function') {
+    window.lowCostSyncPublicMirror('student-delete',{force:true}).catch(err=>console.warn('student delete mirror sync failed',err));
+  }
+  return {ok:true,student,summary,dirty};
+}
+
 
 
 function moveBookingCascade(state, studentId, fromSlotId, toSlotId){
@@ -2676,29 +2748,15 @@ function deleteStudent(id){
     '正式營運時，建議優先停用或封存學員，而不是直接刪除。'
   );
   if(!ok) return;
-  // 1. Remove from slot bookings and free up slots
-  const slots=loadSlots();
-  let slotsChanged=false;
-  slots.forEach(s=>{
-    const before=(s.bookings||[]).length;
-    s.bookings=(s.bookings||[]).filter(b=>b.name!==stu.name&&String(b.studentId||'')!==String(id));
-    if(s.bookings.length!==before) slotsChanged=true;
-  });
-  if(slotsChanged) saveSlots(slots);
-  // 2. Remove from attendance classes
-  const classes=loadClasses();
-  classes.forEach(cls=>{
-    cls.members=(cls.members||[]).filter(m=>m.studentId!==id);
-  });
-  saveClasses(classes.filter(c=>c.members.length>0||c.slotId));
-  // 3. Remove tickets
-  saveTickets(loadTickets().filter(t=>t.studentId!==id));
-  // 4. Remove payments
-  savePayments(loadPayments().filter(p=>p.studentId!==id));
-  // 5. Remove student
-  saveStudents(loadStudents().filter(s=>s.id!==id));
-  closeSheets(); renderStudents(); updateBadges();
-  toast('已刪除學員及所有相關資料');
+  const result=deleteStudentCascade(id);
+  if(!result.ok){ toast('找不到學員資料'); return; }
+  closeSheets();
+  renderStudents();
+  schRenderCalendar();
+  if(typeof renderAttendance==='function') renderAttendance();
+  if(typeof renderLogs==='function') renderLogs();
+  updateBadges();
+  toast('已刪除學員及相關資料：預約 '+result.summary.bookings+' 筆、方案 '+result.summary.tickets+' 筆、收費 '+result.summary.payments+' 筆');
 }
 
 /* ══════════════════════════════════
