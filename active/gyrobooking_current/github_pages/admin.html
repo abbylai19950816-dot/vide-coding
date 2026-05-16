@@ -2425,19 +2425,11 @@ function editTicketTotal(ticketId){
   toast('✓ 已更新為 '+n+' 堂');
 }
 function deleteTicketFromDetail(ticketId, studentId){
-  const ticket=loadTickets().find(t=>String(t.id)===String(ticketId));
-  const ok=confirm(
-    '確定要刪除此方案紀錄嗎？\n\n'+
-    '方案：'+((ticket&&ticket.typeName)||(ticket&&ticket.planName)||'此方案')+'\n'+
-    '剩餘堂數：'+(ticket?Number(ticket.left||0):'未知')+'\n\n'+
-    '這會移除這張票券，學員端將看不到這個可用方案。\n'+
-    '注意：若這張票券已產生預約或課程紀錄，請優先使用收費紀錄刪除或資料修復流程處理。'
-  );
-  if(!ok) return;
-  saveTickets(loadTickets().filter(t=>t.id!==ticketId));
+  const result=deleteTicketCascade(ticketId);
+  if(!result.ok) return;
   openStudentDetail(studentId);
   updateBadges();
-  toast('已刪除方案紀錄');
+  toast(result.summary?.bookings?'已刪除方案紀錄，並清除相關預約':'已刪除方案紀錄');
 }
 function closeClassNote(){
   closeSubSheet('sheet-classNote');
@@ -2728,7 +2720,13 @@ function saveTicket(){
 }
 function openTicketDetail(id){ const t=loadTickets().find(function(t){return t.id===id;}); if(t) openStudentDetail(t.studentId); }
 function deductTicket(id){ quickDeduct(id); }
-function deleteTicket(id){ if(!confirm('確定要刪除此方案嗎？')) return; saveTickets(loadTickets().filter(function(t){return t.id!==id;})); updateBadges(); toast('已刪除方案'); }
+function deleteTicket(id){
+  const result=deleteTicketCascade(id);
+  if(!result.ok) return;
+  renderStudents();
+  updateBadges();
+  toast(result.summary?.bookings?'已刪除方案，並清除相關預約':'已刪除方案');
+}
 
 /* ══════════════════════════════════
       ATTENDANCE
@@ -3208,44 +3206,7 @@ function openPayDetail(id){
   openSheet('sheet-payDetail');
 }
 function createTicketFromPayment(p){
-  if(!p||p.status!=='paid') return;
-  const cfg=bkLoadCfg();
-  const parts=(p.item||'').split('・');
-  const typeName=parts[0]?.trim()||'';
-  const planName=parts[1]?.trim()||'';
-  const type=cfg.classTypes?.find(t=>t.name===typeName);
-  const plan=type?.plans?.find(pl=>pl.name===planName);
-  if(!type||!plan) return;
-  const tickets=loadTickets();
-  const students=loadStudents();
-  const pPhone=(p.phone||'').replace(/\D/g,'');
-  // 重要：同名學員不可用姓名當主鍵。先用 studentId，再用「姓名+手機」做舊資料備援。
-  const stu=students.find(s=>String(s.id)===String(p.studentId)) ||
-    students.find(s=>s.name===p.studentName && pPhone && (s.phone||'').replace(/\D/g,'')===pPhone);
-  const studentId=stu?stu.id:(p.studentId||Date.now());
-  const studentName=stu?stu.name:p.studentName;
-  const studentColor=stu?stu.color||'c0':(p.color||'c0');
-  const studentPhone=stu?stu.phone||p.phone||'':(p.phone||'');
-  // Dup check: same studentId + same plan + same date — prevent double-click duplicates only
-  const dup=tickets.find(t=>
-    String(t.studentId)===String(studentId)&&
-    t.planName===planName&&
-    t.boughtDate===p.date&&
-    Math.abs(Date.now()-(t.id||0))<60000 // within 1 minute
-  );
-  if(dup) return;
-  const validDays=plan.validDays||180;
-  const expDate=new Date(p.date+'T00:00:00');
-  expDate.setDate(expDate.getDate()+validDays);
-  tickets.push({
-    id:Date.now(),studentId,studentName,color:studentColor,phone:studentPhone,
-    typeName,planName,
-    type:plan.sessions,total:plan.sessions,left:plan.sessions,
-    price:p.price||p.amount||0,boughtDate:p.date,
-    expireDate:localDateStr(expDate),
-    log:[{date:p.date,action:'buy'}]
-  });
-  saveTickets(tickets);
+  return createTicketFromPaymentCascade(p);
 }
 function togglePayStatus(id){
   const payments=loadPayments();
@@ -3282,6 +3243,14 @@ function _collectTicketSlotIds(tickets){
     });
   });
   return slotIds;
+}
+function paymentTicketMatches(ticket, paymentId){
+  const pid=String(paymentId||'');
+  if(!pid) return false;
+  return String(ticket?.paymentId||'')===pid || String(ticket?.sourcePaymentId||'')===pid;
+}
+function getTicketsByPaymentId(paymentId, tickets=loadTickets()){
+  return tickets.filter(t=>paymentTicketMatches(t,paymentId));
 }
 function _cascadeTargetFromPayment(payment, tickets){
   const studentIds=new Set();
@@ -3397,32 +3366,62 @@ function cascadeDeletePaymentArtifacts(payment, linkedTickets){
 
   return summary;
 }
-function deletePayment(id){
+function deleteTicketCascade(ticketId, options={}){
+  const tickets=loadTickets();
+  const ticket=tickets.find(t=>String(t.id)===String(ticketId));
+  if(!ticket) return {ok:false,reason:'missing-ticket'};
+  const used=Number(ticket.used||0)>0 || Number(ticket.left||0)<Number(ticket.total||ticket.type||0);
+  const slotIds=_collectTicketSlotIds([ticket]);
+  if(options.confirm!==false){
+    const ok=confirm(
+      '確定要刪除此方案紀錄嗎？\n\n'+
+      '方案：'+(ticket.typeName||ticket.planName||'此方案')+'\n'+
+      '剩餘堂數：'+Number(ticket.left||0)+'\n'+
+      (used?'\n這張票券已有使用紀錄，系統會一併嘗試清除相關預約、出缺勤與課程紀錄。\n':'')+
+      (ticket.paymentId||ticket.sourcePaymentId?'\n這不會刪除原本收費紀錄；若要連收費一起刪，請從收費紀錄刪除。\n':'')
+    );
+    if(!ok) return {ok:false,reason:'cancelled'};
+  }
+  const payment=ticket.paymentId||ticket.sourcePaymentId
+    ? loadPayments().find(p=>paymentTicketMatches(ticket,p.id))
+    : null;
+  const summary=slotIds.size?cascadeDeletePaymentArtifacts(payment||{studentId:ticket.studentId,studentName:ticket.studentName,phone:ticket.phone},[ticket]):{slotIds:0,bookings:0,scheduled:0,classes:0,logs:0};
+  saveTickets(tickets.filter(t=>String(t.id)!==String(ticketId)));
+  if(typeof window.lowCostSyncPublicMirror==='function') {
+    window.lowCostSyncPublicMirror('ticket-delete',{force:true}).catch(err=>console.warn('ticket delete mirror sync failed',err));
+  }
+  return {ok:true,ticket,summary};
+}
+function deletePaymentCascade(id, options={}){
   const payments=loadPayments();
   const p=payments.find(item=>String(item.id)===String(id));
-  if(!p) return;
+  if(!p) return {ok:false,reason:'missing-payment'};
   const tickets=loadTickets();
-  const linkedTickets=tickets.filter(t=>
-    String(t.paymentId||'')===String(id) ||
-    String(t.sourcePaymentId||'')===String(id)
-  );
+  const linkedTickets=getTicketsByPaymentId(id,tickets);
   const usedCount=linkedTickets.filter(t=>Number(t.used||0)>0 || Number(t.left||0)<Number(t.total||t.type||0)).length;
   const usedSlotCount=_collectTicketSlotIds(linkedTickets).size;
-  const msg='確定要刪除此收費紀錄嗎？'
-    +(linkedTickets.length?'\n\n會一併移除對應學員方案：'+linkedTickets.length+' 筆':'')
-    +(usedCount?'\n其中 '+usedCount+' 筆方案已有使用紀錄，請確認是否仍要刪除。':'')
-    +(usedSlotCount?'\n也會清除相關預約、學員排程、出缺勤與課程紀錄。':'');
-  if(!confirm(msg)) return;
+  if(options.confirm!==false){
+    const msg='確定要刪除此收費紀錄嗎？'
+      +(linkedTickets.length?'\n\n會一併移除對應學員方案：'+linkedTickets.length+' 筆':'')
+      +(usedCount?'\n其中 '+usedCount+' 筆方案已有使用紀錄，請確認是否仍要刪除。':'')
+      +(usedSlotCount?'\n也會清除相關預約、學員排程、出缺勤與課程紀錄。':'');
+    if(!confirm(msg)) return {ok:false,reason:'cancelled'};
+  }
   savePayments(payments.filter(item=>String(item.id)!==String(id)));
   const cascadeSummary=linkedTickets.length?cascadeDeletePaymentArtifacts(p,linkedTickets):null;
   if(linkedTickets.length){
-    saveTickets(tickets.filter(t=>
-      String(t.paymentId||'')!==String(id) &&
-      String(t.sourcePaymentId||'')!==String(id)
-    ));
+    saveTickets(tickets.filter(t=>!paymentTicketMatches(t,id)));
   }
+  if(typeof window.lowCostSyncPublicMirror==='function') {
+    window.lowCostSyncPublicMirror('payment-delete',{force:true}).catch(err=>console.warn('payment delete mirror sync failed',err));
+  }
+  return {ok:true,payment:p,linkedTickets,cascadeSummary};
+}
+function deletePayment(id){
+  const result=deletePaymentCascade(id);
+  if(!result.ok) return;
   closeSheets(); renderFinance(); renderStudents(); renderAttendance(); schRenderCalendar(); updateBadges();
-  toast(linkedTickets.length?'已刪除收費紀錄與對應方案'+(cascadeSummary?.bookings?'，並清除預約':''):'已刪除收費紀錄');
+  toast(result.linkedTickets.length?'已刪除收費紀錄與對應方案'+(result.cascadeSummary?.bookings?'，並清除預約':''):'已刪除收費紀錄');
 }
 
 /* ══════════════════════════════════
@@ -3539,7 +3538,7 @@ cancelStudentBooking = function(studentId, slotId, evt){
 
 
 
-createTicketFromPayment = function(p){
+function createTicketFromPaymentCascade(p){
   if(!p||p.status!=='paid') return;
   const cfg=bkLoadCfg();
   const typeName=(p.typeName||'').trim() || String(p.item||'').split('・')[0]?.trim() || '';
@@ -3656,6 +3655,7 @@ createTicketFromPayment = function(p){
   });
   saveTickets(tickets);
 };
+createTicketFromPayment = createTicketFromPaymentCascade;
 
 const BK_DEFAULT = {
   teacherName:'嬋柔老師',
@@ -6261,46 +6261,18 @@ window.resetAllTestData = async function(){
 */
 window.reconcilePaidPaymentsToTickets = async function(){
   function arr(key){ try{return JSON.parse(localStorage.getItem('pilates_'+key)||'[]');}catch{return [];} }
-  function save(key,val){ localStorage.setItem('pilates_'+key,JSON.stringify(val)); return window._fb?.set ? window._fb.set(key,val) : Promise.resolve(); }
-  const students=arr('students');
   const payments=arr('payments');
-  const tickets=arr('tickets');
   let created=0;
 
   const paidWords=['paid','已收費','已付款','完成','success'];
   for(const p of payments){
     const status=String(p.status||'').trim();
     if(!paidWords.includes(status)) continue;
-
-    const already=tickets.some(t=>String(t.paymentId||'')===String(p.id));
-    if(already) continue;
-
-    const stu=students.find(s=>String(s.id)===String(p.studentId));
-    if(!stu) continue;
-
-    const sessions=Number(p.sessions || p.count || p.total || 0);
-    if(!sessions) continue;
-
-    tickets.push({
-      id:Date.now()+Math.floor(Math.random()*100000),
-      paymentId:p.id,
-      studentId:stu.id,
-      studentName:stu.name,
-      typeId:p.typeId||null,
-      typeName:p.typeName||'',
-      planId:p.planId||null,
-      planName:p.planName||p.item||'',
-      total:sessions,
-      used:0,
-      left:sessions,
-      buyDate:p.date||todayStr(),
-      expireDate:p.expireDate||'',
-      note:'由已收費紀錄補開'
-    });
-    created++;
+    const before=loadTickets().length;
+    createTicketFromPayment({...p,status:'paid'});
+    if(loadTickets().length>before) created++;
   }
 
-  if(created>0) await save('tickets',tickets);
   if(typeof window.lowCostSyncPublicMirror==='function') await window.lowCostSyncPublicMirror('reconcile-paid-payments');
   alert('補開票券完成：'+created+' 筆。已同步學員查詢索引。');
 };

@@ -25,6 +25,15 @@
 
 後續新增「批次取消、批次改期、老師端刪課、資料修復」時，不要複製貼上各自版本的扣堂、補堂、刪除 scheduledBookings 邏輯，應呼叫這些共用函式或擴充它們。
 
+票券與收費相關資料變更也必須集中走共用函式：
+
+- `createTicketFromPaymentCascade(payment)`: 根據已收款 `payment` 建立或連結一張 `ticket`，並確保同一 `paymentId` 不重複開票。
+- `createTicketFromPayment(payment)`: 相容舊呼叫點的 wrapper，內部應委派給 `createTicketFromPaymentCascade()`。
+- `deleteTicketCascade(ticketId, options)`: 刪除票券，並在票券已有使用紀錄時嘗試清除相關預約、學員排程、出缺勤與課程日誌。
+- `deletePaymentCascade(paymentId, options)`: 刪除收費紀錄，連動刪除該 `paymentId` 對應票券與相關資料。
+
+後續維修工具，例如「已收款補開票券」，也應呼叫 `createTicketFromPayment()`，不可自行手刻另一套 ticket 欄位。
+
 ## 購課與收款
 
 學員購課流程：
