@@ -21,6 +21,7 @@ This folder is the single source of truth for product, data, deployment, and ope
 - `payment_ticket_cleanup.md`: deletion and cascade cleanup rules for payments, tickets, bookings, schedules, attendance, and course logs.
 - `cancel_slot_refund.md`: refund rules for cancel booking and delete slot cascades.
 - `booking_repair.md`: repair rules for existing slot bookings, scheduled bookings, ticket deductions, and attendance classes.
+- `data_health_ui.md`: admin data health report categories, manager action order, repair buttons, and cost/security boundaries.
 - `security_and_tenancy_plan.md`: Firestore rules, student privacy, public mirror, and future multi-teacher tenant isolation plan.
 - `multi_tenant_saas_plan.md`: future multi-teacher SaaS architecture, tenant isolation, routing, auth, migration, and action items.
 - `cost_model.md`: future cost items, free-tier guardrails, backend/LINE cost risks, and commercialization budget checks.

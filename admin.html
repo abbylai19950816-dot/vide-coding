@@ -114,7 +114,7 @@ body{font-family:'Chiron GoRound TC',sans-serif;background:var(--sand);color:var
 .health-btn.primary{background:var(--sage);color:var(--white)}
 .health-btn.muted{background:var(--sage-light);color:var(--sage)}
 .health-btn.warn{background:var(--warn-bg);color:var(--warn)}
-.health-summary{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}
+.health-summary{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:12px}
 .health-metric{background:var(--sand);border-radius:var(--radius-sm);padding:10px 8px;text-align:center}
 .health-metric-num{font-size:20px;font-weight:700;color:var(--sage);line-height:1}
 .health-metric-num.warn{color:var(--warn)}
@@ -130,6 +130,19 @@ body{font-family:'Chiron GoRound TC',sans-serif;background:var(--sand);color:var
 .health-issue-guidance b{font-weight:700;color:var(--ink)}
 .health-nextbox{background:var(--sage-light);border-radius:var(--radius-sm);padding:12px;margin-top:10px;font-size:12px;line-height:1.7;color:var(--sage-deep)}
 .health-empty{font-size:13px;color:var(--sage);background:var(--sage-light);border-radius:var(--radius-sm);padding:12px;text-align:center;margin-top:10px}
+.health-workflow{background:var(--sand);border:1px solid var(--sand-dark);border-radius:var(--radius-sm);padding:12px;margin-top:12px}
+.health-workflow-title{font-size:13px;font-weight:700;color:var(--ink);margin-bottom:6px}
+.health-workflow-list{display:grid;gap:6px}
+.health-workflow-item{display:flex;gap:8px;align-items:flex-start;font-size:12px;line-height:1.55;color:var(--ink-mid)}
+.health-step-dot{min-width:20px;height:20px;border-radius:99px;background:var(--white);color:var(--sage);display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:11px}
+.health-section{margin-top:14px}
+.health-section-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}
+.health-section-title{font-size:13px;font-weight:700;color:var(--ink)}
+.health-section-note{font-size:11px;color:var(--ink-mid)}
+.health-issue-action{margin-top:10px;display:flex;justify-content:flex-start}
+.health-issue-action .health-btn{padding:7px 12px}
+.health-issue.danger{background:color-mix(in srgb, var(--absent-bg) 42%, var(--sand));}
+.health-issue.warn{background:color-mix(in srgb, var(--warn-bg) 40%, var(--sand));}
 
 /* ── Progress ── */
 .progress-wrap{margin-top:10px}
@@ -5739,46 +5752,78 @@ function dataHealthGuidance(issue){
     next:'先不要直接刪資料。請截圖或記下項目，優先處理嚴重項目，再處理需檢查項目。'
   };
 }
+function dataHealthIssueActionHtml(issue){
+  if(issue.repairAction==='forceRebuildLookup'){
+    return '<div class="health-issue-action"><button class="health-btn muted" type="button" onclick="forceRebuildStudentLookupIndex(\'data-health\')">重建學員查詢</button></div>';
+  }
+  if(issue.repairAction==='cleanOrphanLogMembers'){
+    return '<div class="health-issue-action"><button class="health-btn muted" type="button" onclick="cleanOrphanCourseLogMembers()">清除孤兒日誌成員</button></div>';
+  }
+  if(issue.repairAction==='showTicketRecalcReport'){
+    return '<div class="health-issue-action"><button class="health-btn muted" type="button" onclick="renderTicketRecalcReport()">查看票券重算報告</button></div>';
+  }
+  return '';
+}
+function dataHealthIssueCard(issue,label,cls){
+  const guidance=dataHealthGuidance(issue);
+  return '<div class="health-issue '+cls+'">'+
+    '<div class="health-issue-top"><div class="health-issue-title">'+dataHealthHtml(issue.title)+'</div><span class="badge '+cls+'">'+label+'</span></div>'+
+    '<div class="health-issue-body">'+dataHealthHtml(issue.body)+'</div>'+
+    '<div class="health-issue-guidance"><b>這代表：</b>'+dataHealthHtml(guidance.meaning)+'<br><b>建議下一步：</b>'+dataHealthHtml(guidance.next)+'</div>'+
+    dataHealthIssueActionHtml(issue)+
+  '</div>';
+}
+function dataHealthSectionHtml(title,note,items,label,cls){
+  if(!items.length) return '';
+  return '<div class="health-section">'+
+    '<div class="health-section-head"><div class="health-section-title">'+title+'</div><div class="health-section-note">'+note+'</div></div>'+
+    items.map(issue=>dataHealthIssueCard(issue,label,cls)).join('')+
+  '</div>';
+}
+function dataHealthWorkflowHtml(report,autoCount,manualCount){
+  let steps=[];
+  if(!report.issues.length){
+    steps=['目前不用處理資料，之後測試完或大量操作後再重新檢查。'];
+  }else if(report.danger){
+    steps=['先處理嚴重項目，避免學員預約、票券或課程紀錄繼續錯位。','再執行可修復項目的按鈕，例如重建查詢或清除測試殘留。','最後重新按一次開始檢查，確認報告已回到正常或只剩人工確認項目。'];
+  }else if(autoCount){
+    steps=['先處理可修復項目的按鈕，這類通常是索引或測試殘留資料。','處理後重新檢查，確認學員查詢、票券、預約與課程紀錄一致。'];
+  }else if(manualCount){
+    steps=['先人工確認這些項目是否為測試資料或真實學員資料。','不確定時先不要刪資料，等修復工具或明確決策再處理。'];
+  }
+  return '<div class="health-workflow">'+
+    '<div class="health-workflow-title">建議處理順序</div>'+
+    '<div class="health-workflow-list">'+steps.map((step,i)=>'<div class="health-workflow-item"><span class="health-step-dot">'+(i+1)+'</span><span>'+dataHealthHtml(step)+'</span></div>').join('')+'</div>'+
+  '</div>';
+}
 function renderDataHealthReport(report){
   const result=document.getElementById('data-health-result');
   const badge=document.getElementById('data-health-badge');
   if(!result||!badge) return;
   const issueCount=report.issues.length;
+  const dangerItems=report.issues.filter(issue=>issue.severity==='danger');
+  const autoItems=report.issues.filter(issue=>issue.severity!=='danger' && issue.repairAction);
+  const manualItems=report.issues.filter(issue=>issue.severity!=='danger' && !issue.repairAction);
   badge.className='badge '+(report.danger?'danger':(report.warn?'warn':'ok'));
-  badge.textContent=issueCount?('發現 '+issueCount+' 項'):'資料正常';
+  badge.textContent=issueCount?('發現 '+issueCount+' 項'):'目前正常';
   const summary=
     '<div class="health-summary">'+
       '<div class="health-metric"><div class="health-metric-num danger">'+report.danger+'</div><div class="health-metric-label">嚴重</div></div>'+
-      '<div class="health-metric"><div class="health-metric-num warn">'+report.warn+'</div><div class="health-metric-label">需檢查</div></div>'+
+      '<div class="health-metric"><div class="health-metric-num warn">'+autoItems.length+'</div><div class="health-metric-label">可修復</div></div>'+
+      '<div class="health-metric"><div class="health-metric-num warn">'+manualItems.length+'</div><div class="health-metric-label">人工確認</div></div>'+
       '<div class="health-metric"><div class="health-metric-num">'+report.counts.students+'</div><div class="health-metric-label">學員</div></div>'+
     '</div>'+
-    '<div class="health-desc" style="margin-top:10px">檢查時間：'+report.generatedAt.toLocaleString('zh-TW')+'；資料量：票券 '+report.counts.tickets+'、收費 '+report.counts.payments+'、時段 '+report.counts.slots+'、出缺勤 '+report.counts.classes+'、日誌 '+report.counts.logs+'、學員查詢索引 '+(report.counts.lookupChecks||0)+' 筆。</div>'+
-    '<div class="health-nextbox"><b>建議處理順序：</b><br>1. 先處理「嚴重」項目，這類通常會影響付款、堂數或預約。<br>2. 「需檢查」多半是歷史資料或顯示不同步，先確認是否為測試/舊資料。<br>3. 不確定時先不要刪資料，等修復工具逐項處理。</div>';
+    '<div class="health-desc" style="margin-top:10px">檢查時間：'+report.generatedAt.toLocaleString('zh-TW')+'；資料量：票券 '+report.counts.tickets+'、收費 '+report.counts.payments+'、時段 '+report.counts.slots+'、出缺勤 '+report.counts.classes+'、日誌 '+report.counts.logs+'、學員查詢 '+(report.counts.lookupChecks||0)+'。</div>'+
+    dataHealthWorkflowHtml(report,autoItems.length,manualItems.length);
   if(!issueCount){
-    result.innerHTML=summary+'<div class="health-empty">目前沒有發現收費、票券、預約、出缺勤之間的明顯不一致。</div>';
+    result.innerHTML=summary+'<div class="health-empty">目前沒有發現需要處理的資料差異。</div>';
     return;
   }
-  const rows=report.issues.slice(0,80).map(issue=>{
-    const cls=issue.severity==='danger'?'danger':'warn';
-    const label=issue.severity==='danger'?'嚴重':'需檢查';
-    const guidance=dataHealthGuidance(issue);
-    let action='';
-    if(issue.repairAction==='forceRebuildLookup'){
-      action='<button class="health-btn muted" type="button" style="margin-top:10px;padding:7px 12px" onclick="forceRebuildStudentLookupIndex(\'data-health\')">重建學員查詢</button>';
-    }else if(issue.repairAction==='cleanOrphanLogMembers'){
-      action='<button class="health-btn muted" type="button" style="margin-top:10px;padding:7px 12px" onclick="cleanOrphanCourseLogMembers()">清除孤兒日誌成員</button>';
-    }else if(issue.repairAction==='showTicketRecalcReport'){
-      action='<button class="health-btn muted" type="button" style="margin-top:10px;padding:7px 12px" onclick="renderTicketRecalcReport()">查看票券重算報告</button>';
-    }
-    return '<div class="health-issue '+cls+'">'+
-      '<div class="health-issue-top"><div class="health-issue-title">'+dataHealthHtml(issue.title)+'</div><span class="badge '+cls+'">'+label+'</span></div>'+
-      '<div class="health-issue-body">'+dataHealthHtml(issue.body)+'</div>'+
-      '<div class="health-issue-guidance"><b>這代表：</b>'+dataHealthHtml(guidance.meaning)+'<br><b>建議下一步：</b>'+dataHealthHtml(guidance.next)+'</div>'+
-      action+
-    '</div>';
-  }).join('');
-  const more=report.issues.length>80?'<div class="health-desc" style="margin-top:10px">只顯示前 80 項，請先處理嚴重項目後再重新檢查。</div>':'';
-  result.innerHTML=summary+rows+more;
+  const dangerSection=dataHealthSectionHtml('嚴重項目','會影響票券、預約或資料正確性',dangerItems.slice(0,80),'嚴重','danger');
+  const autoSection=dataHealthSectionHtml('可修復項目','可以由管理員按鈕處理',autoItems.slice(0,80),'可修復','warn');
+  const manualSection=dataHealthSectionHtml('人工確認項目','先判斷是否為測試資料或真實資料',manualItems.slice(0,80),'人工確認','warn');
+  const more=report.issues.length>80?'<div class="health-desc" style="margin-top:10px">只顯示前 80 項，請先處理較嚴重的項目後再重新檢查。</div>':'';
+  result.innerHTML=summary+dangerSection+autoSection+manualSection+more;
 }
 async function runDataHealthCheck(){
   try{
