@@ -27,9 +27,9 @@
 | `moveBookingCascade()` | `moveBooking()` | 高度對齊 | 共同規則是移動 booking 與 scheduledBookings、不改 ticket counts、更新 classes。正式版另處理過去時段、不同課程類型、滿班、locked attendance、course log move ticket log。 |
 | `deleteSlotCascade()` | `deleteSlot()` | 高度對齊 | 共同規則是逐一 cancel booking、補回票券、刪 slot 與 class/log。正式版會統計 refunds 與 dirty flags。 |
 | `deletePaymentCascade()` | `deletePayment()` | 部分對齊 | 共同規則是刪 payment 與 linked tickets，並清掉 linked ticket 造成的預約關聯。正式版另有確認提示、used ticket 判斷、`cascadeDeletePaymentArtifacts()`。 |
-| `deleteTicketCascade()` | 尚未獨立 | 待補 | engine 目前透過 `deletePayment()` 覆蓋 linked ticket 刪除，但還沒有單獨刪 ticket 測試。 |
+| `deleteTicketCascade()` | `deleteTicket()` | 已補測試對齊 | engine 已覆蓋單獨刪票券：清除該票券造成的 booking artifacts，但保留 payment record。正式版另有確認提示與 public mirror sync。 |
 | `deleteStudentCascade()` | `deleteStudent()` | 高度對齊 | 共同規則是刪 student、tickets、payments、slots bookings、classes members、course_logs refs。正式版另有 phone/name fallback 與 public mirror sync。 |
-| `repairExistingBookingCascade()` | 尚未獨立 | 待補 | engine 尚未覆蓋資料修復：既有 slot booking 補 scheduledBookings、補扣 ticket、補 classes。 |
+| `repairExistingBookingCascade()` | `repairExistingBooking()` | 已補測試對齊 | engine 已覆蓋既有 slot booking 補 scheduledBookings、補扣 ticket、補 classes，並測試重跑不重複扣堂。 |
 
 ## 優先替換順序
 
@@ -37,11 +37,14 @@
 
 先補 `core_flow_engine` 與 `core_flow_regression` 測試：
 
-1. `deleteTicket()` 單獨刪票券。
-2. `repairExistingBooking()` 修復既有預約。
-3. 同名不同電話、同電話不同姓名的刪除/關聯保護。
-4. 體驗課只能購買/使用一次的規則。
-5. 無對應課程時段時，學員端提示要和「沒有可用方案」分開。
+1. `deleteTicket()` 單獨刪票券。已完成。
+2. `repairExistingBooking()` 修復既有預約。已完成。
+3. 同名不同電話的刪除保護。已完成。
+4. 同電話不同姓名的關聯保護。已完成。
+5. 體驗課只能購買/使用一次的規則。已完成。
+6. 無對應課程時段時，學員端提示要和「沒有可用方案」分開。已完成。
+
+第一階段測試對齊已完成。後續若再新增正式流程，必須先補 engine 測試案例，再修改正式 `admin.html` 或 `index.html`。
 
 ### 第二階段：正式 cascade 規則對齊
 
@@ -93,4 +96,3 @@ node scripts/core_flow_regression.mjs
 - 學員端不新增 bulk read。
 - 管理員端 listener 不放在 render function。
 - `public_booking/state` 與 `student_lookup` 同步要避免不必要重寫。
-

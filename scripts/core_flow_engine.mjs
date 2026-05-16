@@ -39,10 +39,28 @@ export function createPayment(state, overrides) {
     planName: overrides.planName || 'Plan',
     sessions: overrides.sessions,
     status: overrides.status || 'unpaid',
+    onceOnly: Boolean(overrides.onceOnly),
     source: overrides.source || 'student_purchase'
   };
   state.payments.push(payment);
   return payment;
+}
+
+export function canPurchasePlan(state, { studentId, typeId, planId, onceOnly = false }) {
+  if (!onceOnly) return { ok: true, reason: 'allowed' };
+  const alreadyPurchased = state.payments.some((payment) =>
+    payment.studentId === studentId &&
+    payment.typeId === typeId &&
+    payment.planId === planId
+  );
+  if (alreadyPurchased) return { ok: false, reason: 'once-only-already-purchased' };
+  const alreadyTicketed = state.tickets.some((ticket) =>
+    ticket.studentId === studentId &&
+    ticket.typeId === typeId &&
+    ticket.planId === planId
+  );
+  if (alreadyTicketed) return { ok: false, reason: 'once-only-already-purchased' };
+  return { ok: true, reason: 'allowed' };
 }
 
 export function createTicketFromPayment(state, payment) {
@@ -57,6 +75,9 @@ export function createTicketFromPayment(state, payment) {
     phone: payment.phone,
     typeId: payment.typeId,
     typeName: payment.typeName,
+    planId: payment.planId,
+    planName: payment.planName,
+    onceOnly: Boolean(payment.onceOnly),
     total: payment.sessions,
     used: 0,
     left: payment.sessions,
@@ -100,6 +121,21 @@ export function findTicketForSlot(state, studentId, slot) {
     ticket.typeId === slot.typeId &&
     Number(ticket.left || 0) > 0
   );
+}
+
+export function getBookingAvailabilityState(state, studentId, typeId) {
+  const hasUsableTicket = state.tickets.some((ticket) =>
+    ticket.studentId === studentId &&
+    ticket.typeId === typeId &&
+    Number(ticket.left || 0) > 0
+  );
+  if (!hasUsableTicket) return { ok: false, reason: 'no-usable-ticket' };
+  const matchingSlots = state.slots.filter((slot) =>
+    slot.typeId === typeId &&
+    (slot.bookings || []).length < Number(slot.capacity || 1)
+  );
+  if (!matchingSlots.length) return { ok: false, reason: 'no-matching-slots' };
+  return { ok: true, reason: 'available', slots: matchingSlots };
 }
 
 export function upsertClassForSlot(state, slot) {
@@ -151,6 +187,14 @@ export function refundTicketForSlot(state, studentId, slot) {
   ticket.logs.push({ action: 'refund', slotIds: [slot.id] });
 }
 
+export function ticketHasSlotLog(ticket, slotId) {
+  const sid = String(slotId);
+  return (ticket.logs || []).some((log) => {
+    if (String(log.slotId || '') === sid) return true;
+    return Array.isArray(log.slotIds) && log.slotIds.map(String).includes(sid);
+  });
+}
+
 export function cancelBooking(state, studentId, slotId, { refund = true } = {}) {
   const student = requireItem(
     state.students.find((item) => item.id === studentId),
@@ -174,6 +218,53 @@ export function cancelBooking(state, studentId, slotId, { refund = true } = {}) 
       : log)
     .filter((log) => (log.studentIds || []).length > 0);
   if (refund) refundTicketForSlot(state, studentId, slot);
+}
+
+export function repairExistingBooking(state, slotId, studentId) {
+  const slot = requireItem(
+    state.slots.find((item) => item.id === slotId),
+    `missing slot ${slotId}`
+  );
+  const booking = requireItem(
+    slot.bookings.find((item) => item.studentId === studentId),
+    'source booking should exist'
+  );
+  const student = requireItem(
+    state.students.find((item) => item.id === studentId),
+    `missing student ${studentId}`
+  );
+  const summary = { scheduled: 0, deducted: 0, classes: 0 };
+
+  if (!student.scheduledBookings.some((item) => item.slotId === slotId)) {
+    student.scheduledBookings.push({
+      slotId,
+      date: slot.date || booking.date,
+      time: slot.time || booking.time,
+      typeId: slot.typeId || booking.typeId,
+      status: 'booked'
+    });
+    summary.scheduled += 1;
+  }
+
+  const alreadyLogged = state.tickets.some((ticket) =>
+    ticket.studentId === studentId && ticketHasSlotLog(ticket, slotId)
+  );
+  if (!alreadyLogged) {
+    const ticket = findTicketForSlot(state, studentId, slot);
+    if (ticket) {
+      ticket.left -= 1;
+      ticket.used += 1;
+      ticket.logs.push({ action: 'repair_booking_deduct', slotIds: [slotId] });
+      summary.deducted += 1;
+    }
+  }
+
+  const beforeClass = JSON.stringify(state.classes.filter((klass) => klass.slotId === slotId));
+  upsertClassForSlot(state, slot);
+  const afterClass = JSON.stringify(state.classes.filter((klass) => klass.slotId === slotId));
+  if (beforeClass !== afterClass) summary.classes += 1;
+
+  return summary;
 }
 
 export function moveBooking(state, studentId, fromSlotId, toSlotId) {
@@ -223,6 +314,30 @@ export function deleteSlot(state, slotId) {
   state.slots = state.slots.filter((item) => item.id !== slotId);
   state.classes = state.classes.filter((item) => item.slotId !== slotId);
   state.logs = state.logs.filter((item) => item.slotId !== slotId);
+}
+
+function collectTicketSlotIds(ticket) {
+  return new Set((ticket.logs || []).flatMap((log) => {
+    const ids = [];
+    if (log.slotId) ids.push(log.slotId);
+    if (Array.isArray(log.slotIds)) ids.push(...log.slotIds);
+    return ids.map(String);
+  }));
+}
+
+export function deleteTicket(state, ticketId) {
+  const ticket = requireItem(
+    state.tickets.find((item) => item.id === ticketId),
+    `missing ticket ${ticketId}`
+  );
+  const slotIds = collectTicketSlotIds(ticket);
+  slotIds.forEach((slotId) => {
+    const slot = state.slots.find((item) => item.id === slotId);
+    if (slot?.bookings.some((booking) => booking.studentId === ticket.studentId)) {
+      cancelBooking(state, ticket.studentId, slotId, { refund: false });
+    }
+  });
+  state.tickets = state.tickets.filter((item) => item.id !== ticketId);
 }
 
 export function deletePayment(state, paymentId) {
