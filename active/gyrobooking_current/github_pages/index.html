@@ -1378,6 +1378,7 @@ function renderSlotList(){
   slots.sort((a,b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time));
 
   const cfg2 = loadCfg();
+  const pendingSlotIds=typeof currentPendingSlotIds==='function'?currentPendingSlotIds():new Set();
 
   // Week nav header
   const d0 = new Date(startDate+'T00:00:00'), d1 = new Date(endDate+'T00:00:00');
@@ -1410,7 +1411,7 @@ function renderSlotList(){
     html += '<div class="sch-date-label">'+(d.getMonth()+1)+'月'+d.getDate()+'日（'+DAYS[d.getDay()]+'）</div>';
     daySlots.forEach(function(s){
       const type = cfg2.classTypes?.find(t => String(t.id) === String(s.typeId));
-      const bk = s.bookings||[], cap = s.capacity||1, full = bk.length>=cap;
+      const bk = s.bookings||[], cap = s.capacity||1, pending=pendingSlotIds.has(String(s.id)), full = bk.length>=cap || pending;
       const sel = selectedSlots.has(s.id);
       const tname = type ? (type.icon||'')+' '+type.name : '課程';
       html += '<div class="pub-slot-card'+(sel?' sel':'')+(full?' full':'')+'"'
@@ -1420,7 +1421,7 @@ function renderSlotList(){
         +'<div class="pub-slot-meta">'+(s.duration||60)+'分鐘'+(s.location?' · '+s.location:'')+'</div></div>'
         +'<div style="display:flex;align-items:center;gap:6px">'
         +(sel ? '<div style="width:22px;height:22px;border-radius:50%;background:var(--sage);display:flex;align-items:center;justify-content:center"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg></div>' : '')
-        +'<div class="pub-slot-spots'+(full?' full':'')+'">'+( full?'已額滿':(cap-bk.length)+' 位空缺')+'</div>'
+        +'<div class="pub-slot-spots'+(full?' full':'')+'">'+( pending?'已送出':(full?'已額滿':(cap-bk.length)+' 位空缺'))+'</div>'
         +'</div></div>';
     });
   });
@@ -1435,8 +1436,20 @@ function renderSlotList(){
 }
 
 function toggleSlot(slotId){
+  const pendingSlotIds=typeof currentPendingSlotIds==='function'?currentPendingSlotIds():new Set();
+  if(pendingSlotIds.has(String(slotId))){
+    alert('這個時段已送出預約申請，請等管理員確認後再重新查詢。');
+    return;
+  }
   if(selectedSlots.has(slotId)) selectedSlots.delete(slotId);
-  else selectedSlots.add(slotId);
+  else {
+    const remaining=getRemainingTickets();
+    if(selectedSlots.size>=remaining){
+      alert('可預約堂數不足，請減少選擇時段。');
+      return;
+    }
+    selectedSlots.add(slotId);
+  }
   renderSlotList();
 }
 
@@ -1642,6 +1655,99 @@ setTimeout(function(){
 window._lowCostLookup = null;
 window._lowCostRemainingKey = 'default';
 window._lowCostUsableTypeIds = [];
+const LOCAL_PENDING_BOOKINGS_KEY='gyrobooking_pending_booking_requests_v1';
+let bookingSubmitInFlight=false;
+
+function readLocalPendingBookings(){
+  try{
+    const now=Date.now();
+    const list=JSON.parse(localStorage.getItem(LOCAL_PENDING_BOOKINGS_KEY)||'[]');
+    return Array.isArray(list)?list.filter(item=>Number(item.expiresAt||0)>now):[];
+  }catch(e){return [];}
+}
+
+function writeLocalPendingBookings(list){
+  try{localStorage.setItem(LOCAL_PENDING_BOOKINGS_KEY,JSON.stringify(list||[]));}catch(e){}
+}
+
+function pendingMatchesCurrentBooking(item,typeKey){
+  return window._lowCostLookup
+    && String(item.lookupKey||'')===String(window._lowCostLookup.key||'')
+    && String(item.typeKey||'default')===String(typeKey||'default');
+}
+
+function reconcileLocalPendingBookings(lookup){
+  if(!lookup) return;
+  const byType=lookup.remainingByType||{};
+  let changed=false;
+  const next=readLocalPendingBookings().filter(item=>{
+    if(String(item.lookupKey||'')!==String(lookup.key||'')) return true;
+    const typeKey=String(item.typeKey||'default');
+    const cloudLeft=Number(byType[typeKey]||0);
+    const remainingAfter=Number(item.remainingAfterSubmit||0);
+    if(cloudLeft<=remainingAfter){
+      changed=true;
+      return false;
+    }
+    return true;
+  });
+  if(changed) writeLocalPendingBookings(next);
+}
+
+function currentPendingBookingCount(){
+  const typeKey=String(window._lowCostRemainingKey || verifiedTypeId || 'default');
+  return readLocalPendingBookings()
+    .filter(item=>pendingMatchesCurrentBooking(item,typeKey))
+    .reduce((sum,item)=>sum+(Array.isArray(item.slotIds)?item.slotIds.length:0),0);
+}
+
+function currentPendingSlotIds(){
+  const typeKey=String(window._lowCostRemainingKey || verifiedTypeId || 'default');
+  const ids=new Set();
+  readLocalPendingBookings()
+    .filter(item=>pendingMatchesCurrentBooking(item,typeKey))
+    .forEach(item=>(item.slotIds||[]).forEach(id=>ids.add(String(id))));
+  return ids;
+}
+
+function rememberLocalPendingBooking(slotIds,requestId){
+  if(!window._lowCostLookup) return;
+  const typeKey=String(window._lowCostRemainingKey || verifiedTypeId || 'default');
+  const before=Number((window._lowCostLookup.remainingByType||{})[typeKey]||0);
+  const normalizedSlotIds=(slotIds||[]).map(id=>String(id));
+  const entry={
+    lookupKey:String(window._lowCostLookup.key||''),
+    typeKey,
+    slotIds:normalizedSlotIds,
+    requestId:requestId||'',
+    createdAt:Date.now(),
+    expiresAt:Date.now()+7*24*60*60*1000,
+    remainingAfterSubmit:Math.max(0,before-normalizedSlotIds.length)
+  };
+  const next=readLocalPendingBookings().filter(item=>{
+    if(!pendingMatchesCurrentBooking(item,typeKey)) return true;
+    const existing=new Set((item.slotIds||[]).map(id=>String(id)));
+    return !normalizedSlotIds.some(id=>existing.has(String(id)));
+  });
+  next.push(entry);
+  writeLocalPendingBookings(next);
+}
+
+function setBookingSubmitState(isSubmitting){
+  bookingSubmitInFlight=!!isSubmitting;
+  document.querySelectorAll('.sch-book-btn,#slotSheet .btn-submit').forEach(btn=>{
+    btn.disabled=!!isSubmitting;
+    btn.style.opacity=isSubmitting?'.65':'';
+    btn.style.pointerEvents=isSubmitting?'none':'';
+    if(isSubmitting && !btn.dataset.oldText){
+      btn.dataset.oldText=btn.textContent||'';
+      btn.textContent='送出中...';
+    }else if(!isSubmitting && btn.dataset.oldText){
+      btn.textContent=btn.dataset.oldText;
+      delete btn.dataset.oldText;
+    }
+  });
+}
 
 function lowCostShowMsg(message){ return window.__lowCostDisplayMessage(message); }
 
@@ -1723,6 +1829,7 @@ async function verifyAndLoadSchedule(){
       lowCostShowMsg('找不到此姓名與手機的可用方案，請確認資料或聯絡老師');
       return;
     }
+    reconcileLocalPendingBookings(lookup);
 
     const slots=JSON.parse(localStorage.getItem('pilates_slots')||'[]');
     const slotTypeSet=new Set(slots.map(s=>String(s.typeId||'default')));
@@ -1776,7 +1883,8 @@ function getRemainingTickets(){
   const lookup=window._lowCostLookup;
   if(!lookup) return 0;
   const key=String(window._lowCostRemainingKey || verifiedTypeId || 'default');
-  return Number((lookup.remainingByType||{})[key]||0);
+  const cloudLeft=Number((lookup.remainingByType||{})[key]||0);
+  return Math.max(0, cloudLeft-currentPendingBookingCount());
 }
 
 function currentPlanDisallowsRecurring(){
@@ -1840,27 +1948,40 @@ async function loopBooking(){
 
 batchSubmitBooking = async function(){
   if(!window._lowCostLookup){ alert('請先查詢學員資料'); return; }
+  if(bookingSubmitInFlight) return;
   if(selectedSlots.size===0){ alert('請先選擇預約時段'); return; }
+  const slotIds=[...selectedSlots].map(id=>String(id));
+  const pendingSlotIds=currentPendingSlotIds();
+  if(slotIds.some(id=>pendingSlotIds.has(String(id)))){
+    alert('這個時段已送出預約申請，請等管理員確認後再重新查詢。');
+    selectedSlots.clear();
+    if(typeof renderSlotList==='function') renderSlotList();
+    return;
+  }
   const remaining=getRemainingTickets();
   if(remaining<selectedSlots.size){ alert('剩餘堂數不足，請重新確認方案'); return; }
 
   try{
+    setBookingSubmitState(true);
     const key=String(window._lowCostRemainingKey || verifiedTypeId || 'default');
     const res=await window._fb.createBookingRequest({
       lookupKey:window._lowCostLookup.key,
-      slotIds:[...selectedSlots],
+      slotIds,
       typeId:verifiedTypeId,
       remainingKey:window._lowCostRemainingKey,
       bookingName:verifiedName,
       studentId:window._lowCostLookup.studentId||verifiedStudentId||'',
       typeKey:key
     });
+    rememberLocalPendingBooking(slotIds,res?.id||'');
     selectedSlots.clear();
     showBookingSuccess();
     if(typeof renderSlotList==='function') renderSlotList();
   }catch(e){
     console.warn('booking request failed',e);
     alert(friendlyErrorMessage(e,'預約申請送出失敗，請稍後再試或聯絡老師'));
+  }finally{
+    setBookingSubmitState(false);
   }
 };
 window.verifyAndLoadSchedule = verifyAndLoadSchedule;

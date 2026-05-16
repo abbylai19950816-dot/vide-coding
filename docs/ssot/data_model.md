@@ -321,3 +321,21 @@ Rules:
 ## localStorage
 
 localStorage keys beginning with `pilates_` are cache only. They must not become the source of truth for booking correctness.
+
+### `gyrobooking_pending_booking_requests_v1`
+
+Student-side local pending buffer used only to prevent duplicate submissions from the same device while a `booking_requests/{requestId}` is waiting for admin import.
+
+Expected behavior:
+
+- Created after the student page successfully writes a `booking_requests/{requestId}` document.
+- Stores minimal pending state: `lookupKey`, `typeKey`, `slotIds`, `requestId`, `createdAt`, `expiresAt`, and `remainingAfterSubmit`.
+- `getRemainingTickets()` subtracts same-device pending slot count from `student_lookup.remainingByType`.
+- Selected slots already pending on the same device should render as unavailable and should not be selectable again.
+- When a later lookup shows cloud remaining count is already at or below `remainingAfterSubmit`, the local pending entry is considered imported/reconciled and may be removed.
+
+Rules:
+
+- This local buffer is not source of truth for confirmed bookings.
+- It must not replace admin import validation. Admin import still validates slot capacity and ticket availability.
+- It must not add Firestore reads; it only uses the existing `student_lookup/{hash}` and `public_booking/state` data already loaded by the student page.
