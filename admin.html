@@ -96,11 +96,36 @@ body{font-family:'Chiron GoRound TC',sans-serif;background:var(--sand);color:var
 .badge.absent{background:var(--absent-bg);color:var(--absent)}
 .badge.leave{background:var(--leave-bg);color:var(--leave)}
 .badge.makeup{background:var(--makeup-bg);color:var(--makeup)}
+.badge.danger{background:var(--absent-bg);color:var(--absent)}
+.badge.info{background:var(--makeup-bg);color:var(--makeup)}
 .mini-badge{font-size:11px;font-weight:500;padding:2px 8px;border-radius:99px}
 .mb-present{background:var(--sage-light);color:var(--sage)}
 .mb-absent{background:var(--absent-bg);color:var(--absent)}
 .mb-leave{background:var(--leave-bg);color:var(--leave)}
 .mb-makeup{background:var(--makeup-bg);color:var(--makeup)}
+
+/* ── Data health check ── */
+.health-panel{background:var(--white);border:1px solid var(--sand-dark);border-radius:var(--radius);padding:14px 16px;margin-bottom:12px}
+.health-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:10px}
+.health-title{font-size:15px;font-weight:700;color:var(--ink)}
+.health-desc{font-size:12px;color:var(--ink-mid);line-height:1.6;margin-top:3px}
+.health-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.health-btn{border:none;border-radius:99px;padding:10px 14px;font-size:13px;font-weight:600;font-family:inherit;cursor:pointer}
+.health-btn.primary{background:var(--sage);color:var(--white)}
+.health-btn.muted{background:var(--sage-light);color:var(--sage)}
+.health-summary{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}
+.health-metric{background:var(--sand);border-radius:var(--radius-sm);padding:10px 8px;text-align:center}
+.health-metric-num{font-size:20px;font-weight:700;color:var(--sage);line-height:1}
+.health-metric-num.warn{color:var(--warn)}
+.health-metric-num.danger{color:var(--absent)}
+.health-metric-label{font-size:11px;color:var(--ink-mid);margin-top:4px}
+.health-issue{background:var(--sand);border-radius:var(--radius-sm);padding:12px;margin-top:10px;border:1px solid transparent}
+.health-issue.warn{border-color:#f0c9b5}
+.health-issue.danger{border-color:#f0b8ba}
+.health-issue-top{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:5px}
+.health-issue-title{font-size:13px;font-weight:700;color:var(--ink)}
+.health-issue-body{font-size:12px;color:var(--ink-mid);line-height:1.6}
+.health-empty{font-size:13px;color:var(--sage);background:var(--sage-light);border-radius:var(--radius-sm);padding:12px;text-align:center;margin-top:10px}
 
 /* ── Progress ── */
 .progress-wrap{margin-top:10px}
@@ -896,6 +921,23 @@ onAuthStateChanged(auth, (user) => {
           <input id="flag-version" type="text" placeholder="1.0.0" style="text-align:right" onblur="saveFlag('appVersion',this.value)">
         </div>
         <div id="flags-sync-time" style="font-size:11px;color:var(--ink-light);text-align:right;margin-top:4px"></div>
+      </div>
+
+      <!-- Data health -->
+      <div class="section-label" style="margin-top:16px">資料健康檢查</div>
+      <div class="health-panel">
+        <div class="health-head">
+          <div>
+            <div class="health-title">資料一致性檢查</div>
+            <div class="health-desc">檢查收費、票券、預約、行事曆與出缺勤是否同步。第一版只產生報告，不會自動修改資料。</div>
+          </div>
+          <span class="badge info" id="data-health-badge">未檢查</span>
+        </div>
+        <div class="health-actions">
+          <button class="health-btn primary" type="button" onclick="runDataHealthCheck()">開始檢查</button>
+          <button class="health-btn muted" type="button" onclick="clearDataHealthReport()">清除結果</button>
+        </div>
+        <div id="data-health-result"></div>
       </div>
 
       <!-- Basic Info -->
@@ -4855,6 +4897,233 @@ if (window._fbReady) {
   window.addEventListener('firebase-ready', function(){
     if(isPasswordAdminUser(window._fbCurrentUser)) initFirebaseSync();
   }, { once: true });
+}
+
+/* ══════════════════════════════════
+   DATA HEALTH CHECK
+══════════════════════════════════ */
+function dataHealthHtml(value){
+  return String(value??'').replace(/[&<>"']/g,function(ch){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch];
+  });
+}
+function dataHealthPaid(payment){
+  return ['paid','已收費','已付款','完成','success'].includes(String(payment?.status||'').trim());
+}
+function dataHealthStudentLabel(student){
+  if(!student) return '未知學員';
+  const phone=String(student.phone||'').trim();
+  return student.name+(phone?'（'+phone+'）':'');
+}
+function dataHealthTicketLinkedToPayment(ticket,paymentId){
+  const pid=String(paymentId);
+  return [ticket.paymentId,ticket.sourcePaymentId,ticket.payment_id,ticket.sourceRequestId].some(v=>String(v||'')===pid);
+}
+function dataHealthTicketMatchesPayment(ticket,payment){
+  if(dataHealthTicketLinkedToPayment(ticket,payment.id)) return true;
+  if(String(ticket.studentId||'')!==String(payment.studentId||'')) return false;
+  const ticketDate=String(ticket.boughtDate||ticket.buyDate||ticket.date||'');
+  const paymentDate=String(payment.date||'');
+  if(ticketDate && paymentDate && ticketDate!==paymentDate) return false;
+  const ticketAmount=Number(ticket.price||ticket.amount||0);
+  const paymentAmount=Number(payment.amount||payment.originalAmount||0);
+  if(ticketAmount && paymentAmount && ticketAmount!==paymentAmount) return false;
+  const paymentType=String(payment.typeId||payment.typeName||'');
+  const ticketType=String(ticket.typeId||ticket.typeName||'');
+  const paymentPlan=String(payment.planId||payment.planName||payment.item||'');
+  const ticketPlan=String(ticket.planId||ticket.planName||'');
+  if(paymentType && ticketType && paymentType!==ticketType) return false;
+  if(paymentPlan && ticketPlan && !paymentPlan.includes(ticketPlan) && !ticketPlan.includes(paymentPlan)) return false;
+  return true;
+}
+function dataHealthTicketHasSlotLog(ticket,slotId){
+  const key=String(slotId);
+  return ['log','logs'].some(field=>Array.isArray(ticket?.[field]) && ticket[field].some(item=>
+    Array.isArray(item?.slotIds) && item.slotIds.map(String).includes(key)
+  ));
+}
+function dataHealthFindCourseLog(logs,slot,student){
+  const sid=String(student?.id||'');
+  const name=String(student?.name||'').trim();
+  return logs.some(log=>{
+    if(slot?.id && String(log.slotId||'')===String(slot.id)){
+      if((log.studentIds||[]).map(String).includes(sid)) return true;
+      if((log.studentNames||[]).map(v=>String(v).trim()).includes(name)) return true;
+    }
+    if(slot?.date && String(log.date||'')===String(slot.date) && String(log.time||'')===String(slot.time||'')){
+      if((log.studentIds||[]).map(String).includes(sid)) return true;
+      if((log.studentNames||[]).map(v=>String(v).trim()).includes(name)) return true;
+    }
+    return false;
+  });
+}
+function buildDataHealthReport(){
+  const students=loadStudents();
+  const tickets=loadTickets();
+  const payments=loadPayments();
+  const slots=loadSlots();
+  const classes=loadClasses();
+  const logs=loadLogs();
+  const issues=[];
+  const addIssue=(severity,title,body,meta={})=>issues.push({severity,title,body,...meta});
+  const studentById=new Map(students.map(s=>[String(s.id),s]));
+  const slotById=new Map(slots.map(s=>[String(s.id),s]));
+
+  const phoneMap=new Map();
+  students.forEach(s=>{
+    const digits=String(s.phone||'').replace(/\D/g,'');
+    if(!digits) return;
+    if(!phoneMap.has(digits)) phoneMap.set(digits,[]);
+    phoneMap.get(digits).push(s);
+  });
+  phoneMap.forEach(list=>{
+    if(list.length>1) addIssue('danger','重複手機號碼','同一支手機出現在多位學員：'+list.map(dataHealthStudentLabel).join('、'));
+  });
+
+  payments.forEach(p=>{
+    const stu=studentById.get(String(p.studentId));
+    if(!stu){
+      addIssue('danger','收費紀錄找不到學員','收費「'+(p.item||p.id)+'」的 studentId 對不到任何學員。',{studentId:p.studentId,paymentId:p.id});
+      return;
+    }
+    if(dataHealthPaid(p)){
+      const linked=tickets.filter(t=>dataHealthTicketMatchesPayment(t,p));
+      if(!linked.length){
+        addIssue('danger','已收款但沒有票券','「'+dataHealthStudentLabel(stu)+'」的已收款項目「'+(p.item||'未命名收費')+'」沒有對應票券，學員端可能查不到方案。',{studentId:stu.id,paymentId:p.id});
+      }else if(linked.length>1){
+        addIssue('warn','同一筆收費產生多張票券','「'+dataHealthStudentLabel(stu)+'」的收費「'+(p.item||p.id)+'」連到 '+linked.length+' 張票券，可能重複開票。',{studentId:stu.id,paymentId:p.id});
+      }
+      const sessions=Number(p.sessions||p.count||p.total||linked[0]?.total||0);
+      if(!sessions) addIssue('warn','已收款但堂數不明','「'+dataHealthStudentLabel(stu)+'」的已收款項目「'+(p.item||p.id)+'」缺少 sessions/total，未來重算票券會不可靠。',{studentId:stu.id,paymentId:p.id});
+    }
+  });
+
+  tickets.forEach(t=>{
+    const stu=studentById.get(String(t.studentId));
+    if(!stu){
+      addIssue('danger','票券找不到學員','票券「'+(t.typeName||t.planName||t.id)+'」的 studentId 對不到任何學員。',{ticketId:t.id,studentId:t.studentId});
+      return;
+    }
+    const left=Number(t.left||0);
+    const total=Number(t.total||t.type||0);
+    const used=Number(t.used||0);
+    if(left<0) addIssue('danger','票券剩餘堂數為負數','「'+dataHealthStudentLabel(stu)+'」的「'+(t.typeName||t.planName||t.id)+'」剩餘 '+left+' 堂。',{studentId:stu.id,ticketId:t.id});
+    if(total && left>total) addIssue('warn','票券剩餘堂數超過總堂數','「'+dataHealthStudentLabel(stu)+'」的「'+(t.typeName||t.planName||t.id)+'」總堂數 '+total+'，但剩餘 '+left+'。',{studentId:stu.id,ticketId:t.id});
+    if(total && used && used+left!==total) addIssue('warn','票券 used + left 與 total 不一致','「'+dataHealthStudentLabel(stu)+'」的「'+(t.typeName||t.planName||t.id)+'」 total='+total+'、used='+used+'、left='+left+'。',{studentId:stu.id,ticketId:t.id});
+  });
+
+  slots.forEach(slot=>{
+    const bookings=Array.isArray(slot.bookings)?slot.bookings:[];
+    bookings.forEach(booking=>{
+      const stu=resolveBookingStudent(booking,students);
+      if(!stu){
+        addIssue('danger','行事曆預約找不到學員','「'+(slot.date||'')+' '+(slot.time||'')+' '+stripCourseIcon(slotDisplayName(slot))+'」有一筆預約對不到學員。',{slotId:slot.id});
+        return;
+      }
+      const scheduled=Array.isArray(stu.scheduledBookings)?stu.scheduledBookings:[];
+      if(!scheduled.some(item=>String(item.slotId)===String(slot.id))){
+        addIssue('warn','行事曆有預約，但學員資料沒有 scheduledBookings','「'+dataHealthStudentLabel(stu)+'」在 '+(slot.date||'')+' '+(slot.time||'')+' 有預約，但學員詳細頁可能看不到這筆未來預約。',{studentId:stu.id,slotId:slot.id});
+      }
+      const ticketHasLog=tickets.some(t=>String(t.studentId)===String(stu.id) && dataHealthTicketHasSlotLog(t,slot.id));
+      if(!ticketHasLog){
+        addIssue('warn','預約缺少票券扣堂紀錄','「'+dataHealthStudentLabel(stu)+'」的 '+(slot.date||'')+' '+(slot.time||'')+' 預約找不到包含 slotId 的票券 log，取消或刪課時可能補錯票券。',{studentId:stu.id,slotId:slot.id});
+      }
+      if(!isFutureSlot(slot) && !dataHealthFindCourseLog(logs,slot,stu)){
+        addIssue('warn','已發生預約沒有課程日誌','「'+dataHealthStudentLabel(stu)+'」的 '+(slot.date||'')+' '+(slot.time||'')+' 已發生，但找不到對應課程日誌。',{studentId:stu.id,slotId:slot.id});
+      }
+    });
+  });
+
+  students.forEach(stu=>{
+    const scheduled=Array.isArray(stu.scheduledBookings)?stu.scheduledBookings:[];
+    scheduled.forEach(item=>{
+      const slot=slotById.get(String(item.slotId));
+      if(!slot){
+        addIssue('warn','學員預約指向不存在的時段','「'+dataHealthStudentLabel(stu)+'」的 scheduledBookings 有一筆 slotId='+item.slotId+'，但行事曆找不到該時段。',{studentId:stu.id,slotId:item.slotId});
+        return;
+      }
+      const exists=(slot.bookings||[]).some(b=>{
+        const bStu=resolveBookingStudent(b,students);
+        return bStu && String(bStu.id)===String(stu.id);
+      });
+      if(!exists){
+        addIssue('warn','學員資料有預約，但行事曆沒有名單','「'+dataHealthStudentLabel(stu)+'」的 scheduledBookings 包含 '+(slot.date||'')+' '+(slot.time||'')+'，但該時段名單沒有此學員。',{studentId:stu.id,slotId:slot.id});
+      }
+    });
+  });
+
+  classes.forEach(cls=>{
+    (cls.members||[]).forEach(member=>{
+      const sid=String(member.studentId||'');
+      if(sid.startsWith('ext-')) return;
+      if(!studentById.has(sid)) addIssue('warn','出缺勤成員找不到學員','「'+(cls.date||'')+' '+(cls.name||cls.typeName||'課堂')+'」有一位成員 studentId='+sid+' 對不到學員。',{studentId:sid,classId:cls.id});
+    });
+  });
+
+  logs.forEach(log=>{
+    (log.studentIds||[]).forEach(sid=>{
+      if(!studentById.has(String(sid))) addIssue('warn','課程日誌學員 ID 找不到學員','「'+(log.date||'')+' '+(log.classTypeName||'課程日誌')+'」含有 studentId='+sid+'，但學員資料不存在。',{studentId:sid,logId:log.id});
+    });
+  });
+
+  return {
+    generatedAt:new Date(),
+    counts:{students:students.length,tickets:tickets.length,payments:payments.length,slots:slots.length,classes:classes.length,logs:logs.length},
+    danger:issues.filter(i=>i.severity==='danger').length,
+    warn:issues.filter(i=>i.severity==='warn').length,
+    issues
+  };
+}
+function renderDataHealthReport(report){
+  const result=document.getElementById('data-health-result');
+  const badge=document.getElementById('data-health-badge');
+  if(!result||!badge) return;
+  const issueCount=report.issues.length;
+  badge.className='badge '+(report.danger?'danger':(report.warn?'warn':'ok'));
+  badge.textContent=issueCount?('發現 '+issueCount+' 項'):'資料正常';
+  const summary=
+    '<div class="health-summary">'+
+      '<div class="health-metric"><div class="health-metric-num danger">'+report.danger+'</div><div class="health-metric-label">嚴重</div></div>'+
+      '<div class="health-metric"><div class="health-metric-num warn">'+report.warn+'</div><div class="health-metric-label">需檢查</div></div>'+
+      '<div class="health-metric"><div class="health-metric-num">'+report.counts.students+'</div><div class="health-metric-label">學員</div></div>'+
+    '</div>'+
+    '<div class="health-desc" style="margin-top:10px">檢查時間：'+report.generatedAt.toLocaleString('zh-TW')+'；資料量：票券 '+report.counts.tickets+'、收費 '+report.counts.payments+'、時段 '+report.counts.slots+'、出缺勤 '+report.counts.classes+'、日誌 '+report.counts.logs+'。</div>';
+  if(!issueCount){
+    result.innerHTML=summary+'<div class="health-empty">目前沒有發現收費、票券、預約、出缺勤之間的明顯不一致。</div>';
+    return;
+  }
+  const rows=report.issues.slice(0,80).map(issue=>{
+    const cls=issue.severity==='danger'?'danger':'warn';
+    const label=issue.severity==='danger'?'嚴重':'需檢查';
+    return '<div class="health-issue '+cls+'">'+
+      '<div class="health-issue-top"><div class="health-issue-title">'+dataHealthHtml(issue.title)+'</div><span class="badge '+cls+'">'+label+'</span></div>'+
+      '<div class="health-issue-body">'+dataHealthHtml(issue.body)+'</div>'+
+    '</div>';
+  }).join('');
+  const more=report.issues.length>80?'<div class="health-desc" style="margin-top:10px">只顯示前 80 項，請先處理嚴重項目後再重新檢查。</div>':'';
+  result.innerHTML=summary+rows+more;
+}
+function runDataHealthCheck(){
+  try{
+    const report=buildDataHealthReport();
+    window._lastDataHealthReport=report;
+    renderDataHealthReport(report);
+    if(report.issues.length) toast('資料健康檢查完成：發現 '+report.issues.length+' 項');
+    else toast('資料健康檢查完成：目前正常');
+  }catch(err){
+    console.error('[DataHealth]',err);
+    const badge=document.getElementById('data-health-badge');
+    const result=document.getElementById('data-health-result');
+    if(badge){ badge.className='badge danger'; badge.textContent='檢查失敗'; }
+    if(result) result.innerHTML='<div class="health-issue danger"><div class="health-issue-title">檢查失敗</div><div class="health-issue-body">'+dataHealthHtml(err?.message||err)+'</div></div>';
+  }
+}
+function clearDataHealthReport(){
+  window._lastDataHealthReport=null;
+  const badge=document.getElementById('data-health-badge');
+  const result=document.getElementById('data-health-result');
+  if(badge){ badge.className='badge info'; badge.textContent='未檢查'; }
+  if(result) result.innerHTML='';
 }
 
 </script>

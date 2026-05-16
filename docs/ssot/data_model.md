@@ -137,6 +137,32 @@ Refund or void should preserve historical records instead of deleting them:
 
 This workflow is not implemented yet. Do not reuse `delete payment` as the long-term refund workflow.
 
+#### Data health check
+
+管理員端設定頁提供 `資料一致性檢查`。這是 read-only 工具，用來找出收費、票券、預約、行事曆、出缺勤與課程日誌之間的不同步狀況。
+
+第一版檢查範圍：
+
+- 重複手機號碼。
+- 收費紀錄找不到學員。
+- 已收款但沒有對應票券。
+- 同一筆收費產生多張票券。
+- 已收款但堂數資訊不明。
+- 票券找不到學員。
+- 票券 `left`、`used`、`total` 數字不一致。
+- 行事曆有預約但學員 `scheduledBookings` 沒有同步。
+- 學員 `scheduledBookings` 指向不存在的時段，或行事曆名單沒有該學員。
+- 預約缺少含 `slotIds` 的票券扣堂紀錄。
+- 已發生預約沒有對應課程日誌。
+- 出缺勤或課程日誌成員找不到學員。
+
+Rules:
+
+- This tool must not write Firestore data.
+- This tool may read existing admin-side local cache loaded from `/data/*`; it must not add student-side reads.
+- Repair tools must remain separate from health check results. The admin should review severe issues before any automatic repair is introduced.
+- Future repair actions must write their own worklog and clearly state which source of truth is used to rebuild derived data.
+
 ### `purchase_requests/{requestId}`
 
 Public create-only buffer for student purchase submissions.
