@@ -19,6 +19,7 @@ This folder is the single source of truth for product, data, deployment, and ope
 - `security_and_tenancy_plan.md`: Firestore rules, student privacy, public mirror, and future multi-teacher tenant isolation plan.
 - `multi_tenant_saas_plan.md`: future multi-teacher SaaS architecture, tenant isolation, routing, auth, migration, and action items.
 - `cost_model.md`: future cost items, free-tier guardrails, backend/LINE cost risks, and commercialization budget checks.
+- `brand_naming_guidelines.md`: brand naming rules, availability checks, story requirements, and cat mascot integration.
 - `release_process.md`: how to package, upload, deploy, and verify.
 - `decision_log.md`: important architecture decisions and why they were made.
 - `../skill/README.md`: Codex/new-chat operating rules, low-cost guardrails, and deployment verification checklist.
