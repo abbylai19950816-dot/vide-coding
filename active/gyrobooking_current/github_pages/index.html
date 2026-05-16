@@ -1829,7 +1829,7 @@ async function verifyAndLoadSchedule(){
     if(!lookup){
       window._lowCostLookup=null;
       verifiedName=null; verifiedStudentId=null; verifiedTypeId=null;
-      lowCostShowMsg('找不到此姓名與手機的可用方案，請確認資料或聯絡老師');
+      lowCostShowMsg('查不到此姓名與手機的學員資料，請確認輸入內容或聯絡老師');
       return;
     }
     reconcileLocalPendingBookings(lookup);

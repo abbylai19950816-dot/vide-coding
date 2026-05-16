@@ -2415,6 +2415,9 @@ function deleteStudentCascade(studentId, options={}){
   persistBookingCascadeState(state, dirty, 'student-delete');
   if(dirty.payments) savePayments(nextPayments);
   if(typeof window.lowCostSyncPublicMirror==='function') {
+    if(typeof window.lowCostDeleteStudentLookup==='function') {
+      window.lowCostDeleteStudentLookup(student,'student-delete').catch(err=>console.warn('student delete lookup cleanup failed',err));
+    }
     window.lowCostSyncPublicMirror('student-delete',{force:true}).catch(err=>console.warn('student delete mirror sync failed',err));
   }
   return {ok:true,student,summary,dirty};
@@ -6261,8 +6264,54 @@ function cleanOrphanCourseLogMembers(){
     return out;
   };
 
+  window.lowCostDeleteStudentLookup = async function(student, reason='student-delete'){
+    if(!student || !window._fb || !window._fb.deleteDocPath) return {ok:false,reason:'missing-helper'};
+    const phoneDigits=normPhone(student.phone);
+    const nameKey=normName(student.name);
+    if(!phoneDigits || !nameKey) return {ok:false,reason:'missing-identity'};
+    const studentKey=await sha256(nameKey+'|'+phoneDigits);
+    await window._fb.deleteDocPath(['student_lookup',studentKey]);
+    localStorage.removeItem('low_cost_lookup_hash_'+studentKey);
+
+    const samePhoneStillExists=loadStudents().some(s=>normPhone(s.phone)===phoneDigits);
+    let phoneDeleted=false;
+    if(!samePhoneStillExists){
+      const phoneKey=await sha256(phoneDigits);
+      await window._fb.deleteDocPath(['phone_lookup',phoneKey]);
+      localStorage.removeItem('low_cost_phone_lookup_hash_'+phoneKey);
+      phoneDeleted=true;
+    }
+    return {ok:true,studentKey,phoneDeleted,reason};
+  };
+
+  window.lowCostPruneStaleLookupDocs = async function(studentPayloads, phonePayloads){
+    if(!window._fb || !window._fb.listCollection || !window._fb.deleteDocPath) return {studentDeleted:0,phoneDeleted:0};
+    const keepStudents=new Set((studentPayloads||[]).map(p=>String(p.key)));
+    const keepPhones=new Set((phonePayloads||[]).map(p=>String(p.key)));
+    let studentDeleted=0;
+    let phoneDeleted=0;
+    const studentDocs=await window._fb.listCollection(['student_lookup']);
+    for(const item of studentDocs){
+      if(!keepStudents.has(String(item.id))){
+        await window._fb.deleteDocPath(['student_lookup',item.id]);
+        localStorage.removeItem('low_cost_lookup_hash_'+item.id);
+        studentDeleted++;
+      }
+    }
+    const phoneDocs=await window._fb.listCollection(['phone_lookup']);
+    for(const item of phoneDocs){
+      if(!keepPhones.has(String(item.id))){
+        await window._fb.deleteDocPath(['phone_lookup',item.id]);
+        localStorage.removeItem('low_cost_phone_lookup_hash_'+item.id);
+        phoneDeleted++;
+      }
+    }
+    return {studentDeleted,phoneDeleted};
+  };
+
   window.lowCostSyncPublicMirror = async function(reason='manual', options={}){
     const force=!!options.force;
+    const pruneStale=!!options.pruneStale;
     if(!window._fb || !window._fb.setDocPath) {
       toast && toast('Firebase 尚未完成初始化');
       if(typeof setPublicSyncStatus==='function') setPublicSyncStatus('公開課表：同步失敗','error');
@@ -6306,9 +6355,13 @@ function cleanOrphanCourseLogMembers(){
       localStorage.setItem(k,h);
       writes++;
     }
+    let pruned={studentDeleted:0,phoneDeleted:0};
+    if(pruneStale && force && typeof window.lowCostPruneStaleLookupDocs==='function'){
+      pruned=await window.lowCostPruneStaleLookupDocs(payloads,phonePayloads);
+    }
     if(typeof setPublicSyncStatus==='function') setPublicSyncStatus('公開課表：已同步 '+new Date().toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'}),'ok');
-    if(typeof toast==='function') toast((force?'已強制重建學員查詢索引：':'低成本公開索引已同步：')+writes+' 筆更新');
-    return {ok:true,writes,force};
+    if(typeof toast==='function') toast((force?'已強制重建學員查詢索引：':'低成本公開索引已同步：')+writes+' 筆更新'+(pruned.studentDeleted||pruned.phoneDeleted?'，清除舊索引 '+(pruned.studentDeleted+pruned.phoneDeleted)+' 筆':''));
+    return {ok:true,writes,force,pruned};
   };
 
   window.forceRebuildStudentLookupIndex = async function(source='manual'){
@@ -6319,8 +6372,9 @@ function cleanOrphanCourseLogMembers(){
     );
     if(!ok) return;
     try{
-      const result=await window.lowCostSyncPublicMirror('force-rebuild-student-lookup-'+source,{force:true});
-      alert('學員查詢索引已重建完成。\n更新筆數：'+(result?.writes??0)+'\n\n請回學員頁重新查詢。');
+      const result=await window.lowCostSyncPublicMirror('force-rebuild-student-lookup-'+source,{force:true,pruneStale:true});
+      const pruned=(result?.pruned?.studentDeleted||0)+(result?.pruned?.phoneDeleted||0);
+      alert('學員查詢索引已重建完成。\n更新筆數：'+(result?.writes??0)+'\n清除舊索引：'+pruned+'\n\n請回學員頁重新查詢。');
       if(source==='data-health' && typeof runDataHealthCheck==='function') setTimeout(()=>runDataHealthCheck(),300);
     }catch(err){
       console.error('[forceRebuildStudentLookupIndex]',err);
