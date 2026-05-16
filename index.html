@@ -1661,6 +1661,13 @@ function lowCostHasFutureOpenSlot(typeId){
   });
 }
 
+function lowCostLookupRemainingTotal(lookup){
+  const byType=lookup?.remainingByType||{};
+  const typedTotal=Object.values(byType).reduce((sum,v)=>sum+Math.max(0,Number(v||0)),0);
+  const unresolvedTotal=(lookup?.unresolvedTickets||[]).reduce((sum,t)=>sum+Math.max(0,Number(t?.left||0)),0);
+  return Math.max(Number(lookup?.totalRemaining||0), typedTotal, unresolvedTotal);
+}
+
 function lowCostSetBookingType(typeId){
   const key=String(typeId||'default');
   window._lowCostRemainingKey=key;
@@ -1720,8 +1727,10 @@ async function verifyAndLoadSchedule(){
     const slots=JSON.parse(localStorage.getItem('pilates_slots')||'[]');
     const slotTypeSet=new Set(slots.map(s=>String(s.typeId||'default')));
     const typeIds=Object.keys(lookup.remainingByType||{}).filter(k=>Number(lookup.remainingByType[k]||0)>0);
+    const totalRemaining=lowCostLookupRemainingTotal(lookup);
 
     let usableTypeIds=typeIds.filter(k=>slotTypeSet.has(String(k)));
+    const matchedScheduleTypeIds=[...usableTypeIds];
     const futureUsableTypeIds=usableTypeIds.filter(k=>lowCostHasFutureOpenSlot(k));
     if(futureUsableTypeIds.length) usableTypeIds=futureUsableTypeIds;
 
@@ -1732,7 +1741,13 @@ async function verifyAndLoadSchedule(){
       verifiedName=lookup.name||name;
       verifiedStudentId=lookup.studentId||lookup.key;
       verifiedTypeId=null;
-      lowCostShowMsg('目前沒有可預約的對應課程時段，請聯絡老師確認票券類型與課表類型是否一致');
+      if(totalRemaining>0 && matchedScheduleTypeIds.length===0){
+        lowCostShowMsg('你已有可用方案，但目前老師尚未新增對應課程時段。請稍後再查，或聯絡老師確認開課時間。');
+      }else if(totalRemaining>0){
+        lowCostShowMsg('你已有可用方案，但目前對應課程沒有未來可預約名額。請稍後再查，或聯絡老師確認是否會加開時段。');
+      }else{
+        lowCostShowMsg('目前沒有可預約的剩餘方案，請確認資料或聯絡老師。');
+      }
       return;
     }
 

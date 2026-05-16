@@ -29,6 +29,7 @@ Gyrobooking is a low-cost Pilates booking system for:
 - Course plans may be marked `oncePerStudent` for trial classes; once used, the same student cannot purchase that plan again from the student page.
 - Course plans may set `allowRecurring: false`; student-side loop booking should be hidden and blocked for those active plans.
 - 學員若同時擁有多個有效課程類型，例如一對一與一對二，預約頁查詢方案後必須讓學員切換課程類型；不得只自動顯示其中一種，避免誤以為其他方案消失。
+- 學員端查詢方案時必須區分三種狀態：查無姓名＋手機、已有方案但老師尚未新增對應課程時段、已有方案但對應課程目前沒有未來可預約名額。不得把後兩者寫成「找不到可用方案」。
 - 日期與時間判斷以使用者裝置當地時間為準；不要在前端硬加固定 UTC+8。
 
 ## Future Identity Direction
