@@ -334,12 +334,16 @@ body{font-family:'Chiron GoRound TC',sans-serif;background:var(--sand);color:var
 .student-stat-num{font-size:20px;font-weight:700;color:var(--sage)}
 .student-stat-num.warn{color:var(--absent)}
 .student-stat-label{font-size:11px;color:var(--ink-mid)}
-.ticket-adjust{margin-top:8px}
-.ticket-adjust summary{display:inline-flex;align-items:center;border:none;border-radius:99px;background:var(--sand-dark);color:var(--ink-mid);padding:4px 11px;font-size:11px;font-weight:500;cursor:pointer;list-style:none}
+.ticket-adjust{margin-top:8px;max-width:100%}
+.ticket-adjust[open]{display:flex;align-items:center;gap:5px;overflow-x:auto;padding-bottom:1px}
+.ticket-adjust summary{display:inline-flex;align-items:center;white-space:nowrap;border:none;border-radius:99px;background:var(--sand-dark);color:var(--ink-mid);padding:4px 11px;font-size:11px;font-weight:500;cursor:pointer;list-style:none;flex-shrink:0}
 .ticket-adjust summary::-webkit-details-marker{display:none}
 .ticket-adjust[open] summary{background:var(--sage-light);color:var(--sage)}
-.ticket-adjust-actions{display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-start;margin-top:8px}
-.ticket-adjust-actions button{font-size:11px;border:none;border-radius:99px;padding:4px 10px;cursor:pointer;font-family:inherit}
+.ticket-adjust summary .close-label{display:none}
+.ticket-adjust[open] summary .open-label{display:none}
+.ticket-adjust[open] summary .close-label{display:inline}
+.ticket-adjust-actions{display:flex;gap:5px;flex-wrap:nowrap;justify-content:flex-start;min-width:max-content}
+.ticket-adjust-actions button{font-size:11px;border:none;border-radius:99px;padding:4px 9px;cursor:pointer;font-family:inherit;white-space:nowrap;flex-shrink:0}
 .ticket-adjust-actions .deduct{background:var(--warn-bg);color:var(--warn)}
 .ticket-adjust-actions .add{background:var(--sage-light);color:var(--sage)}
 .ticket-adjust-actions .edit{background:var(--sand-dark);color:var(--ink-mid)}
@@ -1738,7 +1742,7 @@ function openStudentDetail(id){
     const pct=t.total>0?Math.round((t.total-t.left)/t.total*100):0;
     const ctrlBtns=!exp
       ? '<details class="ticket-adjust" onclick="event.stopPropagation()">'
-        +'<summary>調整</summary>'
+        +'<summary><span class="open-label">調整</span><span class="close-label">返回</span></summary>'
         +'<div class="ticket-adjust-actions">'
           +'<button class="deduct" onclick="event.stopPropagation();adjustTicket('+t.id+',-1)">扣堂</button>'
           +'<button class="add" onclick="event.stopPropagation();adjustTicket('+t.id+',1)">加堂</button>'
@@ -2206,6 +2210,20 @@ function adjustTicket(ticketId, delta){
   const tickets=loadTickets();
   const tIdx=tickets.findIndex(t=>t.id===ticketId);
   if(tIdx<0) return;
+  const t=tickets[tIdx];
+  const before=Number(t.left||0);
+  const after=Math.max(0, before + delta);
+  const actionText=delta>0?'加 1 堂':'扣 1 堂';
+  const studentName=t.studentName||'此學員';
+  const ticketName=t.typeName||t.planName||'此方案';
+  const ok=confirm(
+    '確定要手動'+actionText+'嗎？\n\n'+
+    '學員：'+studentName+'\n'+
+    '方案：'+ticketName+'\n'+
+    '堂數：'+before+' → '+after+'\n\n'+
+    '這會直接更新學員可預約的剩餘堂數，並同步到學員查詢結果。'
+  );
+  if(!ok) return;
   const newLeft=Math.max(0, tickets[tIdx].left + delta);
   tickets[tIdx].left=newLeft;
   tickets[tIdx].log=tickets[tIdx].log||[];
@@ -2223,6 +2241,14 @@ function editTicketTotal(ticketId){
   if(newLeft===null) return;
   const n=parseInt(newLeft);
   if(isNaN(n)||n<0){toast('請輸入有效的堂數');return;}
+  const ok=confirm(
+    '確定要修改剩餘堂數嗎？\n\n'+
+    '學員：'+(t.studentName||'此學員')+'\n'+
+    '方案：'+(t.typeName||t.planName||'此方案')+'\n'+
+    '堂數：'+t.left+' → '+n+'\n\n'+
+    '這會直接影響學員可預約的堂數。'
+  );
+  if(!ok) return;
   const tIdx=tickets.findIndex(t=>t.id===ticketId);
   tickets[tIdx].left=n;
   tickets[tIdx].log=tickets[tIdx].log||[];
@@ -2233,7 +2259,15 @@ function editTicketTotal(ticketId){
   toast('✓ 已更新為 '+n+' 堂');
 }
 function deleteTicketFromDetail(ticketId, studentId){
-  if(!confirm('確定要刪除此方案紀錄嗎？')) return;
+  const ticket=loadTickets().find(t=>String(t.id)===String(ticketId));
+  const ok=confirm(
+    '確定要刪除此方案紀錄嗎？\n\n'+
+    '方案：'+((ticket&&ticket.typeName)||(ticket&&ticket.planName)||'此方案')+'\n'+
+    '剩餘堂數：'+(ticket?Number(ticket.left||0):'未知')+'\n\n'+
+    '這會移除這張票券，學員端將看不到這個可用方案。\n'+
+    '注意：若這張票券已產生預約或課程紀錄，請優先使用收費紀錄刪除或資料修復流程處理。'
+  );
+  if(!ok) return;
   saveTickets(loadTickets().filter(t=>t.id!==ticketId));
   openStudentDetail(studentId);
   updateBadges();
@@ -2406,15 +2440,29 @@ function quickDeduct(ticketId){
 }
 function stuDeduct(studentId){ quickDeduct(loadTickets().filter(function(t){return t.studentId===studentId&&!isTicketExpired(t)&&t.left>0;}).sort((a,b)=>b.left-a.left)[0]?.id); }
 function deleteStudent(id){
-  if(!confirm('確定要刪除這位學員及所有相關資料嗎？此動作無法復原。')) return;
   const stu=loadStudents().find(s=>s.id===id);
   if(!stu){closeSheets();return;}
+  const slotCount=loadSlots().reduce((sum,slot)=>sum+(slot.bookings||[]).filter(b=>b.name===stu.name||String(b.studentId||'')===String(id)).length,0);
+  const classCount=loadClasses().reduce((sum,cls)=>sum+(cls.members||[]).filter(m=>String(m.studentId)===String(id)).length,0);
+  const ticketCount=loadTickets().filter(t=>String(t.studentId)===String(id)).length;
+  const paymentCount=loadPayments().filter(p=>String(p.studentId)===String(id)).length;
+  const ok=confirm(
+    '確定要刪除這位學員嗎？此動作無法復原。\n\n'+
+    '學員：'+stu.name+'\n'+
+    '將移除：\n'+
+    '・行事曆預約 '+slotCount+' 筆\n'+
+    '・出缺勤成員 '+classCount+' 筆\n'+
+    '・方案票券 '+ticketCount+' 筆\n'+
+    '・收費紀錄 '+paymentCount+' 筆\n\n'+
+    '正式營運時，建議優先停用或封存學員，而不是直接刪除。'
+  );
+  if(!ok) return;
   // 1. Remove from slot bookings and free up slots
   const slots=loadSlots();
   let slotsChanged=false;
   slots.forEach(s=>{
     const before=(s.bookings||[]).length;
-    s.bookings=(s.bookings||[]).filter(b=>b.name!==stu.name);
+    s.bookings=(s.bookings||[]).filter(b=>b.name!==stu.name&&String(b.studentId||'')!==String(id));
     if(s.bookings.length!==before) slotsChanged=true;
   });
   if(slotsChanged) saveSlots(slots);
